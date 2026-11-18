@@ -143,6 +143,16 @@ class _Timed:
         return getattr(self._inner, name)
 
 
+def _planner_ref() -> str | None:
+    """`computer.planner_model` from config.yaml (plans + reads), or None."""
+    try:
+        from jarviscopilot_cli.config import load_config
+        ref = str(((load_config() or {}).get("computer") or {}).get("planner_model") or "").strip()
+        return ref or None
+    except Exception:
+        return None
+
+
 def _with_values(step: dict, values: dict) -> dict:
     """A step whose text uses ``{name}`` gets the value a read step found."""
     text = step.get("text")
@@ -160,6 +170,9 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
     mac = mac or _mac_mod
     started = time.monotonic()
     out = Result("done", device_name=device_name)
+    # Planning and reading are text work: a fast model there saves ~20 s a task (Terra 9 s/call,
+    # Celeris-1 0.3 s, live 2026-11-18); `computer.planner_model` in config.yaml, else as before.
+    planner = _planner_ref() or cfg.fallback_ref
     out.timing = {"plan_ms": 0, "decide_ms": 0, "hands_ms": 0, "total_ms": 0}
     mac = _Timed(mac, out.timing)  # every look and move on the computer counts as hands
 
@@ -188,7 +201,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             on_pc = False
         # Live: on the PC the plan opened "System Settings" and "Finder" — it must know the computer.
         extra = {"computer": "Windows PC"} if on_pc else {}
-        planned = plan(cfg.fallback_ref, goal, None, instructions=cfg.instructions, **extra)
+        planned = plan(planner, goal, None, instructions=cfg.instructions, **extra)
         out.timing["plan_ms"] = int((time.monotonic() - t_plan) * 1000)
         steps, out.say = planned["steps"], planned.get("say") or ""
         if not steps and planned.get("error"):
@@ -250,7 +263,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             if should_stop and should_stop():
                 out.status, out.reason = "error", "stopped"
                 break
-            value = read(cfg.fallback_ref, look, goal, step)
+            value = read(planner, look, goal, step)
             if not value and not step.get("_retry"):
                 # Not on this screen: a few moves to where it is shown, then read again.
                 steps.insert(at + 1, {"do": f"get to the screen that shows this: {step.get('do')}", "_max": 4})

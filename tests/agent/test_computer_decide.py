@@ -180,3 +180,36 @@ def test_plan_names_the_computer_it_drives():
 
     plan_steps("@f:m", "Open Settings and go to Display", call=call, computer="Windows PC")
     assert "Windows PC" in prompts[0] and "their Mac" not in prompts[0]
+
+
+# ── live 2026-11-18: "put the info into a Notepad" typed one PC; a fast planner swapped steps ──
+
+def test_a_list_read_returns_several_items_on_lines():
+    from agent.computer.decide import read_value
+    asked = {}
+
+    def call(**kw):
+        asked.update(kw)
+        class R:  # noqa: D401
+            choices = [type("C", (), {"message": type("M", (), {"content": "CyberPowerPC $1,989.99\nABS $1,999.99"})()})()]
+        return R()
+
+    v = read_value("@f:m", {"app": "Chrome", "text": "results"}, "find PCs",
+                   {"do": "read the recommended PCs, their prices and key details", "read": "pc_info"}, call=call)
+    assert v == "CyberPowerPC $1,989.99\nABS $1,999.99"
+    assert asked["max_tokens"] >= 400 and "one per line" in str(asked["messages"])
+
+
+def test_repair_plan_reads_before_switching_apps_and_types_the_value():
+    from agent.computer.decide import repair_plan
+    steps = [{"do": "search", "app": "Chrome", "url": "https://www.google.com/search?q=pcs"},
+             {"do": "open Notepad", "app": "Notepad"},
+             {"do": "read the search results", "read": "search_results"},
+             {"do": "type the info", "text": "search_results"}]
+    assert repair_plan(steps) == [
+        {"do": "search", "app": "Chrome", "url": "https://www.google.com/search?q=pcs"},
+        {"do": "read the search results", "read": "search_results"},
+        {"do": "open Notepad", "app": "Notepad"},
+        {"do": "type the info", "text": "{search_results}"}]
+    good = [{"do": "open Calendar", "app": "Calendar"}, {"do": "read tomorrow", "read": "events"}]
+    assert repair_plan(good) == good

@@ -239,7 +239,28 @@ def plan_steps(ref, goal, look=None, *, instructions="", call=None, computer="Ma
             steps.append(step)
     if not steps:
         return {"steps": [{"do": goal}], "say": ""}
-    return {"steps": steps[:8], "say": str(raw.get("say") or "").strip()[:200]}
+    return {"steps": repair_plan(steps[:8]), "say": str(raw.get("say") or "").strip()[:200]}
+
+
+# Where text gets written: a read placed right after opening one of these reads the empty editor.
+_EDITORS = frozenset({"notepad", "textedit", "notes", "word", "microsoft word", "pages", "wordpad"})
+
+
+def repair_plan(steps: list) -> list:
+    """Fix two slips a fast planner makes (live, Celeris-1): a read placed after opening the editor
+    the value is for (it would read the empty editor), and typing a read's bare name, not its value."""
+    steps = [dict(s) for s in steps]
+    names = {s["read"] for s in steps if s.get("read")}
+    for i in range(1, len(steps)):
+        s, prev = steps[i], steps[i - 1]
+        later_text = " ".join(str(t.get("text") or "") for t in steps[i + 1:])
+        if (s.get("read") and str(prev.get("app") or "").strip().lower() in _EDITORS and s["read"] in later_text
+                and any(p.get("app") or p.get("url") for p in steps[:i - 1])):
+            steps[i - 1], steps[i] = s, prev
+    for s in steps:
+        if str(s.get("text") or "").strip() in names:
+            s["text"] = "{" + str(s["text"]).strip() + "}"
+    return steps
 
 
 _CLOSING_PROMPT = """The user asked: {goal}
@@ -264,15 +285,36 @@ Window text:
 {text}"""
 
 
+# "read the recommended PCs, their prices and details" wants several items, not one value (live: the
+# notepad got one PC).
+_LIST_READ = re.compile(r"\b(?:recommendations?|list|details|options|results|info(?:rmation)?|summar(?:y|ise|ize)|"
+                        r"top\s+\d+|several|compare|comparison)\b", re.I)
+_LIST_READ_PROMPT = """Look at the screenshot of the user's computer ({app} — {window}) and the window's text below \
+(it includes text a banner or popup may cover).
+Task: {goal}
+{do}
+Reply with ONLY a short list, one per line (at most 8 lines): each item's name and the key details or price shown. \
+No intro and no other text. Reply NONE only if this is not the right screen.
+
+Window text:
+{text}"""
+
+
 def read_value(ref, look, goal, step, *, call=None) -> str:
-    """A value read off the screen for a later step ('' when it isn't visible)."""
+    """A value read off the screen for a later step ('' when it isn't visible); a short list, one item
+    per line, when the step asks for recommendations / details / results."""
+    many = bool(_LIST_READ.search(str(step.get("do") or "")))
+    prompt = (_LIST_READ_PROMPT if many else _READ_PROMPT).format(
+        app=look.get("app") or "?", window=look.get("window") or "", goal=goal, do=step.get("do") or "",
+        text=str(look.get("text") or "(none)")[:6000 if many else 4000])
     try:
-        out = _call(call, ref, _READ_PROMPT.format(app=look.get("app") or "?", window=look.get("window") or "",
-                                                   goal=goal, do=step.get("do") or "",
-                                                   text=str(look.get("text") or "(none)")[:4000]), look, 60)
+        out = _call(call, ref, prompt, look, 500 if many else 60)
     except Exception:
         logger.debug("computer: read failed", exc_info=True)
         return ""
+    if many:
+        value = "\n".join(" ".join(line.split()) for line in str(out or "").splitlines() if line.strip()).strip('"')
+        return "" if not value or value.upper().startswith("NONE") else value[:2000]
     value = " ".join(str(out or "").split()).strip().strip('"')
     return "" if not value or value.upper().startswith("NONE") else value[:200]
 

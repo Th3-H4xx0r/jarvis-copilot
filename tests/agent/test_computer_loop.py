@@ -749,3 +749,19 @@ def test_the_plan_is_told_which_computer():
 
     L.run("Open Settings", None, _cfg(), device="pc", decide=_never, fallback=_never, mac=PcMac(), plan=plan)
     assert seen.get("computer") == "Windows PC"
+
+
+def test_planner_model_setting_is_used_for_plan_and_reads(monkeypatch):
+    seen = []
+    monkeypatch.setattr(L, "_planner_ref", lambda: "@celeris:celeris-1")
+
+    def plan(ref, goal, look, **kw):
+        seen.append(("plan", ref))
+        return {"steps": [{"do": "read the value", "read": "v"}], "say": ""}
+
+    def read(ref, look, goal, step):
+        seen.append(("read", ref))
+        return "42"
+
+    L.run("g", None, _cfg(), device="m", decide=_never, fallback=_never, mac=FakeMac(), plan=plan, read=read)
+    assert seen == [("plan", "@celeris:celeris-1"), ("read", "@celeris:celeris-1")]
