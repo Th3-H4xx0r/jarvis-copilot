@@ -23,3 +23,4 @@ Still to try live: a real locked-screen unlock (normal lock and after Remote Des
 
 IT-agent (his ask 2026-11-18): "it needs to do deep research … very structured … like a human IT support agent (e.g. install Docker Desktop completely)". Brainstorming in progress. His pick: PC access = Terminal + Face ID admin (PowerShell/winget; admin steps ask Face ID on the phone, run elevated via the PC helper; no UAC clicking). Next: approach pick (A skill+tools on the long-running node / B coded supervisor / C hybrid — recommended C), then spec → plan.
 Speed fix shipped 2026-11-18: his 'Chrome Google search → Notepad' task 2m+ → 19 s (PC click crash fixed, URL in named browser, computer.planner_model=@celeris:celeris-1 on the server, list reads, plan repair).
+IT-agent: restarts = ask (Face ID) then wait for him to sign in; builder-check calls written into the spec. Next: his approval of docs/superpowers/specs/2026-11-18-it-agent-design.md → writing-plans → build.
