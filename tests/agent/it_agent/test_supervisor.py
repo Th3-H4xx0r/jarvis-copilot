@@ -231,3 +231,13 @@ def test_stop_during_a_check_ends_stopped_not_failed():
     s = Script(check_results={"docker --version": ShellResult("ran", 1, "nope")}, stop_after=3)
     run = run_task(_run(), s.deps(), L())
     assert run.status == "stopped" and run.rethinks == 0 and "Stopped at phase 1" in run.report
+
+
+def test_plan_rules_carry_the_windows_virtualization_quirk():
+    # Live 2026-11-18: a check failed on VirtualizationFirmwareEnabled = False while Hyper-V ran — Windows
+    # reports False there whenever a hypervisor is up.
+    from agent.it_agent.model import Brief
+    from agent.it_agent.prompts import plan_prompt
+    text = plan_prompt("install Docker Desktop", Brief("s", [], "winget", ["docker --version"], []), {}, False)
+    assert "HypervisorPresent" in text and "VirtualizationFirmwareEnabled" in text
+    assert "say why" in text
