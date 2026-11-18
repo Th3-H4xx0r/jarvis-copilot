@@ -91,3 +91,18 @@ def test_update_survives_install_failure(monkeypatch, capsys):
     monkeypatch.setattr(adi, "ensure_agent_desktop", boom)
     cli._ensure_agent_desktop_quiet()  # must not raise
     assert "agent-desktop" in capsys.readouterr().err
+
+
+def test_install_dir_inherits_its_parents_permissions(tmp_path, monkeypatch):
+    # tempfile.mkdtemp gives an owner-only ACL on Windows: installed from an elevated shell, the
+    # owner is Administrators and the (non-elevated) service can't even see the binary.
+    data = _archive({"agent-desktop": b"#!bin"})
+    _pin(monkeypatch, data)
+
+    def no_mkdtemp(*a, **k):
+        raise AssertionError("mkdtemp makes an owner-only dir")
+
+    monkeypatch.setattr("tempfile.mkdtemp", no_mkdtemp)
+    path = adi.ensure_agent_desktop(str(tmp_path), opener=lambda u: data, plat="darwin", machine="arm64")
+    assert path and os.path.isfile(path)
+    assert not [n for n in os.listdir(tmp_path / "bin") if n.startswith(".agent-desktop")]  # no temp left

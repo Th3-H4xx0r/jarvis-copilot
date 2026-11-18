@@ -14,7 +14,7 @@ import platform
 import shutil
 import sys
 import tarfile
-import tempfile
+import time
 from typing import Callable, Optional
 
 PINNED_VERSION = "1.3.1"
@@ -74,7 +74,13 @@ def ensure_agent_desktop(state_dir: str, *, opener: Optional[Callable[[str], byt
         raise ValueError("agent-desktop checksum mismatch")
     dest = _dir(state_dir)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
-    tmp = tempfile.mkdtemp(prefix=".agent-desktop-", dir=os.path.dirname(dest))
+    # A plain directory that inherits bin/'s permissions — never tempfile.mkdtemp: on Windows that
+    # is owner-only, and installed from an elevated shell the owner is Administrators, so the
+    # (non-elevated) jc-client service couldn't even see the binary (found live on the PC).
+    tmp = os.path.join(os.path.dirname(dest), f".agent-desktop-{os.getpid()}-{int(time.time() * 1000)}")
+    if os.path.isdir(tmp):
+        shutil.rmtree(tmp, ignore_errors=True)
+    os.makedirs(tmp)
     try:
         with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tf:
             for member in tf.getmembers():
