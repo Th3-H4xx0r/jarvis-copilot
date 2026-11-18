@@ -25,3 +25,4 @@ IT-agent (his ask 2026-11-18): "it needs to do deep research … very structured
 Speed fix shipped 2026-11-18: his 'Chrome Google search → Notepad' task 2m+ → 19 s (PC click crash fixed, URL in named browser, computer.planner_model=@celeris:celeris-1 on the server, list reads, plan repair).
 IT-agent: restarts = ask (Face ID) then wait for him to sign in; builder-check calls written into the spec. Next: his approval of docs/superpowers/specs/2026-11-18-it-agent-design.md → writing-plans → build.
 IT-agent DESIGN APPROVED 2026-11-18 ("Approve, build it": plan → build → bug sweep → deploy server/PC/iPhone → live 'install Docker Desktop' on the PC). Next: superpowers:writing-plans → docs/superpowers/plans/2026-11-18-it-agent.md, then executing-plans.
+IT-agent PLAN WRITTEN 2026-11-18: docs/superpowers/plans/2026-11-18-it-agent.md (14 tasks; executor ruling appended). Executing natively (executing-plans, ledger under .superpowers/sdd/2026-11-18-it-agent/).
