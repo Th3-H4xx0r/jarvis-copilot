@@ -186,7 +186,7 @@ public sealed class AppHost : IAsyncDisposable
             {
                 IslandWindow.Hide();
                 _statsWindow?.Close();
-                ScreenShare?.StopAll("Remote Desktop is in use");
+                ScreenShare?.StopAll(ShareReadiness.RemoteDesktop);
             }
             else
             {
@@ -362,15 +362,14 @@ public sealed class AppHost : IAsyncDisposable
             id => shares?.Current?.ShowDisplay(Monitors.All().FirstOrDefault(m => PcControls.DisplayNumber(m.Name) == id)) ?? "Nothing is being shared.",
             () => shares?.Current?.Display is { } d ? PcControls.DisplayNumber(d.Name) : 0);
         ScreenShareService? screen = null;
-        shares = new ScreenShareFactory(Api, new SendInputSink(), pcControls, screenLog, id => screen?.SessionEnded(id));
-        screen = new ScreenShareService(Api, () => State.DeviceId, () => State.GameMode, shares);
+        shares = new ScreenShareFactory(Api, new SendInputSink(), pcControls, screenLog, id => screen?.SessionEnded(id),
+            (id, why) => { if (screen != null) _ = screen.SessionFailedAsync(id, why); });
+        // No share starts while his session is off the console (after Remote Desktop) or shown over RDP:
+        // the phone hears why at once.
+        screen = new ScreenShareService(Api, () => State.DeviceId, () => State.GameMode, shares,
+            () => ShareReadiness.Refusal(ConsoleState.OnConsole, ConsoleState.ShownOverRemoteDesktop));
         ScreenShare = screen;
-        ShareBanner = new ShareBanner(() =>
-        {
-            if (shares.Current is { } live)
-                _ = Api.PostAsync(ShareSelection.StopPath(live.Id), new System.Text.Json.Nodes.JsonObject { ["error"] = "Stopped on the PC." }, TimeSpan.FromSeconds(10));
-            ScreenShare.StopAll("Stopped on the PC.");
-        });
+        ShareBanner = new ShareBanner(() => ScreenShare.StopAll("Stopped on the PC."));   // StopAll tells the server too
         void UpdateBanner() => Dispatcher.BeginInvoke(() => ShareBanner.Update(ScreenShare.Capturing && Gate.CanPresent, ScreenShare.Viewers));
         _updateShareBanner = UpdateBanner;
         shares.CurrentChanged += () =>

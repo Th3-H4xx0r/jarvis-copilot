@@ -43,13 +43,22 @@ public class ShareGuardTests
     private readonly FakeFactory _factory = new();
     private GameMode _mode = GameMode.Off;
     private string _shares = "{\"shares\":[{\"id\":\"s1\",\"device_id\":\"pc1\",\"reason\":\"anytime\"}]}";
+    private string? _notReady;
     private readonly FakeHttp _http;
+    private readonly ManualTime _time = new();
     private readonly ScreenShareService _svc;
 
     public ShareGuardTests()
     {
         _http = new FakeHttp(r => r.Path.StartsWith("/api/screen/shares?") ? FakeHttp.Json(_shares) : FakeHttp.Json("{\"ok\":true}"));
-        _svc = new ScreenShareService(new ApiClient(() => "http://o", _http), () => "pc1", () => _mode, _factory);
+        _svc = new ScreenShareService(new ApiClient(() => "http://o", _http), () => "pc1", () => _mode, _factory, () => _notReady, _time);
+    }
+
+    /// Lets time pass and waits for the grace re-check it fires.
+    private async Task Pass(double seconds)
+    {
+        _time.Advance(TimeSpan.FromSeconds(seconds));
+        await _svc.GraceCheck;
     }
 
     [Fact]
@@ -74,10 +83,13 @@ public class ShareGuardTests
     }
 
     [Fact]
-    public async Task Share_RefusedToStartInGameMode_PostsStopWithReason()
+    public async Task Share_RefusedToStartInGameMode_AfterTheGrace_PostsStopWithReason()
     {
         _mode = new GameMode(true, "fullscreen", false);
         await _svc.PollAsync();
+        Assert.Empty(_factory.Started);
+        Assert.Empty(_http.To("/api/screen/shares/s1/stop"));   // a flicker gets its grace first
+        await Pass(ShareGameGrace.Window.TotalSeconds);
         Assert.Empty(_factory.Started);
         var stop = Assert.Single(_http.To("/api/screen/shares/s1/stop"));
         Assert.Equal("{\"error\":\"" + Refusal + "\"}", J.SortedJson(J.Parse(stop.Body!)));
@@ -86,7 +98,20 @@ public class ShareGuardTests
     }
 
     [Fact]
-    public async Task Share_GameModeOnMidShare_StopsAndRefusesInput()
+    public async Task Share_RequestedDuringAGameFlicker_StartsOnceItClears()
+    {
+        _mode = new GameMode(true, "fullscreen textinputhost.exe", false);
+        await _svc.PollAsync();
+        Assert.Empty(_factory.Started);
+        _mode = GameMode.Off;
+        await _svc.GameModeChangedAsync(_mode);
+        await _svc.GraceCheck;
+        Assert.Equal(new[] { "s1" }, _factory.Started.Select(s => s.Id));
+        Assert.Empty(_http.To("/api/screen/shares/s1/stop"));
+    }
+
+    [Fact]
+    public async Task Share_GameModeOnMidShare_RefusesInputAtOnce_StopsAfterTheGrace()
     {
         await _svc.PollAsync();
         var gate = _factory.Gates["s1"];
@@ -95,11 +120,53 @@ public class ShareGuardTests
         Assert.Equal(1, sink.Calls);
         _mode = new GameMode(true, "fullscreen", false);
         await _svc.GameModeChangedAsync(_mode);
+        Assert.False(gate.TrySend(sink, new[] { new InputEvent() }));   // no input reaches a game, even in the grace
+        Assert.Equal(1, sink.Calls);
+        Assert.False(_factory.Started[0].Stopped);
+        await Pass(4);
+        Assert.False(_factory.Started[0].Stopped);
+        await Pass(1);
         Assert.True(_factory.Started[0].Stopped);
         Assert.Equal(Refusal, _factory.Started[0].StoppedWhy);
         Assert.Single(_http.To("/api/screen/shares/s1/stop"));
-        Assert.False(gate.TrySend(sink, new[] { new InputEvent() }));
-        Assert.Equal(1, sink.Calls);
+    }
+
+    [Fact]
+    public async Task Share_GameFlickerShorterThanTheGrace_KeepsTheShare()
+    {
+        await _svc.PollAsync();
+        _mode = new GameMode(true, "fullscreen textinputhost.exe", false);
+        await _svc.GameModeChangedAsync(_mode);
+        await Pass(2);
+        _mode = GameMode.Off;
+        await _svc.GameModeChangedAsync(_mode);
+        await Pass(10);
+        Assert.False(_factory.Started[0].Stopped);
+        Assert.Empty(_http.To("/api/screen/shares/s1/stop"));
+        Assert.True(_factory.Gates["s1"].TrySend(new RecordingSink(), new[] { new InputEvent() }));
+    }
+
+    [Fact]
+    public async Task Share_AntiCheatMidShare_StopsAtOnce()
+    {
+        await _svc.PollAsync();
+        _mode = new GameMode(false, "VALORANT-Win64-Shipping.exe", true);
+        await _svc.GameModeChangedAsync(_mode);
+        Assert.True(_factory.Started[0].Stopped);
+        Assert.Single(_http.To("/api/screen/shares/s1/stop"));
+    }
+
+    [Fact]
+    public async Task Share_SessionOffTheConsoleAfterRemoteDesktop_PostsTheReasonInsteadOfCapturing()
+    {
+        _notReady = ShareReadiness.SignInScreen;
+        await _svc.PollAsync();
+        Assert.Empty(_factory.Started);
+        var stop = Assert.Single(_http.To("/api/screen/shares/s1/stop"));
+        Assert.Contains("sign-in screen", stop.Body);
+        _notReady = null;
+        await _svc.PollAsync();
+        Assert.Empty(_factory.Started);   // that share is over; the phone asks again
     }
 
     [Fact]
@@ -121,11 +188,31 @@ public class ShareGuardTests
     }
 
     [Fact]
-    public async Task StopAll_StopsEverySession()
+    public async Task StopAll_StopsEverySession_AndTellsTheServerWhy()
     {
         await _svc.PollAsync();
-        _svc.StopAll("bye");
+        await _svc.StopAllAsync("Remote Desktop is in use");
         Assert.True(_factory.Started[0].Stopped);
+        Assert.Contains("Remote Desktop is in use", Assert.Single(_http.To("/api/screen/shares/s1/stop")).Body);
+    }
+
+    [Fact]
+    public async Task StopAll_WithoutAReason_IsLocalOnly()
+    {
+        await _svc.PollAsync();
+        await _svc.StopAllAsync(null);
+        Assert.True(_factory.Started[0].Stopped);
+        Assert.Empty(_http.To("/api/screen/shares/s1/stop"));
+    }
+
+    [Fact]
+    public async Task SessionFailedToStart_TellsTheServerAndIsNotRestarted()
+    {
+        await _svc.PollAsync();
+        await _svc.SessionFailedAsync("s1", ShareReadiness.SignInScreen);
+        Assert.Contains("sign-in screen", Assert.Single(_http.To("/api/screen/shares/s1/stop")).Body);
+        await _svc.PollAsync();
+        Assert.Single(_factory.Started);
     }
 
     [Fact]

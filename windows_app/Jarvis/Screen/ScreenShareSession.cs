@@ -13,7 +13,9 @@ namespace Jarvis.Screen;
 /// One live share on the Mac's protocol (ScreenShareSession.swift): long-polls signalling, makes a
 /// peer per viewer when it offers (candidates that came early are held), sends the display as
 /// VP8, and takes the viewer's "input" data channel: input events go through the game gate,
-/// `{"t":"cc"}` messages to the Command Center.
+/// `{"t":"cc"}` messages to the Command Center. It never fails silently: when capture can't start
+/// or is lost (his session off the console after Remote Desktop, a display gone), the share ends
+/// and the phone is told why.
 public sealed class ScreenShareSession : IShareSession
 {
     private readonly ApiClient _api;
@@ -22,6 +24,7 @@ public sealed class ScreenShareSession : IShareSession
     private readonly IPcControls _pc;
     private readonly Action<string> _log;
     private readonly Action<ScreenShareSession> _ended;
+    private readonly Action<string, string> _failed;
     private readonly Dictionary<string, Peer> _peers = new();
     private readonly EarlyCandidates _early = new();
     private readonly CancellationTokenSource _cts = new();
@@ -32,7 +35,8 @@ public sealed class ScreenShareSession : IShareSession
     private int _seq;
     private bool _stopped;
 
-    public ScreenShareSession(string id, ApiClient api, IInputGate gate, IInputSink sink, IPcControls pc, Action<string> log, Action<ScreenShareSession> ended)
+    public ScreenShareSession(string id, ApiClient api, IInputGate gate, IInputSink sink, IPcControls pc, Action<string> log,
+        Action<ScreenShareSession> ended, Action<string, string> failed)
     {
         Id = id;
         _api = api;
@@ -41,14 +45,18 @@ public sealed class ScreenShareSession : IShareSession
         _pc = pc;
         _log = log;
         _ended = ended;
+        _failed = failed;
         _capture.Frame += OnFrame;
-        _capture.Stopped += why => Stop(why);
+        _capture.Stopped += why => Fail(NotReady() ?? why);
         _idle = new System.Threading.Timer(_ => CheckIdle(), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
     }
 
     private void CheckIdle()
     {
         if (_stopped) return;
+        // His session left the console (Remote Desktop took it, or ended and left the sign-in screen):
+        // capture has stopped delivering, so end the share and say why rather than freeze.
+        if (NotReady() is { } why) { Fail(why); return; }
         var now = Environment.TickCount64;
         if (Viewers > 0) { Interlocked.Exchange(ref _lastWatchedTicks, now); return; }
         if (TimeSpan.FromMilliseconds(now - Interlocked.Read(ref _lastWatchedTicks)) < IdleLimit) return;
@@ -72,23 +80,48 @@ public sealed class ScreenShareSession : IShareSession
     public Monitors.Info? Display => _display;
     public event Action? ViewersChanged;
 
+    /// Starts capture and signalling. Never throws: anything that stops it ends the share with the
+    /// reason, posted to the server so the phone hears it instead of waiting on nothing.
     public async Task StartAsync()
     {
-        try { _ice = ShareSignal.IceServers(await _api.GetAsync(ShareSelection.IcePath, TimeSpan.FromSeconds(10))); }
-        catch (ApiException) { _ice = ShareSignal.IceServers(null); }
-        ShowDisplay(Monitors.Primary());
-        _ = Task.Run(SignalLoop);
+        try
+        {
+            if (NotReady() is { } why) { Fail(why); return; }
+            try { _ice = ShareSignal.IceServers(await _api.GetAsync(ShareSelection.IcePath, TimeSpan.FromSeconds(10))); }
+            catch (ApiException) { _ice = ShareSignal.IceServers(null); }
+            if (_stopped) return;
+            if (ShowDisplay(Monitors.Primary()) is { } error) { Fail(error); return; }
+            _ = Task.Run(SignalLoop);
+        }
+        catch (Exception e)
+        {
+            _log($"share {Id} failed to start: {e.GetType().Name}: {e.Message}");
+            Fail(NotReady() ?? ShareReadiness.CaptureRefused);
+        }
     }
 
-    /// The Command Center's display switch: capture another monitor.
+    /// Why this PC can't capture right now (null when it can).
+    private static string? NotReady() => ShareReadiness.Refusal(ConsoleState.OnConsole, ConsoleState.ShownOverRemoteDesktop);
+
+    /// Ends the share and tells the phone why (through the service, which posts the stop).
+    private void Fail(string why)
+    {
+        if (_stopped) return;
+        Stop(why);
+        _failed(Id, why);
+    }
+
+    /// The Command Center's display switch: capture another monitor. Never throws (Windows refuses
+    /// capture with ArgumentException when his session isn't on the console).
     public string? ShowDisplay(Monitors.Info? m)
     {
         if (m == null) return "That display isn't connected.";
         _display = m;
         try { _capture.Start(m.Handle); }
-        catch (Exception e) when (e is System.Runtime.InteropServices.COMException or InvalidOperationException)
+        catch (Exception e)
         {
-            return "Windows wouldn't let Jarvis capture that display.";
+            _log($"share {Id}: capture of {m.Name} failed: {e.GetType().Name}: {e.Message}");
+            return ShareReadiness.CaptureFailure(ConsoleState.OnConsole, ConsoleState.ShownOverRemoteDesktop);
         }
         _encoder.ForceKeyFrame();
         return null;
@@ -304,14 +337,17 @@ public sealed class ScreenShareFactory : IShareSessionFactory
     private readonly IPcControls _pc;
     private readonly Action<string> _log;
     private readonly Action<string> _ended;
+    private readonly Action<string, string> _failed;
 
-    public ScreenShareFactory(ApiClient api, IInputSink sink, IPcControls pc, Action<string> log, Action<string> ended)
+    /// `failed(id, why)`: a session couldn't capture or lost capture (the service posts the stop).
+    public ScreenShareFactory(ApiClient api, IInputSink sink, IPcControls pc, Action<string> log, Action<string> ended, Action<string, string> failed)
     {
         _api = api;
         _sink = sink;
         _pc = pc;
         _log = log;
         _ended = ended;
+        _failed = failed;
     }
 
     public ScreenShareSession? Current { get; private set; }
@@ -323,7 +359,7 @@ public sealed class ScreenShareFactory : IShareSessionFactory
         {
             if (Current == ended) { Current = null; CurrentChanged?.Invoke(); }
             _ended(ended.Id);
-        });
+        }, _failed);
         Current = s;
         CurrentChanged?.Invoke();
         _ = s.StartAsync();
