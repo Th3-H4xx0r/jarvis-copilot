@@ -47,7 +47,8 @@ def parse_queries(text) -> list:
 def parse_pick(text, allowed: list) -> list:
     """URLs from ``allowed`` only, at most 6; [] (fall back) on anything unusable — never raises."""
     try:
-        urls = extract_json(text).get("urls") or []
+        found = extract_json(text)
+        urls = found.get("read") or found.get("urls") or []
     except PlanError:
         return []
     seen, out = set(allowed), []
