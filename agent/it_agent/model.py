@@ -164,6 +164,8 @@ class Deps:
     should_stop: Callable[[], bool]
     sleep: Callable[[float], None] = time.sleep
     clock: Callable[[], float] = time.monotonic
+    # A destructive non-admin command: Face ID first, then it runs UNELEVATED (approval gates, never widens).
+    approved: Optional[Callable[[str, str, int], ShellResult]] = None
 
 
 def _phase(run: Run) -> Optional[Phase]:
