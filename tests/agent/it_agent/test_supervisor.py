@@ -271,3 +271,13 @@ def test_admin_path_down_stops_plainly_without_rethinks():
     run = run_task(_run(), s.deps(), L())
     assert run.end_reason == "admin_unavailable" and run.rethinks == 0 and run.status == "failed"
     assert "helper isn't running" in run.report and "nothing ran elevated" in run.report.lower()
+
+
+def test_a_pending_windows_restart_is_known_and_planned_first():
+    # Live 2026-11-18: WSL couldn't be enabled (DISM/CBS 0x8000FFFF) because Windows had a restart pending.
+    from agent.it_agent.model import FACTS_SCRIPT, Brief
+    from agent.it_agent.prompts import plan_prompt
+    assert "reboot_pending" in FACTS_SCRIPT and "RebootPending" in FACTS_SCRIPT
+    text = plan_prompt("install Docker Desktop", Brief("s", [], "winget", ["docker --version"], []),
+                       {"reboot_pending": True}, False)
+    assert "reboot_pending" in text and "0x8000FFFF" in text and "restart_after" in text

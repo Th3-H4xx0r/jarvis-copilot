@@ -21,7 +21,12 @@ FACTS_SCRIPT = (
     "$o.winget = [bool](Get-Command winget -ErrorAction SilentlyContinue); "
     "$o.wsl = [bool](Get-Command wsl -ErrorAction SilentlyContinue); "
     "$o.virtualization = [bool](Get-CimInstance Win32_ComputerSystem).HypervisorPresent; "
-    "$o.free_gb = [math]::Round((Get-PSDrive C).Free / 1GB, 1); $o | ConvertTo-Json -Compress"
+    "$o.free_gb = [math]::Round((Get-PSDrive C).Free / 1GB, 1); "
+    # Windows servicing waiting on a restart blocks feature changes (live: DISM/CBS 0x8000FFFF).
+    "$o.reboot_pending = (Test-Path 'C:\\Windows\\WinSxS\\pending.xml') -or "
+    "(Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending') -or "
+    "(Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired'); "
+    "$o | ConvertTo-Json -Compress"
 )
 SIGNED_IN_SCRIPT = "if (Get-Process -Name explorer -ErrorAction SilentlyContinue) { 'yes' } else { 'no' }"
 
