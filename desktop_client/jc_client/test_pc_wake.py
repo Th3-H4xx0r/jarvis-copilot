@@ -136,3 +136,48 @@ def test_a_missed_resume_after_a_re_sleep_heals_itself():
     rig.t += 30
     rig.wake.tick()
     assert not rig.wake.quiet() and not rig.wake.asleep() and rig.armed[-1] == rig.t + CHECKIN
+
+
+class FiredRig(Rig):
+    """A timer that, like Windows', stays signalled once it goes off until it's armed again."""
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.fired = False
+        self.wake._fired = lambda: self.fired
+        self.wake._arm_fn = self._arm
+
+    def _arm(self, at):
+        self.armed.append(at)
+        self.fired = False
+
+    def timer_goes_off(self):
+        self.t = self.armed[-1]
+        self.fired = True
+
+
+def test_a_late_will_sleep_after_the_timer_fired_doesnt_hide_it():
+    # Live 2026-11-19 01:12 and 02:31: our timer woke it ("Wake Source: Timer - python") but it was taken for a real
+    # wake — the app's will_sleep for the sleep that had just ended re-armed the timer and wiped its fired state.
+    rig = FiredRig()
+    rig.wake.on_will_sleep()
+    rig.timer_goes_off()
+    assert rig.wake.on_will_sleep() is False and rig.fired      # late: ignored, the signal survives
+    assert rig.wake.on_did_wake() is False and rig.checkins == 1 and rig.suspends == 1
+
+
+def test_every_classified_resume_consumes_the_fired_signal():
+    # A wake he asked for must not leave the timer signalled (tick would never re-arm it again).
+    rig = FiredRig(answer={"wake": True, "timer_on": True})
+    rig.wake.on_will_sleep()
+    rig.timer_goes_off()
+    assert rig.wake.on_did_wake() is True and not rig.fired and rig.armed[-1] == rig.t + CHECKIN
+
+
+def test_a_fired_timer_nobody_reported_is_checked_in_by_the_ticks():
+    rig = FiredRig()
+    rig.wake.on_will_sleep()
+    rig.timer_goes_off()
+    rig.t += 45
+    rig.wake.tick()                                      # neither the app nor the clock check said "resumed"
+    assert rig.checkins == 1 and rig.suspends == 1

@@ -21,6 +21,7 @@ REARM_S = 60.0           # while awake, moved forward this often: a sleep any ti
 OUR_EARLY_S = 10.0       # without the timer's own "fired" state: a resume this soon before it isn't ours…
 OUR_LATE_S = 180.0       # …and up to this long after it is (resume + clock catch-up)
 STALE_ASLEEP_S = 60.0    # ticking this long after a sleep mark = a resume nobody reported
+UNREPORTED_S = 30.0      # the timer went off this long ago and no resume was reported: check in from the ticks
 USER_ACTIVE_S = 30.0     # input this recent means someone is at the PC: a real wake
 DEDUPE_S = 20.0          # the app's did_wake and the clock check can both report one resume
 CHECKIN_TRIES = 8        # Wi-Fi takes a few seconds to come back after a resume
@@ -74,13 +75,22 @@ class PcWake:
         with self._lock:
             now = self._clock()
             if self._fired is not None and self._safe_fired():
-                return                       # it went off and that resume isn't classified yet: keep its signal
-            if self._asleep and self._asleep_since is not None and now - self._asleep_since > STALE_ASLEEP_S:
-                self._asleep, self._quiet_since = False, None   # we're ticking, so we're awake
-            if not self.timer_on or self._quiet_since is not None:
-                return
-            if self._armed_at is None or now - self._armed_at >= REARM_S:
-                self._arm()
+                # It went off and that resume isn't classified yet: keep its signal — unless nobody reported the
+                # resume at all, then classify it from here.
+                unreported = self._wake_at is None or now - self._wake_at > UNREPORTED_S
+                if not unreported:
+                    return
+            else:
+                unreported = False
+                if self._asleep and self._asleep_since is not None and now - self._asleep_since > STALE_ASLEEP_S:
+                    self._asleep, self._quiet_since = False, None   # we're ticking, so we're awake
+                if not self.timer_on or self._quiet_since is not None:
+                    return
+                if self._armed_at is None or now - self._armed_at >= REARM_S:
+                    self._arm()
+        if unreported:
+            log.info("pc wake: the timer went off and no resume was reported; checking in from the ticks")
+            self.on_did_wake()
 
     def _safe_fired(self) -> bool:
         try:
@@ -114,6 +124,11 @@ class PcWake:
     def on_will_sleep(self) -> bool:
         """Arm the timer. False when this sleep follows a quiet check-in (the server already knows)."""
         with self._lock:
+            if self._fired is not None and self._safe_fired():
+                # Late: the app's will_sleep for a sleep that already ended (our timer woke it). Re-arming here
+                # would wipe the timer's fired state and the resume would pass for his (live 2026-11-19 01:12).
+                log.info("pc wake: late will_sleep after the timer went off; ignored")
+                return False
             announce = self._quiet_since is None
             self._quiet_since = None
             self._mark_asleep()
@@ -134,28 +149,37 @@ class PcWake:
             self.seq += 1
             timer_went_off = (self._safe_fired() if self._fired is not None else
                               self._wake_at is not None and -OUR_EARLY_S <= now - self._wake_at <= OUR_LATE_S)
-            ours = timer_went_off and self._idle() >= USER_ACTIVE_S
+            idle = self._idle()
+            ours = timer_went_off and idle >= USER_ACTIVE_S
             if not ours:
+                log.info("pc wake: a real wake (timer went off: %s, idle %.0f s)", timer_went_off, idle)
                 self._quiet_since = None
                 self._last_result = True
+                self._arm()                  # consume any fired signal; the next sleep finds a fresh timer
                 return True
             self._quiet_since = token = now
         answer = self._ask()
         with self._lock:
             if self._quiet_since != token:      # his hands woke it meanwhile
                 self._last_result = True
+                self._arm()
                 return True
             if isinstance(answer, dict):
                 self.timer_on = answer.get("timer_on") is not False
             if isinstance(answer, dict) and answer.get("wake"):
+                log.info("pc wake: timer check-in — he asked for the PC: screen on, staying up")
                 self._quiet_since = None
                 self._last_result = True
+                self._arm()
                 wanted = True
             elif self._idle() < USER_ACTIVE_S:   # he sat down during the check-in
                 self._quiet_since = None
                 self._last_result = True
+                self._arm()
                 return True
             else:
+                log.info("pc wake: timer check-in — nobody asked (%s); sleeping again",
+                         "no answer" if answer is None else "wake false")
                 self._mark_asleep()
                 self._arm()
                 self._last_result = False
