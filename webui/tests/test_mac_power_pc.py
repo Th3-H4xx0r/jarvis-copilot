@@ -250,3 +250,19 @@ def test_a_mac_that_connects_sends_the_pending_pc_wake(tmp_path):
     rig.connected.add(MAC)
     rig.store.sync(MAC)
     assert (MAC, "wol_send", {"mac": "aa:bb:cc:dd:ee:ff"}) in rig.invokes
+
+
+def test_wake_pc_with_nothing_awake_waits_for_the_pcs_own_checkin(tmp_path):
+    # His pick 2026-11-19: long sleeps drop the PC off Wi-Fi; it wakes itself every 15 minutes and asks.
+    rig = Rig(tmp_path, connected={PHONE})
+    rig.store.on_status(PC, dict(PC_STATUS, timer_on=True))
+    out = rig.store.wake(PC)
+    assert out == {"ok": True, "pending": True, "via": "the PC itself", "within_min": 15}
+    assert rig.store.checkin(PC)["wake"] is True and "wol" not in rig.store.checkin(PC)
+
+
+def test_a_sent_signal_that_never_arrives_is_still_picked_up_by_the_pcs_checkin(tmp_path):
+    rig = Rig(tmp_path, connected={MAC})
+    rig.store.on_status(PC, dict(PC_STATUS, timer_on=True))
+    assert rig.store.wake(PC)["sent"] is True
+    assert rig.store.checkin(PC)["wake"] is True

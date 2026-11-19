@@ -66,6 +66,9 @@ def _pick(rows: list, computer: str):
 def _copy(action: str, noun: str, out: dict) -> str:
     if action == "wake":
         via = out.get("via")
+        if out.get("pending"):
+            return (f"Nothing awake could reach the {noun} right now; {via or 'it'} picks up the wake request "
+                    f"within {out.get('within_min') or 15} minutes.")
         return f"Sent the wake signal to the {noun}" + (f" through {via}." if via else ".")
     return {"sleep": f"The {noun} is going to sleep.", "lock": f"Locked the {noun}.",
             "unlock": f"Asked your iPhone for Face ID to unlock the {noun}.",

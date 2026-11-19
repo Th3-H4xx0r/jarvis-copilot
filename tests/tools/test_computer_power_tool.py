@@ -67,3 +67,10 @@ def test_lock_is_the_pcs(monkeypatch):
     _rig(monkeypatch, "lock my mac")
     out = json.loads(T.handle_computer_power({"computer": "Mac", "action": "lock"}, task_id="t1"))
     assert out["ok"] is False and "PC" in out["error"]
+
+
+def test_a_pending_wake_says_when(monkeypatch):
+    store = _rig(monkeypatch, "wake my pc")
+    store.wake = lambda did: {"ok": True, "pending": True, "via": "the PC itself", "within_min": 15}
+    out = json.loads(T.handle_computer_power({"computer": "PC", "action": "wake"}, task_id="t1"))
+    assert out["ok"] is True and "15 minutes" in out["result"] and "the PC itself" in out["result"]

@@ -146,16 +146,18 @@ class MacPowerStore:
                 return {"ok": True, "sent": True, "via": via}
             last = f"{via} couldn't send the wake signal: {inner.get('error') or res.get('error') or 'no answer'}"
         mac = self._sleeping_mac_sender(did)
-        if mac:
-            # Nobody awake can send it: keep the wake pending for the Mac's next check-in (or its connect).
+        own = bool(status.get("timer_on"))   # the PC wakes itself every 15 minutes to ask (jc_client/pc_wake.py)
+        if mac or own:
+            # Nobody awake can send it: keep the wake pending for the Mac's next check-in (or its connect)
+            # and the PC's own.
             self._update(did, wake_requested_at=self._clock())
-            d = self.device(mac)
+            d = self.device(mac) if mac else {}
             if (d.get("push") or {}).get("token"):
                 try:
                     self._push(d["push"]["token"], d["push"].get("env") or "")
                 except Exception:  # noqa: BLE001
                     log.warning("Wake Mac push (for the PC) failed", exc_info=True)
-            return {"ok": True, "pending": True, "via": self._name_of(mac) or "your Mac",
+            return {"ok": True, "pending": True, "via": (self._name_of(mac) or "your Mac") if mac else "the PC itself",
                     "within_min": int(CHECKIN_EVERY // 60)}
         return {"ok": False, "error": last or "No other computer is online to wake the PC."}
 
