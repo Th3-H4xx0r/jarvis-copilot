@@ -34,10 +34,24 @@ def device_os(task_id) -> str:
     return mac.os_of(device) if device and not err else ""
 
 
+def aims_at_pc(goal, task_id) -> bool:
+    """His words (or the goal) name the PC and not the Mac: "install docker desktop on my pc"."""
+    from agent.computer import mac
+    try:
+        from agent import mac_browser_gate
+        text = f"{mac_browser_gate.turn_text(task_id)} {goal or ''}"
+    except Exception:
+        text = str(goal or "")
+    return bool(mac._SAYS_PC.search(text)) and not mac._SAYS_MAC.search(text)
+
+
 def maybe_hand_over(goal, task_id):
     """The hand-over's tool result, or None to let the fast hands do it (a Mac, a short task, no IT agent,
-    or it couldn't start)."""
-    if not past_limits(goal) or not _available() or device_os(task_id) != "windows":
+    or it couldn't start). Live 2026-11-18: "install docker desktop on my pc" typed on the Mac drove the Mac
+    (the chat's own computer comes first in the picker), so words aimed at the PC hand over too."""
+    if not past_limits(goal) or not _available():
+        return None
+    if device_os(task_id) != "windows" and not aims_at_pc(goal, task_id):
         return None
     out = _start(task_id, str(goal))
     if not out.get("ok"):

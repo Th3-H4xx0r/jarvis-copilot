@@ -1,4 +1,6 @@
 """Restart only after his Face ID, then wait for him to sign in; wait for a PC that went offline."""
+from types import SimpleNamespace
+
 from agent.it_agent.model import Deps, Limits, Run, ScreenResult, ShellResult
 from agent.it_agent.waits import RESTART_COMMAND, restart_and_wait, wait_for_pc
 
@@ -95,3 +97,17 @@ def test_stop_while_the_restart_waits_for_face_id():
     clock = Clock()
     deps, _ = _deps(clock, online=lambda: True, admin_status="stopped")
     assert restart_and_wait(_run(), deps, Limits(), "x").status == "stopped"
+
+
+def test_a_missed_restart_face_id_is_asked_again():
+    from agent.it_agent.model import Limits, Run, ShellResult
+    from agent.it_agent.waits import restart_and_wait
+    answers = [ShellResult("approval_timeout"), ShellResult("ran", 0, "")]
+    calls, notes, online = [], [], iter([False, True])
+    deps = SimpleNamespace(should_stop=lambda: False, progress=lambda r: None,
+                           admin=lambda c, w, t: calls.append(c) or answers.pop(0),
+                           notify=lambda t, b: notes.append(t), clock=lambda: 0.0, sleep=lambda s: None,
+                           online=lambda: next(online, True), signed_in=lambda: True)
+    run = Run(goal="install docker", request_text="install docker on my pc", device_id="pc", device_name="PC")
+    out = restart_and_wait(run, deps, Limits(), "WSL")
+    assert out.status == "back" and len(calls) == 2 and "Still waiting for your Face ID" in notes

@@ -74,3 +74,20 @@ def test_stuck_on_limit_suggests_it_task_when_available(monkeypatch):
     from tools import computer_do_tool as T
     out = json.loads(T.handle_computer_do({"goal": "open Spotify and play jazz"}, task_id="t1"))
     assert "use it_task" in out["summary"]
+
+
+
+def test_an_install_his_words_aim_at_the_pc_goes_to_it_even_from_the_mac(monkeypatch):
+    # Live 2026-11-18: "install docker desktop on my pc", typed on the Mac, opened Edge on the Mac.
+    started = _rig(monkeypatch, os_name="macos")
+    from agent import mac_browser_gate
+    monkeypatch.setattr(mac_browser_gate, "turn_text", lambda tid: "Can you install docker desktop on my pc")
+    out = handover.maybe_hand_over("Can you install docker desktop on my pc", "t1")
+    assert out and json.loads(out)["handed_over"] == "it_task" and started
+
+
+def test_a_mac_install_from_the_mac_stays_with_the_fast_hands(monkeypatch):
+    started = _rig(monkeypatch, os_name="macos")
+    from agent import mac_browser_gate
+    monkeypatch.setattr(mac_browser_gate, "turn_text", lambda tid: "install Rectangle on my mac")
+    assert handover.maybe_hand_over("install Rectangle", "t1") is None and not started

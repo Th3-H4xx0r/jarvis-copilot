@@ -214,3 +214,48 @@ def test_one_it_run_per_pc_at_a_time(monkeypatch):
     _job("j-running", it={"state": "working"}, device_id="pc")
     out = it_jobs.start_it_job("s1", "install Docker Desktop")
     assert out["ok"] is False and "already running" in out["error"]
+
+
+
+@pytest.mark.parametrize("words,expected", [
+    ("See if it’s fully installed now", True), ("is docker running on my pc?", True),
+    ("check whether WSL is set up", True), ("Can you install docker desktop on my pc", False),
+    ("Continue and finish up", False), ("check if docker works and fix it if not", False)])
+def test_read_only_words(words, expected):
+    assert it_jobs.read_only(words) is expected
+
+
+def test_runner_streams_live_to_the_job_view(monkeypatch):
+    # His ask 2026-11-18: the expanded job chat didn't update until the end.
+    def fake_run(run, deps, limits):
+        deps.feed("token", {"text": "Phase 1/1 · Install"})
+        run.status, run.end_reason, run.report = "done", "checks_passed", "ok"
+        return run
+    runner, _, _ = _runner_rig(monkeypatch, fake_run)
+    runner({"job_id": "jfeed"})
+    feed = hr.job_feed("jfeed")
+    events, _, closed = feed.read(None, 0)
+    assert ("token", {"text": "Phase 1/1 · Install"}) in events and events[-1][0] == "done" and closed
+
+
+def test_a_new_run_learns_from_the_last_run_on_that_pc(monkeypatch):
+    # Live 2026-11-18: "Continue and finish up" started from scratch; it now gets the last run's report.
+    import time as _t
+    _setup_start(monkeypatch)
+    seen = {}
+    monkeypatch.setattr(it_jobs, "make_runner", lambda *a, **k: seen.update(k) or (lambda job: ""))
+    _job("j-old", status="failed", device_id="pc", completed_at=_t.time() - 600,
+         result="**Couldn't finish: install docker**\nPhase 2's check still fails: Edge isn't running")
+    _job("j-other-pc", status="done", device_id="pc2", completed_at=_t.time() - 60, result="other PC")
+    out = it_jobs.start_it_job("s1", "finish installing Docker Desktop")
+    assert out["ok"] is True and "Edge isn't running" in seen["previous"] and "other PC" not in seen["previous"]
+
+
+def test_an_old_run_is_not_carried_over(monkeypatch):
+    import time as _t
+    _setup_start(monkeypatch)
+    seen = {}
+    monkeypatch.setattr(it_jobs, "make_runner", lambda *a, **k: seen.update(k) or (lambda job: ""))
+    _job("j-old", status="failed", device_id="pc", completed_at=_t.time() - 5 * 3600, result="old report")
+    it_jobs.start_it_job("s1", "install Docker Desktop")
+    assert seen["previous"] == ""

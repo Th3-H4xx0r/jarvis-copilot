@@ -23,9 +23,9 @@ FACTS_SCRIPT = (
     "$o.virtualization = [bool](Get-CimInstance Win32_ComputerSystem).HypervisorPresent; "
     "$o.free_gb = [math]::Round((Get-PSDrive C).Free / 1GB, 1); "
     # Windows servicing waiting on a restart blocks feature changes (live: DISM/CBS 0x8000FFFF).
-    "$o.reboot_pending = (Test-Path 'C:\\Windows\\WinSxS\\pending.xml') -or "
-    "(Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending') -or "
-    "(Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired'); "
+    "$o.reboot_pending = (Test-Path 'C:\\Windows\\WinSxS\\pending.xml') -or (Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending'); "
+    # Windows Update's own flag alone blocks nothing an install needs (live: it brought 5 needless restarts).
+    "$o.update_restart_pending = (Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired'); "
     "$o | ConvertTo-Json -Compress"
 )
 SIGNED_IN_SCRIPT = "if (Get-Process -Name explorer -ErrorAction SilentlyContinue) { 'yes' } else { 'no' }"
@@ -132,6 +132,10 @@ class Run:
     # His own words this turn ask for something on the PC (it_jobs.asked_for_pc): without it the run
     # researches and answers but never changes the PC (an email or page the chat read can't start one).
     pc_allowed: bool = False
+    # His words only ask to look ("see if it's installed"): no admin, restarts, changes or screen steps.
+    read_only: bool = False
+    # The last IT run on this PC (its report) when it ended under 3 hours ago: "continue" builds on it.
+    previous: str = ""
     state: str = "researching"
     status: str = "running"
     end_reason: str = ""
@@ -144,6 +148,9 @@ class Run:
     steps_run: int = 0
     step_label: str = ""
     log: list = field(default_factory=list)
+    # What already failed, so a rethink can't plan it again (live: one failing step, 4 times, then give up).
+    failed_steps: list = field(default_factory=list)    # "kind: command or goal"
+    failed_phases: list = field(default_factory=list)   # phase signatures whose check failed
     report: str = ""
     facts: dict = field(default_factory=dict)
 
@@ -177,6 +184,8 @@ class Deps:
     clock: Callable[[], float] = time.monotonic
     # A destructive non-admin command: Face ID first, then it runs UNELEVATED (approval gates, never widens).
     approved: Optional[Callable[[str, str, int], ShellResult]] = None
+    # The job view's live stream (/api/chat/stream events: token, tool, tool_snippet, tool_complete, done).
+    feed: Callable[[str, dict], None] = lambda name, data: None
 
 
 def _phase(run: Run) -> Optional[Phase]:

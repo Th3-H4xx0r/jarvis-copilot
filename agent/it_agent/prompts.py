@@ -41,14 +41,21 @@ _SCHEMA = ('{"phases": [{"name": "...", "restart_after": false, "steps": [{"kind
            '"not_contains": "", "regex": ""}}}]}')
 
 
-def _rules(screen_allowed: bool) -> str:
-    screen = ("- kind \"screen\": a GUI-only step for the screen hands; goal = what to do in plain words (e.g. "
-              "accept the Docker Desktop license). A screen check reads an app window's text: {\"kind\": \"screen\", "
-              "\"app\": \"Docker Desktop\", \"expect\": {\"contains\": \"Engine running\"}}.\n"
-              if screen_allowed else
+_READ_ONLY = ("- READ-ONLY: his words only ask to look (is it installed, does it work, what version). Plan only "
+              "read-only inspection: kind \"shell\" probes. No admin steps, no restart_after, no installs, starts, "
+              "settings or other changes, no screen steps — report what you find.\n")
+
+
+def _rules(screen_allowed: bool, read_only: bool = False) -> str:
+    screen = ("- kind \"screen\": a GUI-only step for the screen hands, ONLY when no command can do it; goal = "
+              "what to do in plain words. Open the app in an earlier shell step first. A screen check reads an app "
+              "window's text: {\"kind\": \"screen\", \"app\": \"Docker Desktop\", \"expect\": {\"contains\": "
+              "\"Engine running\"}}.\n"
+              if screen_allowed and not read_only else
               "- Screen steps are NOT available for this task: do everything in the terminal.\n")
     return (
         "Rules (the code rejects a plan that breaks them):\n"
+        f"{_READ_ONLY if read_only else ''}"
         "- The PC runs Windows PowerShell 5.1. Each step runs in a fresh shell with PATH refreshed from the "
         "registry, so a tool installed in an earlier step is found by name. No interactive prompts: pass the "
         "flags that make commands silent; start GUI apps without -Wait.\n"
@@ -58,7 +65,12 @@ def _rules(screen_allowed: bool) -> str:
         "ok_exit_codes when that's fine. Long installs: raise timeout_s (max 1800).\n"
         "- kind \"admin\": runs elevated and asks his Face ID first, one command per approval — machine-wide "
         "installs and Windows features (dism, wsl --install, Enable-WindowsOptionalFeature) are admin steps. "
-        "Group related admin work into one command (max 2400 characters).\n"
+        "Every admin step is one more Face ID prompt: put a phase's admin work in ONE admin step, joined with ; "
+        "and stopping on the first failure (if ($LASTEXITCODE) { exit $LASTEXITCODE }) (max 2400 characters).\n"
+        "- His request to install something is his consent to its standard license: pass the installer's own "
+        "accept flags (winget --accept-package-agreements --accept-source-agreements; Docker Desktop: "
+        "\"Docker Desktop Installer.exe\" install --quiet --accept-license). Never plan a phase to read terms, "
+        "agreements or eligibility, and never open a browser to do that.\n"
         "- Never use Start-Process -Verb RunAs (it shows a UAC prompt nobody can answer).\n"
         f"{screen}"
         "- kind \"research\": look something up mid-run; goal = what to find.\n"
@@ -69,25 +81,31 @@ def _rules(screen_allowed: bool) -> str:
         "or VBS), Win32_Processor's VirtualizationFirmwareEnabled and SecondLevelAddressTranslationExtensions read "
         "False; HypervisorPresent = True already proves virtualization is on, so never fail a check on those. "
         "Check a service with Get-Service <name>.\n"
-        "- A restart Windows is already waiting for (PC facts reboot_pending = true) blocks enabling features and "
-        "many installers: then make phase 1 a restart — one harmless step (Write-Output why) with restart_after true, "
-        "checked afterwards with Test-Path on HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based "
+        "- A component-servicing restart Windows is already waiting for (PC facts reboot_pending = true) blocks "
+        "enabling Windows features (dism, wsl --install, Enable-WindowsOptionalFeature): when the plan enables a "
+        "feature, make phase 1 a restart — one harmless step (Write-Output why) with restart_after true, checked "
+        "afterwards with Test-Path on HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based "
         "Servicing\\RebootPending being False. DISM / Enable-WindowsOptionalFeature failing with 0x8000FFFF or "
-        "0x800f0922 means the same: restart first, then retry.\n"
+        "0x800f0922 means the same: restart first, then retry. Plans that enable no feature don't restart for it, "
+        "and update_restart_pending (Windows Update's own flag) is never a reason to restart. Each restart costs "
+        "him minutes and a Face ID: never more than the task needs.\n"
         "- A restart goes in restart_after: true on the phase that needs it — never shutdown or Restart-Computer "
         "as a step. His Face ID is asked before restarting.\n"
         "- No uninstalling, deleting files, registry edits or stopping processes unless his own words ask for it.\n"
         "- 1–8 phases, 1–10 steps each.\n")
 
 
-def plan_prompt(goal: str, brief, facts: dict, screen_allowed: bool) -> str:
+def plan_prompt(goal: str, brief, facts: dict, screen_allowed: bool, read_only: bool = False,
+                previous: str = "") -> str:
     reqs = "; ".join(brief.requirements) if brief and brief.requirements else "(none listed)"
+    before = (f"The last IT run on this PC (its report) — build on it: skip what it finished once a check "
+              f"confirms it, and don't repeat a route that failed:\n{previous[:2500]}\n\n" if previous else "")
     checks = "; ".join(brief.checks) if brief and brief.checks else "(none listed)"
     return (f"You do IT tasks on the user's Windows PC the way an IT support person would: in phases, each "
             f"one proven by a check before moving on.\nTask: {goal}\nPC facts: {_facts(facts)}\n"
             f"Research summary: {brief.summary if brief else ''}\nRequirements: {reqs}\n"
-            f"Route: {brief.route if brief else ''}\nChecks that prove it worked: {checks}\n\n"
-            f"{_rules(screen_allowed)}\nReply with ONLY this JSON shape:\n{_SCHEMA}")
+            f"Route: {brief.route if brief else ''}\nChecks that prove it worked: {checks}\n\n{before}"
+            f"{_rules(screen_allowed, read_only)}\nReply with ONLY this JSON shape:\n{_SCHEMA}")
 
 
 def rethink_prompt(run, failure: str) -> str:
@@ -96,12 +114,15 @@ def rethink_prompt(run, failure: str) -> str:
     passed = [p.name for p in run.phases[:i] if p.status == "passed"]
     recent = "\n".join(f"- [{e['kind']}] {e['text'][:600]}" for e in run.log[-12:]) or "(nothing yet)"
     brief = run.brief
+    failed = "\n".join(f"- {f[:300]}" for f in (getattr(run, "failed_steps", None) or [])[-10:]) or "(none)"
     return (f"You're partway through an IT task on the user's Windows PC.\nTask: {run.goal}\n"
             f"PC facts: {_facts(run.facts)}\nResearch summary: {brief.summary if brief else ''}\n"
             f"Route: {brief.route if brief else ''}\n"
             f"Phases that passed: {', '.join(passed) or 'none'}\n"
             f"Phase {i + 1} ('{phase.name if phase else ''}') failed: {failure}\nRecent log:\n{recent}\n\n"
             "Work out why, then write revised phases for the rest of the task, starting with the one that failed "
-            f"(don't repeat what already passed).\n{_rules(run.screen_allowed)}\n"
+            "(don't repeat what already passed). A step that already failed won't work the same way twice: take a "
+            f"different route.\nAlready failed (never plan these again):\n{failed}\n"
+            f"{_rules(run.screen_allowed, getattr(run, 'read_only', False))}\n"
             f"Reply with ONLY this JSON shape:\n{_SCHEMA}\n"
             "If it can't be done on this PC, reply with ONLY {\"give_up\": \"why, in one sentence he'll understand\"}.")

@@ -88,6 +88,14 @@ def parse_brief(text, sources) -> Brief:
                  answer=answer)
 
 
+_ONLY_TALK = re.compile(r"^\s*(?:(?:write-output|write-host|write-information|echo)\b.*|exit(?:\s+0)?|)\s*$", re.I)
+
+
+def _only_prints(command: str) -> bool:
+    """A check made only of messages and `exit 0` tests nothing (live: "Review Docker terms" passed that way)."""
+    return all(_ONLY_TALK.match(part) for part in re.split(r"[;\n]", command))
+
+
 def _check(i: int, raw) -> Check:
     if not isinstance(raw, dict):
         raise PlanError(f"phase {i} has no check")
@@ -102,6 +110,8 @@ def _check(i: int, raw) -> Check:
         raise PlanError(f"phase {i} check command has hidden characters")
     if kind == "shell" and not command:
         raise PlanError(f"phase {i} check needs a command")
+    if kind == "shell" and _only_prints(command):
+        raise PlanError(f"phase {i} check must test something on the PC (it only prints a message)")
     if command:
         verdict = classify(command)
         if verdict.destructive or verdict.refuse:
@@ -148,7 +158,20 @@ def _step(i: int, j: int, raw) -> Step:
                 ok_exit_codes=[_clamp(c, 0, -2**31, 2**31) for c in codes] if isinstance(codes, list) else [0])
 
 
-def parse_plan(text) -> list:
+def _read_only_problem(i: int, phase: Phase) -> str:
+    if phase.restart_after:
+        return f"phase {i} restarts the PC, but this run is read-only (his words only ask to look)"
+    for j, step in enumerate(phase.steps, 1):
+        if step.kind == "admin":
+            return f"phase {i} step {j} is an admin step, but this run is read-only: inspect without elevation"
+        if step.kind == "screen":
+            return f"phase {i} step {j} is a screen step, but this run is read-only: inspect with commands"
+        if step.kind == "shell" and classify(step.command).destructive:
+            return f"phase {i} step {j} would change the PC ({classify(step.command).reason}), but this run is read-only"
+    return ""
+
+
+def parse_plan(text, read_only: bool = False) -> list:
     phases = extract_json(text).get("phases")
     if not isinstance(phases, list) or not phases:
         raise PlanError("the plan has no phases")
@@ -165,15 +188,18 @@ def parse_plan(text) -> list:
             raise PlanError(f"phase {i} ('{name}') has no check")
         out.append(Phase(name=name, steps=[_step(i, j, s) for j, s in enumerate(steps, 1)],
                          check=_check(i, raw["check"]), restart_after=bool(raw.get("restart_after"))))
+        problem = _read_only_problem(i, out[-1]) if read_only else ""
+        if problem:
+            raise PlanError(problem)
     return out
 
 
-def parse_rethink(text):
+def parse_rethink(text, read_only: bool = False):
     """New phases for the rest of the run, or the give-up reason (``{"give_up": "..."}``)."""
     d = extract_json(text)
     if d.get("give_up"):
         return str(d["give_up"]).strip()
-    return parse_plan(json.dumps(d))
+    return parse_plan(json.dumps(d), read_only=read_only)
 
 
 def ask_json(ask: Callable, purpose: str, prompt: str, parse: Callable, *, max_tokens: int, tries: int = 3):

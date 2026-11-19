@@ -25,6 +25,23 @@ _ASKS_PC = re.compile(r"\b(?:install|uninstall|reinstall|update|upgrade|set\s*up
                       r"fix|repair|troubleshoot|diagnose|remove|delete|clean\s*up|pc|computer|laptop|windows)\b", re.I)
 
 
+# "see if it's installed", "is docker running?", "check whether WSL is set up" — looking, not changing.
+_LOOK = re.compile(r"^\s*(?:see|check|verify|confirm|find\s+out|tell\s+me|look)\b|"
+                   r"\b(?:see|check|find\s+out|verify|confirm)\s+(?:if|whether|that|what|which|how)\b|"
+                   r"^\s*(?:is|are|was|were|did|does|do|has|have)\b.*\?\s*$|"
+                   r"\bwhat(?:'s|\s+is)\s+(?:the\s+)?(?:status|version)\b", re.I)
+_CHANGE = re.compile(r"\b(?:install|uninstall|reinstall|update|upgrade|(?<!is\s)(?<!are\s)(?<!was\s)(?<!been\s)"
+                     r"(?:set\s*up|setup)|configure|enable|disable|"
+                     r"fix|repair|remove|delete|clean\s*up|finish|continue|restart|reboot|start|launch|run|turn\s+on|"
+                     r"make|get\s+it)\b", re.I)
+
+
+def read_only(request_text: str) -> bool:
+    """His words only ask to look (live 2026-11-18: "see if it's fully installed now" restarted his PC)."""
+    text = str(request_text or "")
+    return bool(_LOOK.search(text)) and not _CHANGE.search(text)
+
+
 def asked_for_pc(request_text: str, screen_allowed: bool) -> bool:
     """Whether this turn's own words (never text the chat read) ask for something on the PC."""
     return bool(screen_allowed or _ASKS_PC.search(str(request_text or "")))
@@ -138,12 +155,15 @@ def build_deps(job_id: str, session_id: str, run: Run, ref: str) -> Deps:
 
 
 def make_runner(session_id: str, goal: str, request_text: str, screen_allowed: bool, ref: str, device_id: str,
-                device_name: str, pc_allowed: bool = False):
+                device_name: str, pc_allowed: bool = False, look_only: bool = False, previous: str = ""):
     def _run(job: dict) -> str:
         job_id = job.get("job_id")
         started = time.time()
         run = Run(goal=goal, request_text=request_text, device_id=device_id, device_name=device_name,
-                  screen_allowed=screen_allowed, pc_allowed=pc_allowed)
+                  screen_allowed=screen_allowed and not look_only, pc_allowed=pc_allowed, read_only=look_only,
+                  previous=previous)
+        # The job view's live stream (his ask 2026-11-18: the expanded chat didn't update until the end).
+        feed = hr._open_feed(job_id) if job_id else None
         power, held = None, False
         try:   # hold the PC awake for the run, then put his setting back
             power = _power()
@@ -153,7 +173,10 @@ def make_runner(session_id: str, goal: str, request_text: str, screen_allowed: b
         except Exception:
             logger.warning("IT job couldn't hold the PC awake", exc_info=True)
         try:
-            run_task(run, build_deps(job_id, session_id, run, ref), limits())
+            deps = build_deps(job_id, session_id, run, ref)
+            if feed is not None:
+                deps.feed = feed.add
+            run_task(run, deps, limits())
         except Exception as exc:  # run_task reports its own failures; this is the last resort
             logger.exception("IT job %s crashed", job_id)
             run.status, run.end_reason, run.end_detail = "failed", "error", str(exc)
@@ -169,6 +192,9 @@ def make_runner(session_id: str, goal: str, request_text: str, screen_allowed: b
                           ms=(time.time() - started) * 1000,
                           error=None if run.status == "done" else (run.end_reason or run.status))
         hr._save_transcript(job_id, sid, run.goal, [{"role": "assistant", "content": log_markdown(run)}])
+        if feed is not None:   # after the transcript: a viewer re-reading the job then gets the whole log
+            feed.add("done", {})
+            feed.close()
         hr._finish_job(sid, job_id, {"done": "done", "stopped": "stopped"}.get(run.status, "failed"),
                        result=run.report)
         _last_key.pop(job_id, None)
@@ -189,6 +215,21 @@ def _attach_to_parent_reply(session_id: str, job_id: str) -> None:
             hr.attach_job_cards(session, reply, [hr.job_card(job)])
     except Exception:
         logger.warning("IT job card not attached", exc_info=True)
+
+
+PREVIOUS_MAX_AGE_S = 3 * 3600
+
+
+def _previous_report(device_id: str) -> str:
+    """The report of the last IT run on this PC, when it ended under 3 hours ago ("continue" builds on it)."""
+    from agent import escalation
+    now = time.time()
+    with escalation._lock:
+        ended = [j for j in escalation._jobs.values()
+                 if j.get("reason") == "it_task" and j.get("device_id") == device_id and j.get("status") != "running"
+                 and j.get("result") and now - float(j.get("completed_at") or 0) <= PREVIOUS_MAX_AGE_S]
+    newest = max(ended, key=lambda j: float(j.get("completed_at") or 0), default=None)
+    return str(newest.get("result") or "")[:4000] if newest else ""
 
 
 def _running_on(device_id: str) -> str:
@@ -216,6 +257,7 @@ def start_it_job(task_id: str, goal: str) -> dict:
     device_id, device_name, error = pc.find_pc(f"{goal} {request_text}")
     if not device_id:
         return {"ok": False, "error": error}
+    looking = read_only(request_text)   # inspecting is fine; read-only plans can't change anything
     busy = _running_on(device_id)
     if busy:
         # Live 2026-11-18: two runs on one PC — the second acted the moment the PC woke.
@@ -224,7 +266,8 @@ def start_it_job(task_id: str, goal: str) -> dict:
     job_id = escalation.start_escalation(
         session_id=sid, reason="it_task", summary=goal, model=ref,
         runner=make_runner(sid, goal, request_text, screen_allowed, ref, device_id, device_name,
-                           pc_allowed=asked_for_pc(request_text, screen_allowed)),
+                           pc_allowed=asked_for_pc(request_text, screen_allowed) or looking, look_only=looking,
+                           previous=_previous_report(device_id)),
         parent={**IT_PARENT, "question": request_text or goal}, origin=hr.job_origin(sid, "chat"))
     escalation.update_job(job_id, device_id=device_id)
     if "~" in str(task_id):

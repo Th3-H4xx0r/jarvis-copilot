@@ -101,7 +101,8 @@ def test_failed_check_rethinks_then_succeeds():
 
 def test_rethink_cap_reports_failure_honestly():
     fail = ShellResult("ran", 1, "nope")
-    s = Script(phases=[phase("Install")], rethinks=[{"phases": [phase("Install")]}] * 5,
+    s = Script(phases=[phase("Install")],
+               rethinks=[{"phases": [phase(f"Install {n}", step=f"{DOCKER} --attempt {n}")]} for n in range(5)],
                check_results={"docker --version": fail})
     run = run_task(_run(), s.deps(), L(max_rethinks=3))
     assert run.status == "failed" and run.end_reason == "check_failed" and run.rethinks == 3
@@ -249,8 +250,9 @@ def test_every_phase_gets_its_own_rethinks():
     first = "docker --version"
     second = "docker info"
     s = Script(phases=[phase("One", check=first), phase("Two", check=second)],
-               rethinks=[{"phases": [phase("One again", check=first), phase("Two", check=second)]}] * 2
-                        + [{"phases": [phase("Two again", check=second)]}] * 2,
+               rethinks=[{"phases": [phase("One again", step=f"{DOCKER} --try {n}", check=first),
+                                     phase("Two", check=second)]} for n in range(2)]
+                        + [{"phases": [phase("Two again", step=f"{DOCKER} --again {n}", check=second)]} for n in range(2)],
                check_results={first: [nope, nope, nope, nope, ShellResult("ran", 0, "ok")],
                               second: [nope, nope, nope, nope, ShellResult("ran", 0, "ok")]})
     run = run_task(_run(), s.deps(), L(max_rethinks=3, max_total_rethinks=8))
@@ -259,7 +261,7 @@ def test_every_phase_gets_its_own_rethinks():
 
 def test_total_rethinks_are_capped():
     nope = ShellResult("ran", 1, "nope")
-    s = Script(phases=[phase("One")], rethinks=[{"phases": [phase("One")]}] * 9,
+    s = Script(phases=[phase("One")], rethinks=[{"phases": [phase("One", step=f"{DOCKER} --try {n}")]} for n in range(9)],
                check_results={"docker --version": nope})
     run = run_task(_run(), s.deps(), L(max_rethinks=5, max_total_rethinks=2))
     assert run.end_reason == "check_failed" and run.rethinks == 2
@@ -281,3 +283,97 @@ def test_a_pending_windows_restart_is_known_and_planned_first():
     text = plan_prompt("install Docker Desktop", Brief("s", [], "winget", ["docker --version"], []),
                        {"reboot_pending": True}, False)
     assert "reboot_pending" in text and "0x8000FFFF" in text and "restart_after" in text
+
+
+
+def _feed(s):
+    events = []
+    deps = s.deps()
+    deps.feed = lambda name, data: events.append((name, dict(data)))
+    return deps, events
+
+
+def test_live_feed_shows_research_plan_steps_checks_then_ends():
+    # His ask 2026-11-18: the job view stayed empty until the end. Every step and check is a live tool row.
+    s = Script(phases=[phase("Check"), phase("Install")])
+    deps, events = _feed(s)
+    run_task(_run(), deps, L())
+    text = "".join(d.get("text", "") for n, d in events if n == "token")
+    assert "Phase 1/2 · Check" in text and "Phase 2/2 · Install" in text and "Plan" in text
+    tools = [d for n, d in events if n == "tool"]
+    done = [d for n, d in events if n == "tool_complete"]
+    assert [t["args"]["command"] for t in tools].count(DOCKER) == 2 and len(done) == len(tools)
+    assert all(c["tool_call_id"] == t["tid"] for c, t in zip(done, tools))
+    assert not any(c["is_error"] for c in done)
+    assert events[-1][0] == "token" and "**Done:" in events[-1][1]["text"]
+
+
+def test_live_feed_marks_a_failed_check_and_the_rethink():
+    nope = ShellResult("ran", 1, "Docker is not installed")
+    s = Script(phases=[phase("Install", check="docker --version")],
+               rethinks=[{"phases": [phase("Install again", step=DOCKER + " --force", check="docker info")]}],
+               check_results={"docker --version": nope})
+    deps, events = _feed(s)
+    run_task(_run(), deps, L())
+    failed = [d for n, d in events if n == "tool_complete" and d["is_error"]]
+    assert failed and "Docker is not installed" in failed[0]["result"]
+    assert "Rethinking" in "".join(d.get("text", "") for n, d in events if n == "token")
+
+
+def test_a_rethink_cant_repeat_a_step_that_already_failed():
+    # Live 2026-11-18: the same "open Edge" screen step failed 4 times (1 + 3 rethinks), then it gave up.
+    edge = ShellResult("ran", 1, "Microsoft Edge isn't running")
+    s = Script(phases=[phase("Agreement", step="start msedge docs.docker.com")],
+               rethinks=[{"phases": [phase("Agreement", step="start msedge docs.docker.com")]},
+                         {"phases": [phase("Install", step=DOCKER)]}],
+               step_results={"start msedge docs.docker.com": edge})
+    run = run_task(_run(), s.deps(), L())
+    assert run.status == "done" and run.rethinks == 1
+    assert any("already failed" in prompt for _, prompt in s.asks)
+
+
+def test_a_rethink_cant_rerun_the_same_phase_whose_check_failed():
+    nope = ShellResult("ran", 1, "nope")
+    s = Script(phases=[phase("Install")],
+               rethinks=[{"phases": [phase("Install")]}, {"phases": [phase("Repair", step=DOCKER + " --force")]}],
+               check_results={"docker --version": [nope, nope, ShellResult("ran", 0, "Docker version 27")]})
+    run_task(_run(), s.deps(), L())
+    assert any("already ran" in prompt for _, prompt in s.asks)
+
+
+def test_read_only_runs_plan_with_the_read_only_rule():
+    s = Script(phases=[phase("Inspect", step="docker --version")])
+    run = _run("see if Docker Desktop is fully installed")
+    run.read_only = True
+    run_task(run, s.deps(), L())
+    plan_prompts = [p for _, p in s.asks if "Rules (the code rejects" in p]
+    assert plan_prompts and "READ-ONLY" in plan_prompts[0]
+
+
+def test_a_missed_face_id_is_asked_again_before_stopping():
+    # "Don't give up": a Face ID prompt he didn't see in 2 minutes is asked again (with a reminder), up to 3 asks.
+    answers = [ShellResult("approval_timeout"), ShellResult("approval_timeout"), ShellResult("ran", 0, "ok", routed="admin")]
+    s = Script(phases=[phase("WSL", step="wsl --install --no-distribution", kind="admin")])
+    notes = []
+    deps = s.deps()
+    deps.admin = lambda c, w, t: s.admins.append(c) or answers.pop(0)
+    deps.notify = lambda title, body: notes.append(title)
+    run = run_task(_run(), deps, L())
+    assert run.status == "done" and len(s.admins) == 3
+    assert notes.count("Still waiting for your Face ID") == 2
+
+
+def test_three_missed_face_ids_still_stop_honestly():
+    s = Script(phases=[phase("WSL", step="wsl --install --no-distribution", kind="admin")],
+               admin_result=ShellResult("approval_timeout"))
+    run = run_task(_run(), s.deps(), L())
+    assert run.end_reason == "approval_timeout" and len(s.admins) == 3
+
+
+def test_the_plan_sees_the_last_run_on_this_pc():
+    s = Script(phases=[phase("Install")])
+    run = _run()
+    run.previous = "**Couldn't finish: install docker**\nPhase 2's check still fails: Edge isn't running"
+    run_task(run, s.deps(), L())
+    plan = [p for _, p in s.asks if "Rules (the code rejects" in p][0]
+    assert "Edge isn't running" in plan and "last IT run on this PC" in plan

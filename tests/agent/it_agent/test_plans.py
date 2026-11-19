@@ -137,3 +137,29 @@ def test_power_actions_are_not_it_steps():
     for cmd in ("rundll32.exe powrprof.dll,SetSuspendState 0,1,0", "rundll32 user32.dll,LockWorkStation"):
         with pytest.raises(PlanError, match="power actions"):
             parse_plan(_plan(steps=[{"kind": "shell", "command": cmd}]))
+
+
+
+@pytest.mark.parametrize("cmd", ["Write-Output 'License research must be completed first'; exit 0", "echo ok",
+                                 "exit 0", "Write-Host 'done'\nexit 0"])
+def test_a_check_that_only_prints_is_rejected(cmd):
+    # Live 2026-11-18: "Review Docker terms" passed with a check that only printed a sentence.
+    with pytest.raises(PlanError, match="phase 1 check must test something"):
+        parse_plan(_plan(check={"kind": "shell", "command": cmd, "expect": {"exit_code": 0}}))
+
+
+def test_a_check_that_prints_and_probes_is_fine():
+    parse_plan(_plan(check={"kind": "shell", "command": "Write-Output 'checking'; docker --version",
+                            "expect": {"exit_code": 0}}))
+
+
+@pytest.mark.parametrize("phase_fields,reason", [
+    ({"steps": [{"kind": "admin", "command": "dism /online /get-features", "why": "x"}]}, "admin"),
+    ({"restart_after": True}, "restart"),
+    ({"steps": [{"kind": "shell", "command": "Remove-Item C:\\temp\\x"}]}, "change"),
+    ({"steps": [{"kind": "screen", "goal": "open Docker Desktop"}]}, "screen")])
+def test_read_only_plans_only_look(phase_fields, reason):
+    # Live 2026-11-18: "see if it's fully installed now" restarted his PC.
+    with pytest.raises(PlanError, match="read-only"):
+        parse_plan(_plan(**phase_fields), read_only=True)
+    parse_plan(_plan(), read_only=True)   # plain probes are fine

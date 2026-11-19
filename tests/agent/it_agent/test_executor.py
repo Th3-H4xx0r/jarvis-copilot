@@ -108,3 +108,12 @@ def test_screen_step_blocked_when_gate_closed():
     r = run_step(Step("screen", goal="click Accept"), _run(screen=False), rec.deps())
     assert r.status == "refused" and r.detail == "Screen steps need you to ask for your PC in your own words."
     assert run_step(Step("screen", goal="click Accept"), _run(screen=True), rec.deps()).ok
+
+
+
+def test_facts_reboot_pending_is_component_servicing_only():
+    # Live 2026-11-18: Windows Update's RebootRequired kept "restart first" coming back — 5 restarts in a morning.
+    from agent.it_agent.model import FACTS_SCRIPT
+    line = next(st for st in FACTS_SCRIPT.split("; ") if st.startswith("$o.reboot_pending"))
+    assert "RebootPending" in line and "WindowsUpdate" not in line
+    assert "$o.update_restart_pending" in FACTS_SCRIPT
