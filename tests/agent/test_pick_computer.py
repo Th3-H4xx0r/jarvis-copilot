@@ -6,9 +6,16 @@ MAC = {"device_id": "mac-1", "device_name": "Pranav's MacBook Pro", "device_os":
 PC = {"device_id": "pc-1", "device_name": "Pranav-Desktop", "device_os": "windows", "name": "ui_look"}
 
 
-def test_turn_device_wins():
-    row, err = mac.pick_computer([MAC, PC], "pc-1", "open spotify on my mac")
+def test_turn_device_wins_when_no_computer_is_named():
+    row, err = mac.pick_computer([MAC, PC], "pc-1", "open spotify")
     assert row is PC and err == ""
+
+
+def test_named_computer_beats_the_turn_device():
+    # His call 2026-11-19 ("words win"): "install docker desktop on my pc" typed on the Mac drove the Mac.
+    assert mac.pick_computer([MAC, PC], "mac-1", "Can you install docker desktop on my pc")[0] is PC
+    assert mac.pick_computer([MAC, PC], "pc-1", "open spotify on my mac")[0] is MAC
+    assert mac.pick_computer([MAC, PC], "mac-1", "check pranav-desktop for the download")[0] is PC
 
 
 def test_named_pc_picked():

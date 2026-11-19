@@ -56,14 +56,13 @@ def _os_of(row: dict) -> str:
 def pick_computer(offers: list, origin, text: str) -> tuple:
     """``(row, "")`` for the computer to drive, else ``(None, error)``.
 
-    Pranav's rule (2026-11-15): the turn's own computer first; then the one the words name
-    (its device name, "PC"/"Windows" or "Mac"); else the Mac; else whatever computer is on."""
+    Pranav's rule (2026-11-19, "words win"; was turn-device-first from 2026-11-15): the computer his words
+    name (its device name, "PC"/"Windows" or "Mac"); else the turn's own computer; else the Mac; else
+    whatever computer is on."""
     if not offers:
         return None, ("No computer with computer control is online. Open Jarvis on your Mac or PC "
                       "(jc-client) and make sure it is up to date.")
     own = next((o for o in offers if origin and o.get("device_id") == origin), None)
-    if own is not None:
-        return own, ""
     words = str(text or "")
     low = words.lower()
     named = next((o for o in offers if str(o.get("device_name") or "").strip()
@@ -77,6 +76,8 @@ def pick_computer(offers: list, origin, text: str) -> tuple:
         if hit is None:
             return None, f"Your {'PC' if wants == 'windows' else 'Mac'} isn't online with computer control."
         return hit, ""
+    if own is not None:
+        return own, ""
     return next((o for o in offers if _os_of(o) == "macos"), offers[0]), ""
 
 
