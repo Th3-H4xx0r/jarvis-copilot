@@ -165,6 +165,72 @@ def _win_suspend() -> None:
     ctypes.windll.powrprof.SetSuspendState(0, 0, 0)
 
 
+ES_DISPLAY_REQUIRED = 0x00000002
+_RTCWAKE = ["SCHEME_CURRENT", "SUB_SLEEP", "RTCWAKE"]
+
+
+def allow_wake_timers(run: Callable[[list], str] = None) -> None:
+    """The 15-minute check-in needs "Allow wake timers" = Enable (1) in the power plan, on AC and battery."""
+    run = run or (lambda argv: _run(argv, timeout=15.0))
+    out = run(["powercfg", "/q", *_RTCWAKE]) or ""
+    changed = False
+    for side, flag in (("AC", "/setacvalueindex"), ("DC", "/setdcvalueindex")):
+        m = re.search(rf"Current {side} Power Setting Index:\s*0x([0-9a-f]+)", out, re.I)
+        if m and int(m.group(1), 16) != 1:
+            run(["powercfg", flag, *_RTCWAKE, "1"])
+            changed = True
+    if changed:
+        run(["powercfg", "/setactive", "SCHEME_CURRENT"])
+
+
+class _WinWakeTimer:
+    """A waitable timer that resumes the PC from sleep at an absolute time (kept open while armed)."""
+
+    def __init__(self) -> None:
+        self._h = None
+
+    def arm(self, at: float) -> None:
+        import ctypes
+        k = ctypes.windll.kernel32
+        if self._h is None:
+            self._h = k.CreateWaitableTimerW(None, True, None)
+        due = ctypes.c_longlong(int((at + 11644473600.0) * 10_000_000))   # absolute UTC FILETIME
+        if not k.SetWaitableTimer(self._h, ctypes.byref(due), 0, None, None, True):
+            raise OSError(f"SetWaitableTimer failed ({k.GetLastError()})")
+
+    def cancel(self) -> None:
+        if self._h is not None:
+            import ctypes
+            ctypes.windll.kernel32.CancelWaitableTimer(self._h)
+
+
+def _win_idle_seconds() -> float:
+    import ctypes
+
+    class _LII(ctypes.Structure):
+        _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
+    info = _LII(ctypes.sizeof(_LII), 0)
+    if not ctypes.windll.user32.GetLastInputInfo(ctypes.byref(info)):
+        return 1e9
+    now = ctypes.windll.kernel32.GetTickCount() & 0xFFFFFFFF
+    return ((now - info.dwTime) & 0xFFFFFFFF) / 1000.0
+
+
+def _win_display_on() -> None:
+    """Leave the unattended (screen-off) wake: a zero mouse move counts as him being there."""
+    import ctypes
+    ctypes.windll.kernel32.SetThreadExecutionState(ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED)
+    ctypes.windll.user32.mouse_event(0x0001, 0, 0, 0, 0)   # MOUSEEVENTF_MOVE by (0, 0)
+
+
+def _win_unbiased_ms() -> float:
+    """Milliseconds the PC has been awake (stops during sleep): a jump against the wall clock = a resume."""
+    import ctypes
+    t = ctypes.c_ulonglong(0)
+    ctypes.windll.kernel32.QueryUnbiasedInterruptTime(ctypes.byref(t))
+    return t.value / 10_000.0
+
+
 def _battery() -> tuple:
     try:
         import psutil
@@ -176,7 +242,8 @@ def _battery() -> tuple:
 
 class PcPower:
     UI_REQUESTS = frozenset({"mac_power_state", "mac_power_set", "password_fill_result", "rdp_credential"})
-    power = None   # the Mac's MacPower hold logic has no Windows twin (AgentsLink takes None)
+    WAKE_EVERY = 5.0
+    RESUME_JUMP_S = 30.0
 
     def __init__(self, send_up: Callable[[dict], object], *, set_state: Callable[[int], int] = _win_set_state,
                  lock: Callable[[], None] = _win_lock, suspend: Callable[[], None] = _win_suspend,
@@ -184,8 +251,10 @@ class PcPower:
                  lan_ip: Callable[[], str] = lan_ip, ui_broadcast: Callable[[dict], None] = lambda m: None,
                  is_app: Optional[Callable[[int], bool]] = None,
                  spawn: Optional[Callable[..., None]] = None,
-                 app_linked: Callable[[], Optional[bool]] = lambda: None) -> None:
+                 app_linked: Callable[[], Optional[bool]] = lambda: None,
+                 api_origin: Callable[[], Optional[str]] = lambda: None, wake=None) -> None:
         self._send_up = send_up
+        self._origin = api_origin
         # Whether the Jarvis app is linked to jc-client (it captures Screen, answers Remote Desktop and
         # sends PC Stats): the card says so instead of "offline" when it isn't.
         self._app_linked = app_linked
@@ -212,6 +281,15 @@ class PcPower:
         self._state_lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        # The 15-minute wake-timer check-in (jc_client/pc_wake.py); AgentsLink takes it as the power object.
+        if wake is None:
+            from jc_client.pc_wake import PcWake
+            timer = _WinWakeTimer()
+            wake = PcWake(self._checkin, arm=timer.arm, cancel=timer.cancel,
+                          suspend=lambda: threading.Thread(target=self._suspend, daemon=True,
+                                                           name="pc-checkin-sleep").start(),
+                          idle_seconds=_win_idle_seconds, display_on=_win_display_on, hold=self._timed_hold)
+        self.power = wake
 
     # ── state ────────────────────────────────────────────────────────────
     def keep_awake(self, on: bool) -> dict:
@@ -244,6 +322,33 @@ class PcPower:
         release.wait()
         self._set_state(ES_CONTINUOUS)
 
+    def _timed_hold(self, seconds: float) -> None:
+        """A wake he asked for: stay up (screen on) until he uses it or `seconds` pass, then Windows' own
+        sleep settings take over. Its own thread: SetThreadExecutionState holds per thread."""
+        def hold():
+            self._set_state(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED)
+            end = time.time() + seconds
+            try:
+                while time.time() < end and not self._stop.wait(30):
+                    try:
+                        if _win_idle_seconds() < 30:
+                            break          # he's using it: no hold needed
+                    except Exception:  # noqa: BLE001
+                        pass
+            finally:
+                self._set_state(ES_CONTINUOUS)
+        threading.Thread(target=hold, daemon=True, name="pc-remote-wake").start()
+
+    def _checkin(self) -> dict:
+        import json
+        import urllib.request
+        origin = self._origin()
+        if not origin:
+            raise OSError("not paired")
+        req = urllib.request.Request(origin + "/api/coding/agents/mac/checkin", headers={"User-Agent": "jc-client/0.1"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            return json.loads(resp.read().decode("utf-8") or "{}")
+
     def _wake_and_mac(self) -> tuple:
         if self._probed is None:
             try:
@@ -258,7 +363,7 @@ class PcPower:
         with self._state_lock:
             keep = self._keep
         return {"os": "windows", "state": "awake", "held": keep, "reason": "manual" if keep else "",
-                "keep_awake": keep, "timer_on": False, "battery": battery, "on_ac": on_ac, "lid": None,
+                "keep_awake": keep, "timer_on": bool(getattr(self.power, "timer_on", False)), "battery": battery, "on_ac": on_ac, "lid": None,
                 "wifi_mac": mac, "wifi_ip": self._lan_ip(), "wake": dict(wake), **self._app()}
 
     def _app(self) -> dict:
@@ -358,6 +463,9 @@ class PcPower:
         if "keep_awake" in change:
             self.keep_awake(bool(change["keep_awake"]))
             self._report()
+        if "timer_on" in change:
+            self.power.set_timer(bool(change["timer_on"]))
+            self._report()
         # A Sleep/Lock pressed while the PC slept sits in the link and arrives when it wakes — and
         # would put it straight back to sleep (live). Drop ones sent long ago (no "ts": older server).
         stale = isinstance(change.get("ts"), (int, float)) and time.time() - float(change["ts"]) > STALE_COMMAND_S
@@ -405,13 +513,40 @@ class PcPower:
             return
         self._thread = threading.Thread(target=self._loop, daemon=True, name="pc-power")
         self._thread.start()
+        threading.Thread(target=self._wake_loop, daemon=True, name="pc-wake").start()
 
     def _loop(self) -> None:
         while not self._stop.wait(STATUS_EVERY):
             self._report()
 
-    def wait_while_quiet(self, stop) -> None:
-        """The Mac holds reconnects during a quiet timer check-in; the PC has none."""
+    def _wake_loop(self) -> None:
+        """Keep the wake timer ahead, and notice a resume even without the Jarvis app (its did_wake)."""
+        try:
+            allow_wake_timers()
+        except Exception:  # noqa: BLE001
+            log.warning("couldn't allow wake timers in the power plan", exc_info=True)
+        try:
+            bias = time.time() - _win_unbiased_ms() / 1000.0
+        except Exception:  # noqa: BLE001
+            bias = None
+        while not self._stop.wait(self.WAKE_EVERY):
+            try:
+                if bias is not None:
+                    now_bias = time.time() - _win_unbiased_ms() / 1000.0
+                    if now_bias - bias > self.RESUME_JUMP_S:
+                        self.power.on_did_wake()
+                    bias = now_bias
+                self.power.tick()
+            except Exception:  # noqa: BLE001
+                log.debug("pc wake loop", exc_info=True)
+
+    def wait_while_quiet(self, stop, limit: float = 60.0) -> None:
+        """Before reconnecting: a timer check-in that's putting the PC back to sleep must not reconnect (the
+        server would take it for the PC coming back). Also while a resume isn't classified yet."""
+        waited = 0.0
+        while (self.power.quiet() or self.power.asleep()) and waited < limit and not stop.is_set():
+            stop.wait(0.5)
+            waited += 0.5
 
     def close(self) -> None:
         self._stop.set()

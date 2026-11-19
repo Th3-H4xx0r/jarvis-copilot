@@ -569,7 +569,8 @@ class Service:
                 try:
                     from jc_client.pc_power import PcPower
                     self._power = PcPower(self._send_up_ok, ui_broadcast=self._ui_broadcast,   # the PC in the phone's Agents card
-                                          app_linked=lambda: (self._ui.client_count() > 0) if getattr(self, "_ui", None) else None)
+                                          app_linked=lambda: (self._ui.client_count() > 0) if getattr(self, "_ui", None) else None,
+                                          api_origin=_imessage_api_origin)   # its 15-min wake-timer check-in
                     self._power.start()
                     from jc_client.skills import pc_it
                     pc_it.set_power(self._power)   # admin_run asks his Face ID through its broker

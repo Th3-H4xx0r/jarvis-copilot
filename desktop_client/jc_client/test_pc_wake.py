@@ -1,0 +1,97 @@
+"""The PC's 15-minute wake-timer check-in (his pick 2026-11-19, like the Mac's): long sleeps drop the PC off
+Wi-Fi, so no magic packet reaches it; it wakes itself, asks the server, and sleeps again unless he wants it."""
+from jc_client.pc_wake import CHECKIN, PcWake
+
+T0 = 1_000_000.0
+
+
+class Rig:
+    def __init__(self, answer=None, idle=1e9):
+        self.t = T0
+        self.idle = idle
+        self.answer = answer if answer is not None else {"wake": False, "timer_on": True}
+        self.armed, self.cancels, self.suspends, self.checkins, self.displays, self.holds = [], 0, 0, 0, 0, []
+        self.wake = PcWake(self._checkin, arm=self.armed.append, cancel=self._cancel, suspend=self._suspend,
+                           idle_seconds=lambda: self.idle, display_on=self._display, hold=self.holds.append,
+                           clock=lambda: self.t, retry_sleep=lambda s: None)
+
+    def _checkin(self):
+        self.checkins += 1
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return self.answer
+
+    def _cancel(self):
+        self.cancels += 1
+
+    def _suspend(self):
+        self.suspends += 1
+
+    def _display(self):
+        self.displays += 1
+
+    def sleep_until_timer(self):
+        self.wake.on_will_sleep()
+        self.t = self.armed[-1]
+
+
+def test_keeps_a_timer_armed_while_awake():
+    rig = Rig()
+    rig.wake.tick()
+    assert rig.armed == [T0 + CHECKIN] and CHECKIN == 900.0
+    rig.t += 30
+    rig.wake.tick()                       # armed recently: left alone
+    assert len(rig.armed) == 1
+    rig.t += 60
+    rig.wake.tick()                       # moved forward so a sleep any time finds it ≤15 min away
+    assert rig.armed[-1] == rig.t + CHECKIN
+
+
+def test_timer_wake_with_nothing_wanted_sleeps_again_quietly():
+    rig = Rig()
+    rig.sleep_until_timer()
+    assert rig.wake.on_did_wake() is False          # no hello, no reconnect
+    assert rig.checkins == 1 and rig.suspends == 1 and rig.armed[-1] == rig.t + CHECKIN
+    assert rig.wake.on_will_sleep() is False         # the re-sleep isn't announced
+
+
+def test_timer_wake_when_he_asked_turns_the_screen_on_and_stays():
+    rig = Rig(answer={"wake": True, "timer_on": True})
+    rig.sleep_until_timer()
+    assert rig.wake.on_did_wake() is True and rig.suspends == 0
+    assert rig.displays == 1 and rig.holds and not rig.wake.quiet()
+
+
+def test_his_own_wake_is_real_and_never_checks_in():
+    rig = Rig()
+    rig.wake.on_will_sleep()
+    rig.t += 300                                     # far from our timer: his hands or a magic packet
+    assert rig.wake.on_did_wake() is True and rig.checkins == 0 and rig.suspends == 0
+
+
+def test_someone_at_the_pc_during_a_timer_wake_keeps_it_up():
+    rig = Rig(idle=5)
+    rig.sleep_until_timer()
+    assert rig.wake.on_did_wake() is True and rig.suspends == 0
+
+
+def test_no_network_after_a_timer_wake_sleeps_again_to_retry_later():
+    rig = Rig(answer=OSError("no route"))
+    rig.sleep_until_timer()
+    assert rig.wake.on_did_wake() is False and rig.suspends == 1 and rig.checkins >= 2
+
+
+def test_timer_off_arms_nothing():
+    rig = Rig()
+    rig.wake.set_timer(False)
+    rig.wake.tick()
+    rig.wake.on_will_sleep()
+    assert rig.armed == [] and rig.cancels >= 1
+
+
+def test_a_resume_seen_twice_is_handled_once():
+    rig = Rig()
+    rig.sleep_until_timer()
+    rig.wake.on_did_wake()
+    rig.wake.on_did_wake()                           # the app's did_wake after the clock check saw it
+    assert rig.checkins == 1 and rig.suspends == 1

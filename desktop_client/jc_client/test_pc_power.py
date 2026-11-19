@@ -269,3 +269,43 @@ def test_status_says_whether_the_jarvis_app_is_linked():
     linked["v"] = True
     assert p.status()["app"] is True
     assert "app" not in Rig().power.status()    # nothing to say: no key (the server keeps today's view)
+
+
+def _wake_rig(quiet=False):
+    import threading
+    from jc_client.pc_wake import PcWake
+    w = PcWake(lambda: {"wake": False}, arm=lambda at: None, cancel=lambda: None, suspend=lambda: None,
+               idle_seconds=lambda: 1e9, display_on=lambda: None, hold=lambda s: None)
+    if quiet:
+        w._quiet_since = 1.0
+    p = PcPower(lambda f: True, set_state=lambda f: 1, lock=lambda: None, suspend=lambda: None,
+                probe=lambda: pc_power.probe(lambda: DEVQUERY, lambda: WIFI), battery=lambda: (None, None),
+                lan_ip=lambda: "192.168.1.80", wake=w)
+    return p, w, threading.Event()
+
+
+def test_the_pc_reports_and_switches_its_wake_timer():
+    # His pick 2026-11-19: the PC wakes itself every 15 minutes to ask whether he wants it.
+    p, w, _ = _wake_rig()
+    assert p.power is w and p.status()["timer_on"] is True
+    p.handle_frame({"type": "mac_power_set", "timer_on": False})
+    assert w.timer_on is False and p.status()["timer_on"] is False
+
+
+def test_reconnects_wait_while_a_check_in_is_quiet():
+    import time as _t
+    p, _, stop = _wake_rig(quiet=True)
+    t0 = _t.monotonic()
+    p.wait_while_quiet(stop, limit=0.6)
+    assert _t.monotonic() - t0 >= 0.5
+
+
+def test_wake_timers_get_allowed_in_the_power_plan():
+    ran = []
+    out = "    Current AC Power Setting Index: 0x00000002\n    Current DC Power Setting Index: 0x00000001\n"
+    pc_power.allow_wake_timers(run=lambda argv: ran.append(argv) or (out if "/q" in argv else ""))
+    sets = [a for a in ran if "/setacvalueindex" in a]
+    assert sets and sets[0][-1] == "1" and not [a for a in ran if "/setdcvalueindex" in a]
+    ran.clear()
+    pc_power.allow_wake_timers(run=lambda argv: ran.append(argv) or out.replace("0x00000002", "0x00000001"))
+    assert [a for a in ran if "/q" in a] and not [a for a in ran if "value" in " ".join(a)]
