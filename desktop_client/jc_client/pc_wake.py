@@ -18,7 +18,9 @@ log = logging.getLogger(__name__)
 
 CHECKIN = 900.0          # how far ahead the wake timer sits (the Mac's CHECKIN)
 REARM_S = 60.0           # while awake, moved forward this often: a sleep any time finds it ≤15 min away
-OUR_WAKE_S = 120.0       # a resume this close to our timer is ours
+OUR_EARLY_S = 10.0       # without the timer's own "fired" state: a resume this soon before it isn't ours…
+OUR_LATE_S = 180.0       # …and up to this long after it is (resume + clock catch-up)
+STALE_ASLEEP_S = 60.0    # ticking this long after a sleep mark = a resume nobody reported
 USER_ACTIVE_S = 30.0     # input this recent means someone is at the PC: a real wake
 DEDUPE_S = 20.0          # the app's did_wake and the clock check can both report one resume
 CHECKIN_TRIES = 8        # Wi-Fi takes a few seconds to come back after a resume
@@ -30,7 +32,8 @@ class PcWake:
     def __init__(self, checkin: Callable[[], dict], *, arm: Callable[[float], None], cancel: Callable[[], None],
                  suspend: Callable[[], None], idle_seconds: Callable[[], float], display_on: Callable[[], None],
                  hold: Callable[[float], None], clock: Callable[[], float] = time.time,
-                 retry_sleep: Callable[[float], None] = time.sleep) -> None:
+                 retry_sleep: Callable[[float], None] = time.sleep,
+                 fired: Optional[Callable[[], bool]] = None) -> None:
         self._checkin = checkin
         self._arm_fn = arm
         self._cancel = cancel
@@ -40,14 +43,19 @@ class PcWake:
         self._hold = hold
         self._clock = clock
         self._retry_sleep = retry_sleep
+        # Whether the wake timer itself went off (the real answer to "was this resume ours?"; review: a
+        # power-button press 90 s before the timer was taken for it and slept again).
+        self._fired = fired
         self._lock = threading.Lock()
         self.timer_on = True
         self._wake_at: Optional[float] = None
         self._armed_at: Optional[float] = None
         self._asleep = False
+        self._asleep_since: Optional[float] = None
         self._quiet_since: Optional[float] = None
         self._handled_at: Optional[float] = None
         self._last_result = True
+        self.seq = 0             # one per resume handled: the reconnect gate's budget restarts with it
 
     # ── the timer ────────────────────────────────────────────────────────
     def _arm(self) -> None:
@@ -62,12 +70,26 @@ class PcWake:
             log.warning("pc wake timer not armed", exc_info=True)
 
     def tick(self) -> None:
-        """While awake: keep the timer ~15 minutes ahead."""
+        """While awake: keep the timer ~15 minutes ahead (and heal a resume nobody reported)."""
         with self._lock:
+            now = self._clock()
+            if self._fired is not None and self._safe_fired():
+                return                       # it went off and that resume isn't classified yet: keep its signal
+            if self._asleep and self._asleep_since is not None and now - self._asleep_since > STALE_ASLEEP_S:
+                self._asleep, self._quiet_since = False, None   # we're ticking, so we're awake
             if not self.timer_on or self._quiet_since is not None:
                 return
-            if self._armed_at is None or self._clock() - self._armed_at >= REARM_S:
+            if self._armed_at is None or now - self._armed_at >= REARM_S:
                 self._arm()
+
+    def _safe_fired(self) -> bool:
+        try:
+            return bool(self._fired())
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _mark_asleep(self) -> None:
+        self._asleep, self._asleep_since = True, self._clock()
 
     def set_timer(self, on: bool) -> None:
         with self._lock:
@@ -94,7 +116,7 @@ class PcWake:
         with self._lock:
             announce = self._quiet_since is None
             self._quiet_since = None
-            self._asleep = True
+            self._mark_asleep()
             self._arm()
             return announce
 
@@ -103,12 +125,16 @@ class PcWake:
         and nobody wants the PC — it's going straight back to sleep."""
         with self._lock:
             now = self._clock()
+            if self._quiet_since is not None and not self._asleep:
+                return False                 # a check-in for this resume is already running (review: a 2nd one lost his wake)
             if self._handled_at is not None and now - self._handled_at < DEDUPE_S:
                 return self._last_result
             self._handled_at = now
             self._asleep = False
-            ours = (self._wake_at is not None and abs(now - self._wake_at) <= OUR_WAKE_S
-                    and self._idle() >= USER_ACTIVE_S)
+            self.seq += 1
+            timer_went_off = (self._safe_fired() if self._fired is not None else
+                              self._wake_at is not None and -OUR_EARLY_S <= now - self._wake_at <= OUR_LATE_S)
+            ours = timer_went_off and self._idle() >= USER_ACTIVE_S
             if not ours:
                 self._quiet_since = None
                 self._last_result = True
@@ -130,7 +156,7 @@ class PcWake:
                 self._last_result = True
                 return True
             else:
-                self._asleep = True
+                self._mark_asleep()
                 self._arm()
                 self._last_result = False
                 wanted = False

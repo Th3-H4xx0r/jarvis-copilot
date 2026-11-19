@@ -203,6 +203,13 @@ class _WinWakeTimer:
             import ctypes
             ctypes.windll.kernel32.CancelWaitableTimer(self._h)
 
+    def fired(self) -> bool:
+        """The timer went off (it stays signalled until re-armed): that resume was ours."""
+        if self._h is None:
+            return False
+        import ctypes
+        return ctypes.windll.kernel32.WaitForSingleObject(self._h, 0) == 0
+
 
 def _win_idle_seconds() -> float:
     import ctypes
@@ -288,7 +295,8 @@ class PcPower:
             wake = PcWake(self._checkin, arm=timer.arm, cancel=timer.cancel,
                           suspend=lambda: threading.Thread(target=self._suspend, daemon=True,
                                                            name="pc-checkin-sleep").start(),
-                          idle_seconds=_win_idle_seconds, display_on=_win_display_on, hold=self._timed_hold)
+                          idle_seconds=_win_idle_seconds, display_on=_win_display_on, hold=self._timed_hold,
+                          fired=timer.fired)
         self.power = wake
 
     # ── state ────────────────────────────────────────────────────────────
@@ -543,10 +551,12 @@ class PcPower:
     def wait_while_quiet(self, stop, limit: float = 60.0) -> None:
         """Before reconnecting: a timer check-in that's putting the PC back to sleep must not reconnect (the
         server would take it for the PC coming back). Also while a resume isn't classified yet."""
-        waited = 0.0
+        waited, seq = 0.0, getattr(self.power, "seq", 0)
         while (self.power.quiet() or self.power.asleep()) and waited < limit and not stop.is_set():
             stop.wait(0.5)
             waited += 0.5
+            if getattr(self.power, "seq", 0) != seq:   # a new wake: its own budget (review: it added up all night)
+                seq, waited = getattr(self.power, "seq", 0), 0.0
 
     def close(self) -> None:
         self._stop.set()

@@ -74,3 +74,12 @@ def test_a_pending_wake_says_when(monkeypatch):
     store.wake = lambda did: {"ok": True, "pending": True, "via": "the PC itself", "within_min": 15}
     out = json.loads(T.handle_computer_power({"computer": "PC", "action": "wake"}, task_id="t1"))
     assert out["ok"] is True and "15 minutes" in out["result"] and "the PC itself" in out["result"]
+
+
+
+def test_keep_awake_for_a_sleeping_computer_says_it_applies_later(monkeypatch):
+    # Review: it said "isn't connected" (failed) yet the server kept it and applied it hours later.
+    store = _rig(monkeypatch, "keep my pc awake")
+    store.keep_awake = lambda did, on: {"ok": True, "delivered": False}
+    out = json.loads(T.handle_computer_power({"computer": "PC", "action": "keep_awake_on"}, task_id="t1"))
+    assert out["ok"] is True and "next" in out["result"]

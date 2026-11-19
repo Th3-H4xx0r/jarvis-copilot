@@ -77,7 +77,9 @@ def _tool_done(deps: Deps, tid: str, name: str, ok: bool, result: str, preview: 
 
 
 def _sig(step: Step) -> str:
-    return f"{step.kind}: {' '.join(str(step.command if step.kind in ('shell', 'admin') else step.goal).split())}"
+    """What makes a step the same step: a longer timeout or newly allowed exit codes is a real retry (review)."""
+    what = " ".join(str(step.command if step.kind in ("shell", "admin") else step.goal).split())
+    return f"{step.kind}: {what} [timeout {step.timeout_s}s, ok {sorted(step.ok_exit_codes)}]"
 
 
 def _phase_sig(phase: Phase) -> str:
@@ -155,6 +157,7 @@ def _do_phase(run: Run, phase: Phase, deps: Deps, limits: Limits):
         if not res.ok:
             phase.status, phase.detail = "failed", f"step {j} failed: {res.detail or res.status}"
             run.failed_steps.append(_sig(step))
+            run.failed_phases.append(_phase_sig(phase))   # the whole phase can't come back word for word either
             return phase.detail
         restart = restart or (res.restart_needed and not run.read_only)
     if restart:
@@ -178,10 +181,14 @@ def _do_phase(run: Run, phase: Phase, deps: Deps, limits: Limits):
     tid = _tool_start(run, deps, check_name, {"command": check_what}, " ".join(check_what.split())[:80])
     chk = run_check(phase.check, deps, limits.settle_s)
     if not chk.passed and deps.should_stop():
+        _tool_done(deps, tid, check_name, False, "stopped", "stopped", started)
         raise _End("stopped", "stopped")
     if not chk.passed and chk.detail == "PC offline":
+        _tool_done(deps, tid, check_name, False, "the PC went offline", "PC offline", started)
         _wait_back(run, deps, limits)
         _set(run, deps, "checking", "")
+        started = deps.clock()
+        tid = _tool_start(run, deps, check_name, {"command": check_what}, " ".join(check_what.split())[:80])
         chk = run_check(phase.check, deps, limits.settle_s)
     run.add_log("check", f"{phase.name}: {'passed' if chk.passed else chk.detail}"
                 + (f"\n{chk.output[-1500:].strip()}" if chk.output and chk.output.strip() else ""))

@@ -88,7 +88,19 @@ def parse_brief(text, sources) -> Brief:
                  answer=answer)
 
 
-_ONLY_TALK = re.compile(r"^\s*(?:(?:write-output|write-host|write-information|echo)\b.*|exit(?:\s+0)?|)\s*$", re.I)
+# A message is a constant: no $variable, (subexpression), `escape, pipe, [type] or {block} (review: real checks like
+# `Write-Output (Get-Service docker).Status` print what they probe).
+_ONLY_TALK = re.compile(r"^\s*(?:(?:write-output|write-host|write-information|echo)(?:\s+[^$()`|\[\]{}]*)?|exit(?:\s+0)?|)\s*$",
+                        re.I)
+# Read-only runs only look (review: a read-only plan accepted winget install, downloads, Start-Service, wsl --update).
+_CHANGES_PC = re.compile(
+    r"\b(?:winget\s+(?:install|upgrade|uninstall|remove|import)|choco\s+(?:install|upgrade|uninstall)|scoop\s+install|"
+    r"msiexec|start-process|start-service|stop-service|restart-service|set-\w+|new-(?!object\b)\w+|remove-\w+|"
+    r"enable-\w+|disable-\w+|install-\w+|uninstall-\w+|add-(?!type\b)\w+|invoke-webrequest|iwr|invoke-restmethod|irm|"
+    r"expand-archive|copy-item|move-item|rename-item|reg(?:\.exe)?\s+(?:add|delete|import)|"
+    r"sc(?:\.exe)?\s+(?:config|create|delete|start|stop)|net\s+(?:start|stop)|dism|bcdedit|"
+    r"wsl(?:\.exe)?\s+--(?:install|update|set-default|set-version|unregister|import|shutdown|terminate)|"
+    r"netsh\s+\S+\s+(?:set|add|delete))\b|\bcurl(?:\.exe)?\s[^\n]*\s-[oO]\b", re.I)
 
 
 def _only_prints(command: str) -> bool:
@@ -168,6 +180,9 @@ def _read_only_problem(i: int, phase: Phase) -> str:
             return f"phase {i} step {j} is a screen step, but this run is read-only: inspect with commands"
         if step.kind == "shell" and classify(step.command).destructive:
             return f"phase {i} step {j} would change the PC ({classify(step.command).reason}), but this run is read-only"
+        if step.kind == "shell" and _CHANGES_PC.search(step.command):
+            return (f"phase {i} step {j} installs, starts or changes something, but this run is read-only: only "
+                    "inspect (Get-*, Test-Path, --version, status commands)")
     return ""
 
 

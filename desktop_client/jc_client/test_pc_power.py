@@ -309,3 +309,20 @@ def test_wake_timers_get_allowed_in_the_power_plan():
     ran.clear()
     pc_power.allow_wake_timers(run=lambda argv: ran.append(argv) or out.replace("0x00000002", "0x00000001"))
     assert [a for a in ran if "/q" in a] and not [a for a in ran if "value" in " ".join(a)]
+
+
+
+def test_the_reconnect_gate_budget_starts_fresh_for_each_wake():
+    # Review: the 60 s limit added up across a night of check-ins, then the PC reconnected mid check-in.
+    p, w, stop = _wake_rig(quiet=True)
+    w.seq = 1
+    budget = []
+    orig = stop.wait
+    def tick(t):
+        budget.append(t)
+        if len(budget) == 2:
+            w.seq = 2                                    # a new wake began
+        return orig(0)
+    stop.wait = tick
+    p.wait_while_quiet(stop, limit=1.5)
+    assert len(budget) == 5                              # 2 ticks, a fresh budget, 3 more (3 in all without it)

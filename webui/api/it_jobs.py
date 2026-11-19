@@ -30,16 +30,19 @@ _LOOK = re.compile(r"^\s*(?:see|check|verify|confirm|find\s+out|tell\s+me|look)\
                    r"\b(?:see|check|find\s+out|verify|confirm)\s+(?:if|whether|that|what|which|how)\b|"
                    r"^\s*(?:is|are|was|were|did|does|do|has|have)\b.*\?\s*$|"
                    r"\bwhat(?:'s|\s+is)\s+(?:the\s+)?(?:status|version)\b", re.I)
-_CHANGE = re.compile(r"\b(?:install|uninstall|reinstall|update|upgrade|(?<!is\s)(?<!are\s)(?<!was\s)(?<!been\s)"
-                     r"(?:set\s*up|setup)|configure|enable|disable|"
-                     r"fix|repair|remove|delete|clean\s*up|finish|continue|restart|reboot|start|launch|run|turn\s+on|"
-                     r"make|get\s+it)\b", re.I)
+_CHANGE = re.compile(r"\b(?:(?:re|un)?install(?:ing)?|updat(?:e|ing)|upgrad(?:e|ing)|(?<!is\s)(?<!are\s)(?<!was\s)"
+                     r"(?<!been\s)(?:set\s*up|setup)|configur(?:e|ing)|enabl(?:e|ing)|disabl(?:e|ing)|fix|repair|remove|"
+                     r"delete|clean\s*up|continue|restart|reboot|start|launch|run|turn\s+on|make|get\s+it|sort\s+out|"
+                     r"you\s+can|can\s+you|could\s+you|get\s+\w+(?:\s+\w+)?\s+working)\b", re.I)
+# "the install", "the update" are things he asks about, not things to do (review: "did the install finish?").
+_NOUNS = re.compile(r"\b(?:the|that|this|my|your|its|an?)\s+(?:install(?:ation)?|update|upgrade|set\s*up|setup|fix|"
+                    r"repair|restart|reboot)\b", re.I)
 
 
 def read_only(request_text: str) -> bool:
     """His words only ask to look (live 2026-11-18: "see if it's fully installed now" restarted his PC)."""
     text = str(request_text or "")
-    return bool(_LOOK.search(text)) and not _CHANGE.search(text)
+    return bool(_LOOK.search(text)) and not _CHANGE.search(_NOUNS.sub(" ", text))
 
 
 def asked_for_pc(request_text: str, screen_allowed: bool) -> bool:
@@ -257,7 +260,7 @@ def start_it_job(task_id: str, goal: str) -> dict:
     device_id, device_name, error = pc.find_pc(f"{goal} {request_text}")
     if not device_id:
         return {"ok": False, "error": error}
-    looking = read_only(request_text)   # inspecting is fine; read-only plans can't change anything
+    looking = read_only(request_text)   # his words only ask to look: the plan may only inspect
     busy = _running_on(device_id)
     if busy:
         # Live 2026-11-18: two runs on one PC — the second acted the moment the PC woke.
@@ -266,7 +269,7 @@ def start_it_job(task_id: str, goal: str) -> dict:
     job_id = escalation.start_escalation(
         session_id=sid, reason="it_task", summary=goal, model=ref,
         runner=make_runner(sid, goal, request_text, screen_allowed, ref, device_id, device_name,
-                           pc_allowed=asked_for_pc(request_text, screen_allowed) or looking, look_only=looking,
+                           pc_allowed=asked_for_pc(request_text, screen_allowed), look_only=looking,
                            previous=_previous_report(device_id)),
         parent={**IT_PARENT, "question": request_text or goal}, origin=hr.job_origin(sid, "chat"))
     escalation.update_job(job_id, device_id=device_id)

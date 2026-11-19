@@ -377,3 +377,52 @@ def test_the_plan_sees_the_last_run_on_this_pc():
     run_task(run, s.deps(), L())
     plan = [p for _, p in s.asks if "Rules (the code rejects" in p][0]
     assert "Edge isn't running" in plan and "last IT run on this PC" in plan
+
+
+
+def _slow(timeout=300, codes=None):
+    st = {"kind": "shell", "command": DOCKER, "why": "need it", "timeout_s": timeout}
+    if codes:
+        st["ok_exit_codes"] = codes
+    return {"name": "Install", "steps": [st],
+            "check": {"kind": "shell", "command": "docker --version", "expect": {"exit_code": 0}}}
+
+
+def test_a_rethink_may_retry_with_a_longer_timeout():
+    # Review: the same winget command with timeout_s 1800 after a 300 s timeout was rejected as a repeat.
+    timed_out = ShellResult("timeout", None, "", error="timed out")
+    s = Script(phases=[_slow()], rethinks=[{"phases": [_slow(timeout=1800)]}],
+               step_results={DOCKER: [timed_out, ShellResult("ran", 0, "ok")]})
+    run = run_task(_run(), s.deps(), L())
+    assert run.status == "done" and run.rethinks == 1
+
+
+def test_a_phase_whose_later_step_failed_cant_be_replanned_identically():
+    # Review: [passing step, failing screen step] could be planned again word for word.
+    two = {"name": "Agreement", "steps": [{"kind": "shell", "command": "winget --version"},
+                                          {"kind": "shell", "command": "start msedge docs.docker.com"}],
+           "check": {"kind": "shell", "command": "docker --version", "expect": {"exit_code": 0}}}
+    s = Script(phases=[two], rethinks=[{"phases": [two]}, {"phases": [phase("Install", step=DOCKER)]}],
+               step_results={"start msedge docs.docker.com": ShellResult("ran", 1, "Edge isn't running")})
+    run = run_task(_run(), s.deps(), L())
+    assert run.status == "done" and any("already ran exactly like this" in p for _, p in s.asks)
+
+
+def test_a_check_row_ends_even_when_the_run_stops_during_it():
+    # Review: a Stop (or the PC going offline) mid-check left its job-view row spinning.
+    s = Script(phases=[phase("Install")], check_results={"docker --version": ShellResult("ran", 1, "nope")})
+    deps, events = _feed(s)
+    deps.should_stop = lambda: any(n == "tool" and d["name"] == "Check" for n, d in events)
+    run_task(_run(), deps, L())
+    starts = [d["tid"] for n, d in events if n == "tool"]
+    ends = [d["tool_call_id"] for n, d in events if n == "tool_complete"]
+    assert sorted(starts) == sorted(ends)
+
+
+def test_stop_during_a_face_id_retry_is_a_stop_not_a_timeout():
+    s = Script(phases=[phase("WSL", step="wsl --install --no-distribution", kind="admin")],
+               admin_result=ShellResult("approval_timeout"))
+    deps = s.deps()
+    deps.should_stop = lambda: len(s.admins) >= 1
+    run = run_task(_run(), deps, L())
+    assert run.status == "stopped"

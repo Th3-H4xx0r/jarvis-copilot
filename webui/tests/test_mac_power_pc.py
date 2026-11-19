@@ -195,8 +195,8 @@ POD = "dev-pod"
 
 
 def _pod_rig(tmp_path, connected):
-    rig = Rig(tmp_path, connected=connected, skills={MAC: ["wol_send"], POD: ["wol_send", "pod_status"]})
-    rig.store._os_of = lambda d: {PC: "windows", MAC: "macos", PHONE: "macos"}.get(d, "")
+    rig = Rig(tmp_path, connected=connected, skills={MAC: ["wol_send", "ui_look"], POD: ["wol_send", "pod_status"]})
+    rig.store._os_of = lambda d: {PC: "windows"}.get(d, "macos")   # the Pod registers no platform: "macos"
     rig.store._name_of = lambda d: {MAC: "MacBook", PC: "Pranav-Desktop", POD: "Jarvis Pod"}.get(d, "")
     return rig
 
@@ -266,3 +266,12 @@ def test_a_sent_signal_that_never_arrives_is_still_picked_up_by_the_pcs_checkin(
     rig.store.on_status(PC, dict(PC_STATUS, timer_on=True))
     assert rig.store.wake(PC)["sent"] is True
     assert rig.store.checkin(PC)["wake"] is True
+
+
+
+def test_a_pc_with_no_wifi_address_yet_still_waits_for_its_own_checkin(tmp_path):
+    # Review: a slow first probe ("no Wi-Fi adapter found", no MAC) blocked even the timer fallback.
+    rig = Rig(tmp_path, connected={PHONE})
+    rig.store.on_status(PC, dict(PC_STATUS, wifi_mac="", wake={"capable": False, "adapter": "", "reason": "x"},
+                                 timer_on=True))
+    assert rig.store.wake(PC) == {"ok": True, "pending": True, "via": "the PC itself", "within_min": 15}

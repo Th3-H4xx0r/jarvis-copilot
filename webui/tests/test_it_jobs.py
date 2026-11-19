@@ -259,3 +259,23 @@ def test_an_old_run_is_not_carried_over(monkeypatch):
     _job("j-old", status="failed", device_id="pc", completed_at=_t.time() - 5 * 3600, result="old report")
     it_jobs.start_it_job("s1", "install Docker Desktop")
     assert seen["previous"] == ""
+
+
+
+@pytest.mark.parametrize("words,expected", [
+    ("did the install finish?", True), ("check if the install worked", True), ("see if the update went through", True),
+    ("is the upgrade done?", True), ("check whether the setup worked", True),
+    ("see if you can get docker working", False), ("check if you can sort out wsl on my pc", False)])
+def test_read_only_reads_nouns_and_requests_right(words, expected):
+    assert it_jobs.read_only(words) is expected
+
+
+def test_a_question_alone_never_opens_the_pc(monkeypatch):
+    # Review: "is this email legit?" counted as asking for the PC (read-only OR'd into pc_allowed).
+    from agent import mac_browser_gate
+    _setup_start(monkeypatch)
+    seen = {}
+    monkeypatch.setattr(it_jobs, "make_runner", lambda *a, **k: seen.update(k) or (lambda job: ""))
+    monkeypatch.setattr(mac_browser_gate, "turn_text", lambda tid: "is this email legit?")
+    it_jobs.start_it_job("s1", "check the email")
+    assert seen["pc_allowed"] is False

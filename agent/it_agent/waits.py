@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agent.it_agent.model import Deps, Limits, Run
+from agent.it_agent.model import Deps, Limits, Run, ShellResult, StepResult
 
 RESTART_COMMAND = ('shutdown.exe /r /t 30 /c "Jarvis is restarting your PC to finish an IT task. '
                    'Sign in when it is back."')
@@ -25,8 +25,10 @@ def with_face_id_retries(deps: Deps, call):
     APPROVAL_ASKS in all. Denied, stopped and every other answer return at once."""
     res = call()
     for _ in range(APPROVAL_ASKS - 1):
-        if getattr(res, "status", "") != "approval_timeout" or deps.should_stop():
+        if getattr(res, "status", "") != "approval_timeout":
             return res
+        if deps.should_stop():               # he pressed Stop while it waited: a stop, not a timeout (review)
+            return StepResult(ok=False, status="stopped") if isinstance(res, StepResult) else ShellResult("stopped")
         deps.notify("Still waiting for your Face ID", "Approve on your iPhone so I can keep going.")
         res = call()
     return res

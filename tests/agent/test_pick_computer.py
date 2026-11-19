@@ -87,3 +87,10 @@ def test_mac_mention_wins_over_pc_words():
 
 def test_gate_does_not_take_plural_windows_as_a_computer():
     assert not mac_browser_gate.explicit_mac_request("there is dirt in my windows")   # old pattern took this as a computer
+
+
+
+def test_mac_address_and_pc_stats_are_not_computers():
+    # Review: "find my MAC address" from the PC drove the Mac; "open PC Stats" from the Mac drove the PC.
+    assert mac.pick_computer([MAC, PC], "pc-1", "open network settings and find my MAC address")[0] is PC
+    assert mac.pick_computer([MAC, PC], "mac-1", "open PC Stats in chrome")[0] is MAC

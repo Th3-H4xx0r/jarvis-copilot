@@ -163,3 +163,21 @@ def test_read_only_plans_only_look(phase_fields, reason):
     with pytest.raises(PlanError, match="read-only"):
         parse_plan(_plan(**phase_fields), read_only=True)
     parse_plan(_plan(), read_only=True)   # plain probes are fine
+
+
+
+@pytest.mark.parametrize("cmd", ["echo $env:PATH", "Write-Output (Get-Service docker).Status; exit 0",
+                                 "Write-Output (docker --version)", "echo (Test-Path 'C:\\Program Files\\Docker')",
+                                 'Write-Output "WSL: $(wsl --status)"'])
+def test_checks_that_print_what_they_probe_are_fine(cmd):
+    # Review: these real checks were rejected as "only prints a message".
+    parse_plan(_plan(check={"kind": "shell", "command": cmd, "expect": {"contains": "x"}}))
+
+
+@pytest.mark.parametrize("cmd", ["winget install -e --id Docker.DockerDesktop",
+                                 "Invoke-WebRequest https://x/a.exe -OutFile a.exe; Start-Process a.exe",
+                                 "Start-Service com.docker.service", "wsl --update", "Set-Service x -StartupType Automatic"])
+def test_read_only_plans_reject_commands_that_change_the_pc(cmd):
+    # Review: a read-only plan accepted winget install, downloads, Start-Service and wsl --update.
+    with pytest.raises(PlanError, match="read-only"):
+        parse_plan(_plan(steps=[{"kind": "shell", "command": cmd}]), read_only=True)

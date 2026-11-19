@@ -45,8 +45,10 @@ def _origin(task_id):
 
 
 # "the PC", "my gaming PC", "on Windows" — never the plural "windows" (Chrome windows on a Mac).
-_SAYS_PC = re.compile(r"\b(?:gaming\s+pc|windows\s+pc|pc|(?:on|in|using|with)\s+(?:my\s+)?windows(?!\s+(?:of|on|in)\b))\b", re.I)
-_SAYS_MAC = re.compile(r"\bmac(?:book)?\b", re.I)
+# "PC Stats" (an app) and "MAC address" (a network id) don't name a computer (review).
+_SAYS_PC = re.compile(r"\b(?:gaming\s+pc|windows\s+pc|pc(?!\s+stats\b)|(?:on|in|using|with)\s+(?:my\s+)?windows"
+                      r"(?!\s+(?:of|on|in)\b))\b", re.I)
+_SAYS_MAC = re.compile(r"\bmac(?:book)?\b(?!\s+address(?:es)?\b)", re.I)
 
 
 def _os_of(row: dict) -> str:

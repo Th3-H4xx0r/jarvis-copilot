@@ -129,14 +129,18 @@ class MacPowerStore:
         check-in, at most 15 minutes away). Live 2026-11-18: only the Mac could send, and it sleeps too."""
         status = (self._devices.get(did) or {}).get("status") or {}
         wake = status.get("wake") or {}
-        if wake.get("capable") is False:
-            return {"ok": False, "error": "This PC's Wi-Fi adapter can't be woken remotely."}
-        if not status.get("wifi_mac"):
-            return {"ok": False, "error": "The PC hasn't told Jarvis its network address yet."}
-        senders = [d for d in self._connected() if d != did and "wol_send" in set(self._skills_of(d))]
-        # Never-sleeping devices (the Pod) first, then the Mac, then any other computer.
-        senders.sort(key=lambda d: {"macos": 1, "windows": 2}.get(self._os_of(d) or "", 0))
-        args, last = self._wol_args(did), ""
+        own = bool(status.get("timer_on"))   # the PC wakes itself every 15 minutes to ask (jc_client/pc_wake.py)
+        no_signal = ("This PC's Wi-Fi adapter can't be woken remotely." if wake.get("capable") is False else
+                     "The PC hasn't told Jarvis its network address yet." if not status.get("wifi_mac") else "")
+        if no_signal and not own:
+            return {"ok": False, "error": no_signal}
+        senders = [] if no_signal else [d for d in self._connected()
+                                         if d != did and "wol_send" in set(self._skills_of(d))]
+        # Devices that never sleep (the Pod: no computer control, and it registers no platform) first, then the
+        # Mac, then any other computer (review: the Pod's platform reads "macos").
+        senders.sort(key=lambda d: 0 if "ui_look" not in set(self._skills_of(d)) else
+                     {"macos": 1, "windows": 2}.get(self._os_of(d) or "", 1))
+        args, last = (self._wol_args(did) if not no_signal else {}), ""
         for sender in senders:
             via = self._name_of(sender) or "your other computer"
             res = self._invoke(sender, "wol_send", dict(args)) or {}
@@ -145,8 +149,7 @@ class MacPowerStore:
                 self._update(did, wake_requested_at=self._clock())  # only once the signal went (else "Waking…" stuck)
                 return {"ok": True, "sent": True, "via": via}
             last = f"{via} couldn't send the wake signal: {inner.get('error') or res.get('error') or 'no answer'}"
-        mac = self._sleeping_mac_sender(did)
-        own = bool(status.get("timer_on"))   # the PC wakes itself every 15 minutes to ask (jc_client/pc_wake.py)
+        mac = self._sleeping_mac_sender(did) if not no_signal else ""
         if mac or own:
             # Nobody awake can send it: keep the wake pending for the Mac's next check-in (or its connect)
             # and the PC's own.

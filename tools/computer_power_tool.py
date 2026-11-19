@@ -102,6 +102,11 @@ def handle_computer_power(args: dict, task_id=None, **_kw) -> str:
            else store.keep_awake(did, action == "keep_awake_on")) or {}
     if not out.get("ok"):
         return json.dumps({"ok": False, "error": out.get("error") or f"The {noun} didn't take it."})
+    if out.get("delivered") is False and action in ("keep_awake_on", "keep_awake_off"):
+        # The server keeps the switch and hands it over when the computer reconnects (review: it said "failed").
+        state = "on" if action == "keep_awake_on" else "off"
+        return json.dumps({"ok": True, "result": f"Keep awake is {state} for the {noun}; it takes effect when the "
+                                                 f"{noun} is next awake."})
     if out.get("delivered") is False and action != "wake":
         return json.dumps({"ok": False, "error": f"The {noun} isn't connected right now (asleep or offline)."})
     return json.dumps({"ok": True, "result": _copy(action, noun, out)})

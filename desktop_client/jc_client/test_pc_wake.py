@@ -95,3 +95,44 @@ def test_a_resume_seen_twice_is_handled_once():
     rig.wake.on_did_wake()
     rig.wake.on_did_wake()                           # the app's did_wake after the clock check saw it
     assert rig.checkins == 1 and rig.suspends == 1
+
+
+
+def test_a_second_resume_signal_during_a_check_in_never_starts_another():
+    # Review: two check-ins raced; the first got wake=True (cleared on the server) and was thrown away.
+    rig = Rig(answer={"wake": True, "timer_on": True})
+    seen = []
+    def checkin():
+        seen.append(1)
+        if len(seen) == 1:
+            rig.t += 25                                  # past the old 20 s dedupe window
+            assert rig.wake.on_did_wake() is False       # the app's late did_wake: a check-in is in flight
+        return rig.answer
+    rig.wake._checkin = checkin
+    rig.sleep_until_timer()
+    assert rig.wake.on_did_wake() is True and len(seen) == 1 and rig.displays == 1
+
+
+def test_a_wake_before_the_timer_fired_is_his():
+    # Review: pressing power 90 s before the timer was taken for the timer and slept again.
+    rig = Rig()
+    fired = []
+    rig.wake._fired = lambda: bool(fired)
+    rig.wake.on_will_sleep()
+    rig.t = rig.armed[-1] - 90
+    assert rig.wake.on_did_wake() is True and rig.checkins == 0
+    rig.sleep_until_timer()
+    fired.append(1)
+    assert rig.wake.on_did_wake() is False and rig.checkins == 1
+
+
+def test_a_missed_resume_after_a_re_sleep_heals_itself():
+    # Review: a resume the clock check missed left it "quiet" forever: no timer re-arms.
+    rig = Rig()
+    rig.sleep_until_timer()
+    rig.wake.on_did_wake()                               # quiet check-in → re-sleep
+    rig.t += 45                                          # woke again unseen; ticking means it's awake
+    rig.wake.tick()
+    rig.t += 30
+    rig.wake.tick()
+    assert not rig.wake.quiet() and not rig.wake.asleep() and rig.armed[-1] == rig.t + CHECKIN
