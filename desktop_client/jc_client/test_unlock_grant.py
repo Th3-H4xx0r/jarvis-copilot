@@ -77,3 +77,15 @@ def test_the_pc_and_mac_power_objects_keep_the_permission_from_the_server(tmp_pa
     assert store.current() == G and p.passwords._device_id == "pc-1"
     p.handle_frame({"type": "mac_unlock_grant", "revoke": G["id"]})
     assert store.current() is None
+
+
+def test_the_device_id_is_read_live_from_the_server_hello():
+    # Live 2026-11-20: jc-client's saved config held an old pairing's id (171c2ab4…) while the server knows the PC as
+    # c8c9cd5c…; the app refused the permission ("for another computer") and the phone was asked every time.
+    current = {"id": ""}
+    asked = []
+    b = PasswordBroker(lambda m: None, lambda m: None, lambda msg, t: asked.append(msg) or {"ok": True},
+                       unlock_grant=lambda: G, device_id=lambda: current["id"])
+    b._wait = lambda e, t: False
+    current["id"] = "pc-1"                       # learned from the server's hello after start
+    assert b.request("unlock", "Unlock PC") == {"ok": True} and asked[0]["device"] == "pc-1"

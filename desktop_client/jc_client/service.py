@@ -88,6 +88,12 @@ def _own_device_id() -> str:
         return ""
 
 
+def _server_id_of(service) -> str:
+    """The id the server knows this computer by (its hello), never a stale saved one (live 2026-11-20: the saved
+    config held an old pairing's id and the PC app refused his unlock permission as "for another computer")."""
+    return getattr(service, "_server_device_id", "") or ""
+
+
 def _server_get(path: str, timeout: float = 10.0) -> dict:
     """GET a Jarvis API path as this client (its session, over the pinned proxy)."""
     origin = _imessage_api_origin()
@@ -569,7 +575,7 @@ class Service:
                     self._power = PowerService(
                         self._forward_up, self._ui_broadcast,
                         lambda: self._hook_server.engine_sessions() if self._hook_server else [],
-                        _imessage_api_origin, device_id=_own_device_id())
+                        _imessage_api_origin, device_id=self._own_server_id)
                     self._power.start()
                 except Exception as exc:  # noqa: BLE001 — never fatal
                     log.warning("mac power unavailable: %s", exc)
@@ -580,7 +586,7 @@ class Service:
                     self._power = PcPower(self._send_up_ok, ui_broadcast=self._ui_broadcast,   # the PC in the phone's Agents card
                                           app_linked=lambda: (self._ui.client_count() > 0) if getattr(self, "_ui", None) else None,
                                           api_origin=_imessage_api_origin,   # its 15-min wake-timer check-in
-                                          device_id=_own_device_id())
+                                          device_id=self._own_server_id)
                     self._power.start()
                     from jc_client.skills import pc_it
                     pc_it.set_power(self._power)   # admin_run asks his Face ID through its broker
@@ -644,6 +650,10 @@ class Service:
             if s.get("agent") == agent and s.get("session_id") == sid:
                 return s.get("state")
         return None
+
+    def _own_server_id(self) -> str:
+        """This computer's id as the server knows it (from its hello frame)."""
+        return _server_id_of(self)
 
     def _start_agents_link(self) -> None:
         try:

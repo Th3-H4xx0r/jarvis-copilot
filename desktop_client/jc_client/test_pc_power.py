@@ -178,10 +178,14 @@ def test_keep_awake_is_held_and_released_by_one_thread():
 
 # ── Unlock PC (the Mac's "Unlock Mac" flow) ─────────────────────────────────────
 def _unlock_rig(app_pid_ok=True):
+    import tempfile
+    from pathlib import Path
+    from jc_client.unlock_grant import GrantStore
     sent, ui = [], []
     power = PcPower(lambda f: sent.append(f) or True, set_state=lambda f: 1, lock=lambda: None,
                     suspend=lambda: None, probe=lambda: ({}, ""), battery=lambda: (None, None),
-                    lan_ip=lambda: "", ui_broadcast=ui.append, is_app=lambda pid: app_pid_ok and pid == 4242)
+                    lan_ip=lambda: "", ui_broadcast=ui.append, is_app=lambda pid: app_pid_ok and pid == 4242,
+                    grants=GrantStore(Path(tempfile.mkdtemp()) / "g.json"))   # never this machine's real permission
     return power, sent, ui
 
 

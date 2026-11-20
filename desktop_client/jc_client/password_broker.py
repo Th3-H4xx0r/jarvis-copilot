@@ -134,6 +134,13 @@ class PasswordBroker:
             return {"ok": True, "password": result.get("password") or ""}
         return {"ok": True}
 
+    def _own_id(self) -> str:
+        """This computer's id as the server knows it (the hello's device_id), read when needed."""
+        try:
+            return str((self._device_id() if callable(self._device_id) else self._device_id) or "")
+        except Exception:  # noqa: BLE001
+            return ""
+
     def _unlock_with_permission(self, rid: str, req: _Request) -> Optional[dict]:
         """With his unlock permission: the app checks it and types; no phone. None → ask him as usual (no
         permission, or the app refused it)."""
@@ -146,7 +153,7 @@ class PasswordBroker:
         try:
             result = self._ask_app({"type": "password_fill", "id": rid, "kind": "unlock",
                                     "nonce": req.public["nonce"], "context": req.public["context"],
-                                    "grant": grant, "device": self._device_id}, _FILL_TIMEOUT) or {}
+                                    "grant": grant, "device": self._own_id()}, _FILL_TIMEOUT) or {}
         except Exception as exc:  # noqa: BLE001
             result = {"ok": False, "error": str(exc)}
         if result.get("ok") is True:
