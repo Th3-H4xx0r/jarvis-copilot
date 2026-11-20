@@ -237,12 +237,21 @@ def _front(be, hwnd) -> None:
     _wait_for_user(be)
     if not hwnd or be.frontmost()[0] == hwnd:
         return
-    be.activate(hwnd)
-    deadline = time.monotonic() + 0.5
-    while be.frontmost()[0] != hwnd:
-        if time.monotonic() >= deadline:
-            raise _NotInFront()
-        time.sleep(0.03)
+    # Windows refuses SetForegroundWindow from a background process; the forced try (an Alt tap, attaching to the
+    # foreground thread) gets past it (live 2026-11-20: Battle.net never came forward, every click was refused).
+    for force, wait in ((False, 0.4), (True, 0.8)):
+        try:
+            be.activate(hwnd, force=force)
+        except TypeError:   # an older backend without force
+            be.activate(hwnd)
+        deadline = time.monotonic() + wait
+        while be.frontmost()[0] != hwnd:
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.03)
+        else:
+            return
+    raise _NotInFront()
 
 
 def do_action(action: str, look_id: Optional[str] = None, element: Optional[int] = None, text: Optional[str] = None,
@@ -348,14 +357,24 @@ def _do(be, action, look_id, element, text, keys, direction, x, y, app, url) -> 
         if not app:
             return {"ok": False, "error": "open_app needs app"}
         res = be.open_app(app)
-        # What really started ("Warzone" → "Call of Duty" through Battle.net): the window to look for.
+        # What really started ("Warzone" → Battle.net on Call of Duty's page): the window to look for.
         launched = str(res.get("launched") or "") if isinstance(res, dict) else ""
         deadline = time.monotonic() + 3.0
-        while time.monotonic() < deadline and not be.find_window(launched or app):
-            time.sleep(0.1)
+        found = None
+        while time.monotonic() < deadline and not found:
+            found = be.find_window(launched or app)
+            if not found:
+                time.sleep(0.1)
+        if found:
+            try:
+                be.activate(found[0], force=True)   # in front, so the next clicks land (live 2026-11-20)
+            except Exception:  # noqa: BLE001
+                pass
         out = {"ok": True, "did": "open_app", "via": "app"}
         if launched:
             out["launched"] = launched
+        if isinstance(res, dict) and res.get("launcher"):
+            out.update(launcher=True, game=res.get("game") or app)
         return out
     if action == "open_url":
         if not str(url or "").startswith(("https://", "http://")):
@@ -524,9 +543,25 @@ class _WinBackend:
         except Exception:  # noqa: BLE001
             return False
 
-    def activate(self, hwnd: int) -> None:
+    def activate(self, hwnd: int, force: bool = False) -> None:
         u = self._user32()
-        u.ShowWindow(hwnd, 9)
+        u.ShowWindow(hwnd, 9 if u.IsIconic(hwnd) else 5)   # restore a minimized one, else just show
+        if force:
+            import ctypes
+            k = ctypes.windll.kernel32
+            fg = u.GetForegroundWindow()
+            fg_thread = u.GetWindowThreadProcessId(fg, None) if fg else 0
+            me = k.GetCurrentThreadId()
+            u.keybd_event(0x12, 0, 0, 0)          # an Alt tap lifts the foreground lock
+            u.keybd_event(0x12, 0, 2, 0)
+            attached = bool(fg_thread and fg_thread != me and u.AttachThreadInput(me, fg_thread, True))
+            try:
+                u.BringWindowToTop(hwnd)
+                u.SetForegroundWindow(hwnd)
+            finally:
+                if attached:
+                    u.AttachThreadInput(me, fg_thread, False)
+            return
         u.SetForegroundWindow(hwnd)
 
     def idle_seconds(self) -> float:

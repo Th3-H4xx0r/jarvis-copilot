@@ -123,13 +123,12 @@ def test_apps_are_found_like_the_start_menu_does():
     assert pick_start_app("photoshop", START_APPS) is None
 
 
-def test_a_battlenet_game_launches_the_game_not_just_its_page():
-    from jc_client.skills.windows import launch_argv
-    exe = "C:\\Program Files (x86)\\Battle.net\\Battle.net.exe"
-    assert launch_argv({"Name": "Call of Duty", "AppID": "battlenet://game/auks"}, exe_exists=lambda p: True) == \
-        [exe, '--exec="launch auks"']
-    assert launch_argv({"Name": "Call of Duty", "AppID": "battlenet://game/auks"}, exe_exists=lambda p: False) == \
-        ["battlenet://game/auks"]
+def test_a_battlenet_game_opens_its_page_in_the_launcher():
+    # His word 2026-11-20: Battle.net's launch command doesn't start the game; a person opens it and clicks Play.
+    from jc_client.skills.windows import launch_argv, launcher_of
+    assert launch_argv({"Name": "Call of Duty", "AppID": "battlenet://game/auks"}) == ["battlenet://game/auks"]
+    assert launcher_of({"Name": "Call of Duty", "AppID": "battlenet://game/auks"}) == "Battle.net"
+    assert launcher_of({"Name": "Discord", "AppID": "com.squirrel.Discord.Discord"}) == ""
     assert launch_argv({"Name": "Visual Studio Code", "AppID": "Microsoft.VisualStudioCode"}) == \
         ["shell:AppsFolder\\Microsoft.VisualStudioCode"]
 
@@ -139,3 +138,11 @@ def test_a_locked_desktop_is_seen():
     assert desktop_locked(open_desktop=lambda: None, name_of=lambda h: "") is True          # can't open it: locked
     assert desktop_locked(open_desktop=lambda: 7, name_of=lambda h: "Winlogon") is True
     assert desktop_locked(open_desktop=lambda: 7, name_of=lambda h: "Default") is False
+
+
+
+def test_the_session_lock_state_comes_from_windows():
+    from jc_client.skills.common import session_locked
+    assert session_locked(flags=lambda: 0) is True          # WTS_SESSIONSTATE_LOCK
+    assert session_locked(flags=lambda: 1) is False         # WTS_SESSIONSTATE_UNLOCK
+    assert session_locked(flags=lambda: None) is None       # can't tell: the desktop check decides

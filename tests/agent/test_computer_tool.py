@@ -63,7 +63,7 @@ def test_tool_runs_the_loop_with_the_bound_node(monkeypatch):
     assert seen["device"] == "dev1" and seen["cfg"].decision_ref == "@celeris:celeris-1-decision"
     assert seen["steps"] == [{"do": "press 7"}]
     assert out["_multimodal"] is True
-    assert "Done on the Mac" in out["content"][0]["text"]
+    assert "Done on" in out["content"][0]["text"]
     assert out["content"][1]["image_url"]["url"] == "data:image/jpeg;base64,QUJD"
 
 

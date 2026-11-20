@@ -88,7 +88,6 @@ _APP_ALIASES = {"warzone": "call of duty", "cod": "call of duty", "black ops": "
                 "modern warfare": "call of duty", "wow": "world of warcraft", "ow": "overwatch", "ow2": "overwatch",
                 "vs code": "visual studio code", "vscode": "visual studio code", "bnet": "battle.net",
                 "battlenet": "battle.net", "blizzard": "battle.net"}
-_BATTLENET_EXE = "C:\\Program Files (x86)\\Battle.net\\Battle.net.exe"
 _WORD = re.compile(r"[a-z0-9.]+")
 _FILLER = {"the", "a", "an", "app", "game", "launch", "open", "start", "on", "my", "pc", "windows"}
 
@@ -123,13 +122,20 @@ def pick_start_app(query: str, apps: list):
     return best
 
 
-def launch_argv(app: dict, exe_exists=os.path.exists) -> list:
-    """How to start a Start menu entry: a Battle.net game through Battle.net's own launch (its Start entry only
-    opens the game's page), another link as itself, an app by its AppID."""
+_LAUNCHER_URIS = {"battlenet": "Battle.net", "steam": "Steam", "com.epicgames.launcher": "Epic Games Launcher"}
+
+
+def launcher_of(app: dict) -> str:
+    """The launcher a Start menu entry opens a game in ("Battle.net" for battlenet://game/…), or ""."""
+    m = re.match(r"^([a-z][a-z0-9+.-]*)://", str(app.get("AppID") or ""), re.I)
+    return _LAUNCHER_URIS.get(m.group(1).lower(), "") if m else ""
+
+
+def launch_argv(app: dict) -> list:
+    """How to start a Start menu entry: a link (a game's launcher page) as itself, an app by its AppID. A Battle.net
+    game opens on its page — a person (or the screen-driven loop) then clicks Play; Battle.net's own "launch"
+    command only selects the game (his word 2026-11-20)."""
     app_id = str(app.get("AppID") or "")
-    m = re.match(r"^battlenet://game/(\w+)", app_id, re.I)
-    if m and exe_exists(_BATTLENET_EXE):
-        return [_BATTLENET_EXE, f'--exec="launch {m.group(1)}"']
     if re.match(r"^[a-z][a-z0-9+.-]*://", app_id, re.I):
         return [app_id]
     return [f"shell:AppsFolder\\{app_id}"]
@@ -158,6 +164,9 @@ def open_app(name: str) -> dict:
             env = {"JC_APP": argv[0], "JC_ARG": argv[1] if len(argv) > 1 else ""}
             _ps("if ($env:JC_ARG) { Start-Process -FilePath $env:JC_APP -ArgumentList $env:JC_ARG } "
                 "else { Start-Process -FilePath $env:JC_APP }", env=env)
+            launcher = launcher_of(app)
+            if launcher:   # the game's page in its launcher: the window to drive is the launcher's
+                return {"ok": True, "name": name, "launched": launcher, "launcher": True, "game": app.get("Name")}
             return {"ok": True, "name": name, "launched": app.get("Name")}
     _ps(_OPEN_SCRIPT, env={"JC_APP": app_command(name)})
     return {"ok": True, "name": name}

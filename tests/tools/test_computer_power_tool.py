@@ -98,3 +98,16 @@ def test_wake_needs_no_power_word_and_waits_until_ready(monkeypatch):
         assert out["ok"] is False                       # sleeping still needs his own words
     finally:
         ROWS[0]["state"] = "awake"
+
+
+
+def test_unlock_waits_and_says_what_really_happened(monkeypatch):
+    # Live 2026-11-20: it said "Asked your iPhone for Face ID" while his permission unlocked it silently, and the
+    # model stopped to wait for an approval that never came.
+    _rig(monkeypatch, "unlock it")
+    monkeypatch.setattr(T, "_ensure_unlocked", lambda did: (True, "The screen is unlocked now."))
+    out = json.loads(T.handle_computer_power({"computer": "PC", "action": "unlock"}, task_id="t1"))
+    assert out == {"ok": True, "result": "The PC is unlocked."}
+    monkeypatch.setattr(T, "_ensure_unlocked", lambda did: (True, ""))
+    out = json.loads(T.handle_computer_power({"computer": "PC", "action": "unlock"}, task_id="t1"))
+    assert out == {"ok": True, "result": "The PC is already unlocked."}

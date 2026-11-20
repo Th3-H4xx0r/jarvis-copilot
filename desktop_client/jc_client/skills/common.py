@@ -51,6 +51,35 @@ def _win_desktop_name(handle) -> str:
         ctypes.windll.user32.CloseDesktop(handle)
 
 
+def _wts_session_flags():
+    """WTS SessionFlags of this process's session: 0 locked, 1 unlocked (WTSSessionInfoEx); None when unknown."""
+    import ctypes
+    from ctypes import wintypes
+    wts = ctypes.windll.wtsapi32
+    sid = wintypes.DWORD()
+    if not ctypes.windll.kernel32.ProcessIdToSessionId(ctypes.windll.kernel32.GetCurrentProcessId(), ctypes.byref(sid)):
+        return None
+    buf = ctypes.c_void_p()
+    size = wintypes.DWORD()
+    if not wts.WTSQuerySessionInformationW(None, sid.value, 25, ctypes.byref(buf), ctypes.byref(size)):  # WTSSessionInfoEx
+        return None
+    try:
+        # WTSINFOEXW { DWORD Level; WTSINFOEX_LEVEL1_W { ULONG SessionId; int SessionState; LONG SessionFlags; ... } }
+        level, _session, _state, flags = ctypes.cast(buf, ctypes.POINTER(ctypes.c_int32 * 4)).contents
+        return None if level != 1 or flags == -1 else int(flags)
+    finally:
+        wts.WTSFreeMemory(buf)
+
+
+def session_locked(flags=_wts_session_flags):
+    """Windows' own answer: the session is locked (True/False), None when it can't say."""
+    try:
+        f = flags()
+    except Exception:  # noqa: BLE001
+        return None
+    return None if f is None else f == 0
+
+
 def desktop_locked(open_desktop=_win_open_input_desktop, name_of=_win_desktop_name) -> bool:
     """Windows: the lock screen (or sign-in) is showing — the input desktop can't be opened, or isn't "Default"."""
     handle = open_desktop()
@@ -77,12 +106,30 @@ def screen_locked() -> dict:
     # Live 2026-11-20: woken from sleep, the PC sat at its lock screen and nothing noticed; the server checks this
     # before driving the screen, and unlocks first (agent/computer/wake.py ensure_unlocked).
     if sys.platform == "win32":
-        locked = desktop_locked()
+        # Windows' session state first (live 2026-11-20: the input-desktop check said "unlocked" on a locked PC).
+        locked = session_locked()
+        if locked is None:
+            locked = desktop_locked()
     elif sys.platform == "darwin":
         locked = _mac_locked()
     else:
         locked = False
     return {"ok": True, "locked": bool(locked)}
+
+
+@skill(
+    "screen_wake",
+    "Turn this computer's display on (after a remote wake it stays dark).",
+    {"type": "object", "properties": {}},
+)
+def screen_wake() -> dict:
+    if sys.platform == "win32":
+        import ctypes
+        ctypes.windll.kernel32.SetThreadExecutionState(0x00000002 | 0x00000001)   # display + system required
+        ctypes.windll.user32.mouse_event(0x0001, 0, 0, 0, 0)                       # a zero move: someone's here
+    elif sys.platform == "darwin":
+        subprocess.run(["caffeinate", "-u", "-t", "2"], check=False, timeout=5)
+    return {"ok": True}
 
 
 @skill(

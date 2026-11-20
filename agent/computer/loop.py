@@ -59,8 +59,10 @@ class Result:
     timing: dict = field(default_factory=dict)  # plan_ms / decide_ms / hands_ms / total_ms
 
     def summary(self) -> str:
-        head = {"done": "Done on the Mac.", "stuck": "Stopped on the Mac (stuck).",
-                "error": "Could not finish on the Mac."}[self.status]
+        # The computer it really ran on (live 2026-11-20: a PC run said "on the Mac" and the chat model retried).
+        where = self.device_name or "the computer"
+        head = {"done": f"Done on {where}.", "stuck": f"Stopped on {where} (stuck).",
+                "error": f"Could not finish on {where}."}[self.status]
         lines = [head + (f" {self.reason}" if self.reason else "")]
         if self.steps:
             lines.append("Steps: " + "; ".join(f"{i + 1}) {s.get('do')}" for i, s in enumerate(self.steps)))
@@ -111,6 +113,22 @@ def describe(action: dict, look: dict) -> str:
 
 LAUNCH_TRIES = 30          # a launcher or a game takes a while to show its window (~45 s)
 LAUNCH_POLL_S = 1.5
+
+
+_VAGUE_ROLES = ("group", "image", "statictext", "text", "pane", "generic", "unknown", "document", "window")
+
+
+def _vague_target(action: dict, look: dict) -> bool:
+    """A click whose target isn't a real control: a raw pixel, a number not on screen, or an unlabeled group."""
+    if action.get("action") != "click":
+        return False
+    if action.get("element") is None:
+        return True
+    el = next((e for e in look.get("elements") or [] if e.get("i") == action.get("element")), None)
+    if el is None:
+        return True
+    role = str(el.get("role") or "").lower().replace("ax", "", 1)
+    return not str(el.get("label") or "").strip() and any(role.startswith(r) for r in _VAGUE_ROLES)
 
 
 def _look_after_open(mac, device, app, launched=None) -> dict:
@@ -246,7 +264,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
     # The task stays on its app: if he switches to another app mid-task, the
     # looks keep reading this one (presses work in the background).
     anchor = look.get("app")
-    out.steps = list(steps)
+    out.steps = steps   # the same list: steps added on the way (a launcher's Play) show in the result
     history: list[str] = []
 
     def record(action, res, move, ms):
@@ -344,10 +362,16 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 out.status, out.reason = "error", look.get("error") or f"could not see {step['app']}"
                 break
             anchor = look.get("app") or launched or step["app"]
+            if res.get("launcher") and not any("play" in str(s.get("do") or "").lower() for s in steps[at + 1:]):
+                # A game opens in its launcher (Battle.net, Steam…): a person then clicks Play (live 2026-11-20).
+                game = res.get("game") or step["app"]
+                steps.insert(at + 1, {"do": f"click the Play button for {game} in {launched or 'the launcher'}"})
+                history.append(f"{launched or 'the launcher'} is open on {game}; next: click Play")
             if _open_only(step):
                 history.append(f"step done: {step.get('do')}")
                 continue  # "open Calculator": opening it was the whole step
         strikes, last_key, repeats, relooked, refusals = 0, None, 0, False, 0
+        see_next = False
         last_unlanded = False
         # A step about the menu bar, a menu-bar item, the Dock or notifications looks at that surface.
         step_surface = surface_for(step, anchor) if can_surface else None
@@ -416,8 +440,11 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 out.status, out.reason = "stuck", f"Ran out of time ({int(cfg.max_seconds)} s)."
                 break
             t = time.monotonic()
+            # After a fast-model move that changed nothing, the screenshot model picks the next one: the target
+            # likely isn't a labeled element (live 2026-11-20: three "click group" in Battle.net; Play was a pixel).
             move = decide(cfg.decision_ref, look, goal, step, history, instructions=cfg.instructions,
-                          plan=steps, at=at) if cfg.decision_ref else None
+                          plan=steps, at=at) if cfg.decision_ref and not see_next else None
+            see_next = False
             out.timing["decide_ms"] += (move.ms or 0) if move else 0
             # "done" before any move on this step is often wrong (a pressed ×
             # leaves no trace): only the fallback can confirm it.
@@ -501,6 +528,9 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             last_key = key
             if unchanged:
                 history.append("nothing changed on screen")
+                # A fast-model click on something vague (an unlabeled group, a missing number, a pixel) that changed
+                # nothing: the screenshot model picks the next move.
+                see_next = move.by == "decision" and bool(cfg.fallback_ref) and _vague_target(action, look)
             if new_look.get("ok", True):
                 look = new_look
             sig = look.get("sig")
@@ -509,7 +539,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 out.status, out.reason = "stuck", ("Going in circles between the same screens on step "
                                                    f"“{step.get('do')}”; stopped (the screen shows where it got to).")
                 break
-            if res.get("ok") and not last_unlanded and ((field is not None and not step.get("text"))
+            if res.get("ok") and not last_unlanded and not (unchanged and see_next) and ((field is not None and not step.get("text"))
                                   or (_ONE_MOVE.match(str(step.get("do") or ""))
                                       and action.get("action") not in ("scroll", "wait"))):
                 # A field click, or a one-move step whose move just worked: no "is it done?" call.

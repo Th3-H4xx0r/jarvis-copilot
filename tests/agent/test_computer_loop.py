@@ -796,3 +796,54 @@ def test_a_launched_app_is_looked_for_by_its_real_name_and_given_time(monkeypatc
     r = L.run("launch Warzone", [{"do": "open Warzone", "app": "Warzone"}], _cfg(), device="pc",
               decide=_never, fallback=_never, mac=mac)
     assert r.status == "done" and mac.looks.count("Call of Duty") >= 6
+
+
+def test_the_summary_names_the_computer_it_ran_on():
+    # Live 2026-11-20: a PC run said "Could not finish on the Mac", so the chat model retried "on the PC".
+    assert L.Result("error", reason="x", device_name="pranav-computer").summary().startswith(
+        "Could not finish on pranav-computer.")
+    assert L.Result("done").summary().startswith("Done on the computer.")
+
+
+def test_a_launcher_opened_for_a_game_gets_its_play_click(monkeypatch):
+    # Live 2026-11-20: "launch Warzone" opened Battle.net and then looked for a Warzone window; a person clicks Play.
+    monkeypatch.setattr(L.time, "sleep", lambda s: None)
+
+    class LauncherMac(FakeMac):
+        def act(self, device, action, look_id):
+            self.acts.append((action, look_id))
+            if action["action"] == "open_app":
+                self.n += 1
+                return {"ok": True, "did": "open_app", "via": "app", "launched": "Battle.net", "launcher": True,
+                        "game": "Call of Duty", "look": _look(self.n)}
+            return super().act(device, action, look_id)
+
+    mac = LauncherMac()
+    decide = _decider(Move({"action": "click", "element": 1}, 0.9, "decision", 1))
+    r = L.run("launch Warzone", [{"do": "open Warzone", "app": "Warzone"}], _cfg(), device="pc",
+              decide=decide, fallback=_never, mac=mac)
+    assert r.status == "done" and any("Play" in (s.get("do") or "") for s in r.steps)
+    assert any("Play" in (c or "") for c in decide.calls)
+
+
+def test_a_click_that_changed_nothing_goes_to_the_screenshot_model_next():
+    # Live 2026-11-20: the fast model clicked an unlabeled "group" three times; only the screenshot model found Play.
+    class StillMac(FakeMac):
+        def act(self, device, action, look_id):
+            self.acts.append((action, look_id))
+            return {"ok": True, "did": action["action"], "via": "ax", "look": dict(_look(1), sig="same")}
+
+        def look(self, device, app=None):
+            return dict(_look(1), sig="same")
+
+    calls = []
+
+    def fallback(ref, look, goal, step, history, **kw):
+        calls.append(step.get("do"))
+        return (Move({"action": "click", "x": 106, "y": 502}, 0.9, "fallback", 5) if len(calls) == 1
+                else Move({"action": "done"}, 0.9, "fallback", 5))
+
+    decide = _decider(*[Move({"action": "click", "element": 3}, 0.98, "decision", 1)] * 5)
+    r = L.run("g", [{"do": "click the Play button"}], _cfg(), device="pc", decide=decide, fallback=fallback,
+              mac=StillMac())
+    assert len(decide.calls) == 1 and calls and r.status in ("done", "stuck")

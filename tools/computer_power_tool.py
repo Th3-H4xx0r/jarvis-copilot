@@ -57,6 +57,11 @@ def _ensure_awake(did: str) -> tuple:
     return True, " ".join(x for x in (note, note2) if x)
 
 
+def _ensure_unlocked(did: str) -> tuple:
+    from agent.computer import wake
+    return wake.ensure_unlocked(did)
+
+
 # Waking (or keeping awake) can't hurt: no own-words check (live 2026-11-19: "Launch it now." was refused a wake
 # and the turn gave up). Sleeping, locking and unlocking still need his own words.
 _ANY_TURN = frozenset({"wake", "keep_awake_on"})
@@ -121,6 +126,13 @@ def handle_computer_power(args: dict, task_id=None, **_kw) -> str:
             return json.dumps({"ok": True, "result": f"The {noun} is already awake."})
         ok, note = _ensure_awake(did)
         return json.dumps({"ok": True, "result": note or f"The {noun} is awake."} if ok else {"ok": False, "error": note})
+    if action == "unlock":
+        # Wait for it and say what really happened (live 2026-11-20: "Asked your iPhone for Face ID" while his
+        # permission had unlocked it silently, and the model stopped to wait for nothing).
+        ok, note = _ensure_unlocked(did)
+        if not ok:
+            return json.dumps({"ok": False, "error": note})
+        return json.dumps({"ok": True, "result": f"The {noun} is unlocked." if note else f"The {noun} is already unlocked."})
     out = (store.wake(did) if action == "wake" else store.let_sleep(did) if action == "sleep"
            else store.lock(did) if action == "lock" else store.unlock(did) if action == "unlock"
            else store.keep_awake(did, action == "keep_awake_on")) or {}

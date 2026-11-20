@@ -314,3 +314,22 @@ def test_open_app_reports_what_it_really_launched(monkeypatch):
     monkeypatch.setattr(ui_win.time, "sleep", lambda s: None)
     out = ui_win._do(be, "open_app", None, None, None, None, None, None, None, "Warzone", None)
     assert out["ok"] is True and out.get("launched") == "Call of Duty"
+
+
+
+def test_a_window_windows_wont_bring_forward_is_forced(monkeypatch):
+    # Live 2026-11-20: Battle.net never came to the front, so every click was refused ("isn't in front").
+    from jc_client.skills import ui_win
+    be = FakeBackend()
+    state = {"front": 1, "tries": []}
+    be.frontmost = lambda: (state["front"], "x")
+    be.idle_seconds = lambda: 999.0
+
+    def activate(hwnd, force=False):
+        state["tries"].append(force)
+        if force:
+            state["front"] = hwnd
+    be.activate = activate
+    monkeypatch.setattr(ui_win.time, "sleep", lambda s: None)
+    ui_win._front(be, 42)
+    assert state["front"] == 42 and state["tries"][-1] is True

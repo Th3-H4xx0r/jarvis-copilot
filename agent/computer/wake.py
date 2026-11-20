@@ -88,6 +88,15 @@ def ensure_awake(device_id: str, wait_s: float = WAIT_S, *, clock: Callable[[], 
 UNLOCK_WAIT_S = 150.0   # his Face ID on the iPhone (2 minutes) plus the typing
 
 
+def _screen_on(device_id: str) -> None:
+    """Turn the display on (a remote wake leaves it off — live 2026-11-20); older clients lack the skill."""
+    try:
+        from api import device_bridge
+        device_bridge.invoke_skill(device_id, "screen_wake", {}, timeout=10.0)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _locked(device_id: str):
     """True/False from the computer's screen_locked skill; None when it can't say (an older jc-client)."""
     try:
@@ -106,6 +115,8 @@ def ensure_unlocked(device_id: str, wait_s: float = UNLOCK_WAIT_S, *, clock: Cal
     """Before driving the screen: a locked Mac/PC is unlocked through the Face ID unlock (or his standing unlock
     permission) and waited for. ``(True, note)`` when unlocked ("" when it already was), else ``(False, why)``.
     Live 2026-11-20: woken from sleep, the PC sat at its lock screen and the task failed on it."""
+    _screen_on(device_id)
+    sleep(1.0)            # the lock screen appears once the display is on
     if not _locked(device_id):
         return True, ""
     try:

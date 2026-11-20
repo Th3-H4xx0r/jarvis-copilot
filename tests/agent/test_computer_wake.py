@@ -100,3 +100,12 @@ def test_a_pc_still_locked_says_it_needs_his_ok(monkeypatch):
     store, clock, sleep = _lock_rig(monkeypatch, [True])
     ok, note = W.ensure_unlocked("pc", wait_s=30, clock=clock, sleep=sleep)
     assert ok is False and "Face ID" in note and store.unlocks == ["pc"]
+
+
+def test_the_screen_is_turned_on_before_the_lock_check(monkeypatch):
+    # Live 2026-11-20: after a remote wake the display stayed off; the lock check ran too early and said "unlocked".
+    order = []
+    monkeypatch.setattr(W, "_screen_on", lambda did: order.append("screen"))
+    monkeypatch.setattr(W, "_locked", lambda did: order.append("check") or False)
+    assert W.ensure_unlocked("pc", clock=lambda: 0.0, sleep=lambda s: None) == (True, "")
+    assert order[:2] == ["screen", "check"]

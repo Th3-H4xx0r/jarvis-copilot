@@ -213,3 +213,8 @@ def test_repair_plan_reads_before_switching_apps_and_types_the_value():
         {"do": "type the info", "text": "{search_results}"}]
     good = [{"do": "open Calendar", "app": "Calendar"}, {"do": "read tomorrow", "read": "events"}]
     assert repair_plan(good) == good
+
+
+def test_the_pc_planner_knows_games_start_from_their_launcher():
+    from agent.computer import decide as D
+    assert "launcher" in D._PLAN_PROMPT and "click the Play button" in D._PLAN_PROMPT
