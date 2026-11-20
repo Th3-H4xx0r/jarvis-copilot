@@ -124,4 +124,37 @@ final class MacPasswordTests: XCTestCase {
         XCTAssertEqual(msg["token"] as? String, "ab01")
         XCTAssertEqual(msg["type"] as? String, "mac_power_token")
     }
+
+    // His unlock permission (2026-11-20): one Face ID-signed permission unlocks this Mac without asking each time,
+    // until it ends (30 days at most) — checked here against the pinned key.
+    private func grant(device: String = "mac-1", until: Int? = nil, ts: Int? = nil,
+                       id: String = String(repeating: "ab", count: 16), signDevice: String = "mac-1",
+                       with k: P256.Signing.PrivateKey? = nil) -> [String: Any] {
+        let t = ts ?? Int(now.timeIntervalSince1970)
+        let u = until ?? t + 3600
+        let msg = MacPasswordWire.message(kind: MacPasswordWire.grantKind, nonce: id, ts: t,
+                                          context: MacPasswordWire.grantContext(device: signDevice, until: u))
+        let sig = try! (k ?? key).signature(for: msg).derRepresentation.base64EncodedString()
+        return ["id": id, "ts": t, "until": u, "device": device, "signature": sig]
+    }
+
+    func testASignedUnexpiredPermissionForThisMacUnlocks() {
+        XCTAssertNil(UnlockGrantCheck.problem(grant(), device: "mac-1", publicKeyB64: pub, now: now))
+    }
+
+    func testEndedTooLongOtherDeviceTamperedOrOtherKeyIsRefused() {
+        let t = Int(now.timeIntervalSince1970)
+        XCTAssertNotNil(UnlockGrantCheck.problem(grant(), device: "mac-1", publicKeyB64: pub,
+                                                 now: now.addingTimeInterval(7200)))
+        XCTAssertNotNil(UnlockGrantCheck.problem(grant(until: t + 31 * 86400), device: "mac-1", publicKeyB64: pub, now: now))
+        XCTAssertNotNil(UnlockGrantCheck.problem(grant(device: "pc-1", signDevice: "pc-1"), device: "mac-1",
+                                                 publicKeyB64: pub, now: now))
+        var tampered = grant()
+        tampered["until"] = t + 7200
+        XCTAssertNotNil(UnlockGrantCheck.problem(tampered, device: "mac-1", publicKeyB64: pub, now: now))
+        XCTAssertNotNil(UnlockGrantCheck.problem(grant(with: P256.Signing.PrivateKey()), device: "mac-1",
+                                                 publicKeyB64: pub, now: now))
+        XCTAssertNotNil(UnlockGrantCheck.problem(grant(ts: t + 3600), device: "mac-1", publicKeyB64: pub, now: now))
+        XCTAssertNotNil(UnlockGrantCheck.problem(grant(), device: "", publicKeyB64: pub, now: now))
+    }
 }

@@ -183,6 +183,14 @@ struct AgentsAPI {
         _ = try await api.post("/api/coding/agents/mac/\(action)", json: body)
     }
 
+    /// `POST /api/coding/agents/mac/unlock-grant {device_id, grant}` — his signed unlock permission; a nil grant
+    /// stops it (`{device_id, revoke: true}`).
+    func macUnlockGrant(deviceId: String, grant: [String: Any]?) async throws {
+        var body: [String: Any] = ["device_id": deviceId]
+        if let grant { body["grant"] = grant } else { body["revoke"] = true }
+        _ = try await api.post("/api/coding/agents/mac/unlock-grant", json: body)
+    }
+
     /// `POST /api/coding/agents/mac/password/answer {id, decision, ts?, signature?}` —
     /// the server only relays it; the Mac checks the signature before typing.
     func macPasswordAnswer(id: String, decision: String, ts: Int? = nil, signature: String? = nil) async throws {

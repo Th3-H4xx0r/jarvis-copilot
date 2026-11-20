@@ -42,7 +42,7 @@ public sealed class UnlockApproval
 
     /// `publicKeyB64`: the x9.63 point (04 ‖ X ‖ Y, 65 bytes), as the iPhone registers it.
     /// `signatureB64`: DER (CryptoKit's derRepresentation).
-    private static bool SignatureValid(byte[] message, string signatureB64, string publicKeyB64)
+    public static bool SignatureValid(byte[] message, string signatureB64, string publicKeyB64)
     {
         try
         {

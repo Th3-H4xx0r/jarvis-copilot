@@ -133,6 +133,11 @@ def _mac(c, method, p, body):
         return _result(power.unlock(device_id))
     if p == "/agents/mac/lock":
         return _ok(power.lock(device_id))
+    if p == "/agents/mac/unlock-grant":
+        # His signed permission to unlock without Face ID (or {"revoke": true} to stop it).
+        if body.get("revoke"):
+            return _ok(power.revoke_unlock_grant(device_id))
+        return _result(power.set_unlock_grant(device_id, body.get("grant")))
     return _err(404, "not found")
 
 
@@ -144,7 +149,7 @@ _V2_ROUTES = frozenset({"/agents/list", "/agents/messages", "/agents/send", "/ag
                         # Wake Mac / keep-awake / password requests (api/mac_power.py)
                         "/agents/mac/wake", "/agents/mac/keep-awake", "/agents/mac/let-sleep",
                         "/agents/mac/timer", "/agents/mac/unlock", "/agents/mac/password/answer",
-                        "/agents/mac/approval-key", "/agents/mac/lock"})
+                        "/agents/mac/approval-key", "/agents/mac/lock", "/agents/mac/unlock-grant"})
 _MAX_CONTINUE = 20
 
 

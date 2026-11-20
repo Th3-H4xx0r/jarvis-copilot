@@ -15,6 +15,7 @@ Mac does, so a server compromise can't get the password typed).
 from __future__ import annotations
 
 import json
+import re
 import logging
 import os
 import threading
@@ -25,6 +26,8 @@ from typing import Callable, Iterable, Optional
 log = logging.getLogger(__name__)
 
 INTENT_MAX = 1200.0       # a wake request older than this is forgotten
+GRANT_MAX_S = 30 * 86400.0   # an unlock permission lasts at most 30 days (his pick 2026-11-20)
+_GRANT_ID = re.compile(r"^[0-9a-f]{32}$")
 CHECKIN_EVERY = 900.0     # the sleeping Mac's timer check-in (jc_client/mac_power.py CHECKIN)
 KEEP_AWAKE_MAX = 12 * 3600.0   # "Keep Mac awake" turns itself off after this
 PC_STATUS_FRESH = 150.0        # the PC reports every 60 s: three missed reports = not awake
@@ -217,10 +220,59 @@ class MacPowerStore:
                 d["sleeping_at"] = None   # it connected: awake again
                 self._save()
         self._send(did, frame)
+        with self._lock:
+            grant = self._grant_live(self.device(did))
+        if grant:
+            self._send(did, {"type": "mac_unlock_grant", "grant": grant})
         if not self._is_pc(did) and "wol_send" in set(self._skills_of(did)):
             owed = self._pending_pc_wakes()
             if owed:
                 self._spawn(lambda: [self._invoke(did, "wol_send", a) for a in owed])
+
+    # ── unlock permission (his ask 2026-11-20: unlock without a Face ID every time) ──────────────
+    # His iPhone signs one permission with Face ID; the computer checks it against the key it pins before it
+    # types anything, so the server only stores and relays it (it can't make one). Stopping needs no signature.
+    def _grant_ok(self, did: str, g) -> str:
+        now = self._clock()
+        if not isinstance(g, dict):
+            return "the permission is missing"
+        try:
+            ts, until = int(g.get("ts")), int(g.get("until"))
+        except (TypeError, ValueError):
+            return "the permission's times are wrong"
+        if not _GRANT_ID.match(str(g.get("id") or "")) or not str(g.get("signature") or ""):
+            return "the permission isn't signed"
+        if str(g.get("device") or "") != did:
+            return "the permission is for another computer"
+        if ts > now + 120 or until <= now or until - ts > GRANT_MAX_S + 60:
+            return "the permission's dates aren't allowed (30 days at most)"
+        return ""
+
+    def _grant_live(self, d: dict):
+        g = d.get("unlock_grant")
+        if isinstance(g, dict) and float(g.get("until") or 0) > self._clock():
+            return g
+        return None
+
+    def set_unlock_grant(self, did: str, grant) -> dict:
+        why = self._grant_ok(did, grant)
+        if why:
+            return {"ok": False, "error": why}
+        g = {k: grant[k] for k in ("id", "ts", "until", "device", "signature")}
+        g["ts"], g["until"] = int(g["ts"]), int(g["until"])
+        self._update(did, unlock_grant=g)
+        self._send(did, {"type": "mac_unlock_grant", "grant": g})
+        return {"ok": True, "until": g["until"]}
+
+    def revoke_unlock_grant(self, did: str) -> dict:
+        with self._lock:
+            d = self.device(did)
+            g = d.pop("unlock_grant", None)
+            self._save()
+        self._changed()
+        if isinstance(g, dict):
+            self._send(did, {"type": "mac_unlock_grant", "revoke": g.get("id")})
+        return {"ok": True}
 
     def keep_awake(self, did: str, on: bool) -> dict:
         self._update(did, keep_awake=bool(on), keep_awake_at=self._clock())
@@ -400,7 +452,8 @@ class MacPowerStore:
                              "wake_capable": (status.get("wake") or {}).get("capable"),
                              # The PC: jc-client up but the Jarvis app gone (None = not reported, a Mac).
                              "app_running": status.get("app") if awake and "app" in status else None,
-                             "wake_reason": (status.get("wake") or {}).get("reason")})
+                             "wake_reason": (status.get("wake") or {}).get("reason"),
+                             "unlock_grant_until": (self._grant_live(d) or {}).get("until")})
         return {"mac": macs, "password_requests": requests}
 
 

@@ -206,6 +206,8 @@ struct AgentMacPower: Identifiable, Equatable {
     /// The PC's Jarvis app is linked to jc-client (nil = not reported, e.g. a Mac). False while awake means
     /// Screen, Remote Desktop and PC Stats can't work until it's open again.
     let appRunning: Bool?
+    /// Until when Jarvis may unlock it without his Face ID (his signed permission; nil = Face ID each time).
+    let unlockGrantUntil: Date?
 
     var isPC: Bool { os == "windows" }
 
@@ -230,6 +232,8 @@ struct AgentMacPower: Identifiable, Equatable {
         wakeCapable = json["wake_capable"] is NSNumber ? CodingJSON.bool(json["wake_capable"]) : nil
         wakeReason = CodingJSON.str(json["wake_reason"]).flatMap { $0.isEmpty ? nil : $0 }
         appRunning = json["app_running"] is NSNumber ? CodingJSON.bool(json["app_running"]) : nil
+        unlockGrantUntil = CodingJSON.double(json["unlock_grant_until"])
+            .flatMap { $0 > 0 ? Date(timeIntervalSince1970: $0) : nil }
     }
 }
 

@@ -13,6 +13,7 @@ struct AgentsMacPowerCard: View {
     /// The action this card started, so only its button shows progress.
     @State private var pending: AgentsStore.MacPowerAction?
     @State private var taps = 0
+    @State private var askGrant = false
 
     private var busy: Bool { store.macBusy.contains(mac.deviceId) }
     private var name: String { AgentsMacPowerCopy.cardName(mac.name, os: mac.os) }
@@ -43,6 +44,21 @@ struct AgentsMacPowerCard: View {
                           action: { RdpPresenter.shared.open(deviceId: mac.deviceId, name: name) })
                         .accessibilityHint("Opens a Remote Desktop session after Face ID")
                 }
+                JcRow(symbol: mac.unlockGrantUntil == nil ? "lock" : "lock.open", title: "Unlock without Face ID",
+                      subtitle: AgentsMacPowerCopy.grantSubtitle(mac.unlockGrantUntil, now: context.date),
+                      action: { askGrant = true })
+                    .accessibilityHint("Lets Jarvis unlock it without asking each time, until you choose")
+                    .confirmationDialog("Let Jarvis unlock \(name) without Face ID", isPresented: $askGrant,
+                                        titleVisibility: .visible) {
+                        if mac.unlockGrantUntil != nil {
+                            Button("Stop now", role: .destructive) { Task { await grant(nil) } }
+                        }
+                        ForEach(MacUnlockGrant.durations) { d in
+                            Button("For \(d.label)") { Task { await grant(d.seconds) } }
+                        }
+                    } message: {
+                        Text("One Face ID now. Until it ends, Jarvis can unlock \(name) by itself; you can stop it here any time.")
+                    }
                 JcRow(symbol: "cup.and.saucer", title: "Keep awake",
                       subtitle: AgentsMacPowerCopy.keepAwakeSubtitle(on: mac.keepAwake), last: true) {
                     Toggle("Keep awake", isOn: Binding(
@@ -136,7 +152,10 @@ struct AgentsMacPowerCard: View {
     private var menu: some View {
         Menu {
             if mac.isPC {
-                // No dark wake on Windows (nothing to check), no Mac password pairing.
+                // The PC wakes itself every 15 minutes to check too (jc_client/pc_wake.py, 2026-11-19).
+                Toggle("Check for wake requests while asleep", isOn: Binding(
+                    get: { mac.timerOn },
+                    set: { on in run(.timer(on)) }))
                 Text(AgentsMacPowerCopy.wakeLine(mac))
             } else {
                 Toggle("Check for wake requests while asleep", isOn: Binding(
@@ -158,6 +177,23 @@ struct AgentsMacPowerCard: View {
     }
 
     // MARK: actions
+
+    /// Give (seconds) or stop (nil) his unlock permission, then re-read the list.
+    private func grant(_ seconds: Int?) async {
+        do {
+            if let seconds {
+                try await MacUnlockGrant.give(deviceId: mac.deviceId, name: name, seconds: seconds, api: store.api)
+            } else {
+                try await store.api.macUnlockGrant(deviceId: mac.deviceId, grant: nil)
+            }
+            error = nil
+            await store.refresh()
+        } catch is CarSignError {
+            // he cancelled Face ID: nothing was sent
+        } catch {
+            self.error = apiErrorMessage(error)
+        }
+    }
 
     private var actions: some View {
         HStack(spacing: 10) {
@@ -308,6 +344,13 @@ struct AgentsMacPasswordRow: View {
 
 /// The MacBook card's words, kept pure for the tests.
 enum AgentsMacPowerCopy {
+    /// "Off · Face ID each time" / "On until 9:40 PM" / "On until Tue 9:40 PM" (his unlock permission).
+    static func grantSubtitle(_ until: Date?, now: Date = Date()) -> String {
+        guard let until, until > now else { return "Off · Face ID each time" }
+        let sameDay = Calendar.current.isDate(until, inSameDayAs: now)
+        return "On until " + until.formatted(sameDay ? .dateTime.hour().minute() : .dateTime.weekday(.abbreviated).hour().minute())
+    }
+
     /// After this long without an answer the Mac is likely in deep sleep, where
     /// only the 15-minute timer wakes it.
     static let slowWakeAfter: TimeInterval = 60

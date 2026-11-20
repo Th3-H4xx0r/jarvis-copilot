@@ -275,3 +275,49 @@ def test_a_pc_with_no_wifi_address_yet_still_waits_for_its_own_checkin(tmp_path)
     rig.store.on_status(PC, dict(PC_STATUS, wifi_mac="", wake={"capable": False, "adapter": "", "reason": "x"},
                                  timer_on=True))
     assert rig.store.wake(PC) == {"ok": True, "pending": True, "via": "the PC itself", "within_min": 15}
+
+
+def _grant(rig, did=PC, days=1, **kw):
+    g = {"id": "ab" * 16, "ts": int(rig.t), "until": int(rig.t + days * 86400), "device": did, "signature": "MEUCIQ=="}
+    g.update(kw)
+    return g
+
+
+def test_an_unlock_permission_is_kept_handed_to_the_pc_and_shown(tmp_path):
+    # His ask 2026-11-20: unlock without a Face ID every time — one signed permission, 30 days at most.
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    g = _grant(rig)
+    assert rig.store.set_unlock_grant(PC, g) == {"ok": True, "until": g["until"]}
+    assert rig.frames[-1] == (PC, {"type": "mac_unlock_grant", "grant": g})
+    assert _row(rig, PC)["unlock_grant_until"] == g["until"]
+    rig.frames.clear()
+    rig.store.sync(PC)                                         # a jc-client that reconnects gets it again
+    assert (PC, {"type": "mac_unlock_grant", "grant": g}) in rig.frames
+
+
+def test_a_bad_or_too_long_permission_is_refused(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    for bad in (_grant(rig, days=31), _grant(rig, days=-1), _grant(rig, device=MAC), _grant(rig, id="xyz"),
+                _grant(rig, ts=int(rig.t + 3600)), _grant(rig, signature="")):
+        assert rig.store.set_unlock_grant(PC, bad)["ok"] is False
+    assert "unlock_grant_until" not in _row(rig, PC) or _row(rig, PC)["unlock_grant_until"] is None
+
+
+def test_stopping_the_permission_tells_the_pc(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    g = _grant(rig)
+    rig.store.set_unlock_grant(PC, g)
+    assert rig.store.revoke_unlock_grant(PC) == {"ok": True}
+    assert rig.frames[-1] == (PC, {"type": "mac_unlock_grant", "revoke": g["id"]})
+    assert _row(rig, PC)["unlock_grant_until"] is None
+
+
+def test_an_expired_permission_is_gone(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    rig.store.set_unlock_grant(PC, _grant(rig))
+    rig.t += 2 * 86400
+    assert _row(rig, PC)["unlock_grant_until"] is None

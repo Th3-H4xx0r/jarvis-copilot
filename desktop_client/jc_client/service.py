@@ -42,7 +42,8 @@ log = logging.getLogger(__name__)
 
 # Server frames the Mac/PC power module (pc_power.PcPower.handle_frame) answers. Keep in step with it:
 # test_pc_power checks every one of these is handled.
-POWER_FRAMES = ("mac_power_set", "mac_password_answer", "mac_password_unlock", "rdp_credential_request")
+POWER_FRAMES = ("mac_power_set", "mac_password_answer", "mac_password_unlock", "rdp_credential_request",
+                "mac_unlock_grant")   # his unlock permission (jc_client/unlock_grant.py)
 
 # Reconnection backoff schedule (seconds).
 _BACKOFF_SECONDS = [1, 2, 4, 8, 16, 32, 60]
@@ -77,6 +78,14 @@ def _imessage_api_origin() -> str | None:
         proxy = PinnedProxy.from_creds(creds)
         _imessage_origin = f"http://127.0.0.1:{proxy.start()}"
     return _imessage_origin
+
+
+def _own_device_id() -> str:
+    try:
+        from jc_client import credentials
+        return credentials.load().device_id or ""
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 def _server_get(path: str, timeout: float = 10.0) -> dict:
@@ -560,7 +569,7 @@ class Service:
                     self._power = PowerService(
                         self._forward_up, self._ui_broadcast,
                         lambda: self._hook_server.engine_sessions() if self._hook_server else [],
-                        _imessage_api_origin)
+                        _imessage_api_origin, device_id=_own_device_id())
                     self._power.start()
                 except Exception as exc:  # noqa: BLE001 — never fatal
                     log.warning("mac power unavailable: %s", exc)
@@ -570,7 +579,8 @@ class Service:
                     from jc_client.pc_power import PcPower
                     self._power = PcPower(self._send_up_ok, ui_broadcast=self._ui_broadcast,   # the PC in the phone's Agents card
                                           app_linked=lambda: (self._ui.client_count() > 0) if getattr(self, "_ui", None) else None,
-                                          api_origin=_imessage_api_origin)   # its 15-min wake-timer check-in
+                                          api_origin=_imessage_api_origin,   # its 15-min wake-timer check-in
+                                          device_id=_own_device_id())
                     self._power.start()
                     from jc_client.skills import pc_it
                     pc_it.set_power(self._power)   # admin_run asks his Face ID through its broker

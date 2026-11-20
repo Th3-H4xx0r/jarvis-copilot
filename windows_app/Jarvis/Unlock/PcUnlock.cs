@@ -114,7 +114,12 @@ public sealed class PcUnlock
         if (PinnedKey is not { } key) return "Trust your iPhone in Jarvis Settings → PC power on the PC first.";
         var proof = m["proof"] as JsonObject;
         var ts = proof?["ts"] is JsonValue v && v.TryGetValue<double>(out var d) ? (long)d : 0;
-        if (!_approval.Verify(J.S(m["context"]), "unlock", J.S(m["nonce"]), ts, J.S(proof?["signature"]), key, DateTimeOffset.UtcNow))
+        if (m["grant"] is JsonObject grant)
+        {
+            // His standing unlock permission instead of a fresh Face ID (UnlockGrant: signed, unexpired, this PC).
+            if (UnlockGrant.Check(grant, J.S(m["device"]), key, DateTimeOffset.UtcNow) is { } why) return why;
+        }
+        else if (!_approval.Verify(J.S(m["context"]), "unlock", J.S(m["nonce"]), ts, J.S(proof?["signature"]), key, DateTimeOffset.UtcNow))
             return "Your iPhone's approval didn't check out on the PC.";
         if (!HasPassword) return "Save your Windows password in Jarvis Settings → PC power on the PC first.";
         if (!HelperInstalled) return "Install the unlock helper in Jarvis Settings → PC power on the PC first.";

@@ -11,6 +11,15 @@ enum MacPasswordWire {
         return Data("jarvis-mac-password|\(kind)|\(nonce)|\(ts)|\(digest)".utf8)
     }
 
+    /// His unlock permission (2026-11-20): signed like an approval with this kind, the permission's id as the
+    /// nonce, the time he gave it, and this context — so it can't be stretched or moved to another computer.
+    static let grantKind = "unlock-grant"
+    static let grantMaxSeconds = 30 * 86400
+
+    static func grantContext(device: String, until: Int) -> String {
+        "unlock-grant device=\(device) until=\(until)"
+    }
+
     /// The pairing code both show: the first 8 hex of SHA-256 of the iPhone's approval key.
     static func fingerprint(_ publicKeyB64: String) -> String? {
         guard let data = Data(base64Encoded: publicKeyB64) else { return nil }

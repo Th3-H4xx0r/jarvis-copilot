@@ -22,7 +22,7 @@ UI_REQUESTS = frozenset({"password_request", "password_seen", "password_local_an
                          "password_fill_result", "password_pending", "mac_power_token",
                          "mac_power_wake", "mac_power_state", "mac_power_set", "power_install",
                          "approval_key"})
-FRAMES = frozenset({"mac_power_set", "mac_password_answer", "mac_password_unlock"})
+FRAMES = frozenset({"mac_power_set", "mac_password_answer", "mac_password_unlock", "mac_unlock_grant"})
 _KINDS = ("sudo", "admin", "keychain", "unlock")
 # Requests only the Jarvis Mac app may make (checked by the connecting process,
 # which ui_server reads from the kernel): a stranger on ui.sock can't start the
@@ -78,14 +78,19 @@ def _request_id(req: dict) -> str:
 class PowerService:
     def __init__(self, up: Callable[[dict], None], ui_broadcast: Callable[[dict], None],
                  sessions: Callable[[], list], api_origin: Callable[[], Optional[str]],
-                 procs: Optional[Procs] = None) -> None:
+                 procs: Optional[Procs] = None, device_id: str = "", grants=None) -> None:
         self._procs = procs or Procs()
         self._up = up
         self._ui = ui_broadcast
         self._origin = api_origin
         self._lock = threading.Lock()
         self._fills: dict = {}    # request id -> (Event, reply holder)
-        self.passwords = PasswordBroker(up, ui_broadcast, self._ask_app)
+        from jc_client.unlock_grant import GrantStore
+        from pathlib import Path
+        # His unlock permission: Unlock Mac without a Face ID while it lasts (the Mac app checks it).
+        self.grants = grants or GrantStore(Path.home() / ".jarviscopilot-client" / "unlock_grant.json")
+        self.passwords = PasswordBroker(up, ui_broadcast, self._ask_app, unlock_grant=self.grants.current,
+                                        device_id=device_id)
         self.power = MacPower(helper_call, up, self._checkin, sessions,
                               pending_password=lambda: bool(self.passwords.pending()))
 
@@ -124,6 +129,8 @@ class PowerService:
         elif t == "mac_password_answer":
             self.passwords.on_answer(str(frame.get("id") or ""), str(frame.get("decision") or ""),
                                      frame.get("ts"), frame.get("signature"))
+        elif t == "mac_unlock_grant":
+            self.grants.handle_frame(frame)
         elif t == "mac_password_unlock":
             self._ask_async("unlock", "Unlock Mac")
 

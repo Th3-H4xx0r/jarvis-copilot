@@ -101,6 +101,35 @@ final class ApprovalVerifier: @unchecked Sendable {
     }
 }
 
+/// His unlock permission (2026-11-20): Unlock Mac without a Face ID while it lasts (30 days at most). Checked
+/// here against the pinned key, like an approval; the server only relays it.
+enum UnlockGrantCheck {
+    /// nil when this permission lets this Mac unlock now; otherwise why not.
+    static func problem(_ g: [String: Any], device: String, publicKeyB64: String, now: Date = Date()) -> String? {
+        let id = J.s(g["id"])
+        let ts = (g["ts"] as? NSNumber)?.intValue ?? 0, until = (g["until"] as? NSNumber)?.intValue ?? 0
+        guard id.range(of: "^[0-9a-f]{32}$", options: .regularExpression) != nil, ts > 0, until > 0 else {
+            return "The unlock permission doesn't look right"
+        }
+        guard !device.isEmpty, J.s(g["device"]) == device else { return "The unlock permission is for another computer" }
+        let nowS = Int(now.timeIntervalSince1970)
+        guard until > nowS else { return "Your unlock permission has ended" }
+        guard ts <= nowS + 120, until - ts <= MacPasswordWire.grantMaxSeconds + 60 else {
+            return "The unlock permission's dates aren't allowed"
+        }
+        let msg = MacPasswordWire.message(kind: MacPasswordWire.grantKind, nonce: id, ts: ts,
+                                          context: MacPasswordWire.grantContext(device: device, until: until))
+        guard let keyData = Data(base64Encoded: publicKeyB64),
+              let key = try? P256.Signing.PublicKey(x963Representation: keyData),
+              let sigData = Data(base64Encoded: J.s(g["signature"])),
+              let signature = try? P256.Signing.ECDSASignature(derRepresentation: sigData),
+              key.isValidSignature(signature, for: msg) else {
+            return "Your unlock permission didn't check out on the Mac"
+        }
+        return nil
+    }
+}
+
 enum ScreenLock {
     static var isLocked: Bool {
         guard let d = CGSessionCopyCurrentDictionary() as? [String: Any] else { return false }
@@ -295,7 +324,17 @@ final class MacPasswordFiller {
             link.request(Self.result(id: id, ok: ok, password: password, error: error))
         }
         let approved: Bool
-        if J.b(proof["local"]) {
+        let grant = J.obj(msg["grant"])
+        if kind == "unlock", !grant.isEmpty {
+            // His standing unlock permission instead of a fresh Face ID.
+            guard let key = ApprovalKey.pinned else {
+                return reply(false, error: "Pair your iPhone in Jarvis → Settings → Mac power first")
+            }
+            if let why = UnlockGrantCheck.problem(grant, device: J.s(msg["device"]), publicKeyB64: key) {
+                return reply(false, error: why)
+            }
+            approved = true
+        } else if J.b(proof["local"]) {
             approved = touchApproved.removeValue(forKey: id) == kind && !kind.isEmpty
         } else if let key = ApprovalKey.pinned, let ts = (proof["ts"] as? NSNumber)?.intValue {
             approved = verifier.verify(context: context, kind: kind, nonce: nonce, ts: ts,

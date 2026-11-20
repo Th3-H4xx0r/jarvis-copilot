@@ -259,7 +259,8 @@ class PcPower:
                  is_app: Optional[Callable[[int], bool]] = None,
                  spawn: Optional[Callable[..., None]] = None,
                  app_linked: Callable[[], Optional[bool]] = lambda: None,
-                 api_origin: Callable[[], Optional[str]] = lambda: None, wake=None) -> None:
+                 api_origin: Callable[[], Optional[str]] = lambda: None, wake=None, device_id: str = "",
+                 grants=None) -> None:
         self._send_up = send_up
         self._origin = api_origin
         # Whether the Jarvis app is linked to jc-client (it captures Screen, answers Remote Desktop and
@@ -276,7 +277,12 @@ class PcPower:
         self._spawn = spawn or (lambda fn, *a: threading.Thread(target=fn, args=a, daemon=True,
                                                                   name="jc-pc-rdp").start())
         self._fill_lock = threading.Lock()
-        self.passwords = PasswordBroker(lambda m: self._send_up(m), ui_broadcast, self._ask_app)
+        from jc_client.unlock_grant import GrantStore
+        from pathlib import Path
+        # His unlock permission: Unlock PC without a Face ID while it lasts (the app checks it).
+        self.grants = grants or GrantStore(Path.home() / ".jarviscopilot-client" / "unlock_grant.json")
+        self.passwords = PasswordBroker(lambda m: self._send_up(m), ui_broadcast, self._ask_app,
+                                        unlock_grant=self.grants.current, device_id=device_id)
         self._set_state = set_state
         self._lock = lock
         self._suspend = suspend
@@ -409,6 +415,8 @@ class PcPower:
         elif t == "mac_password_answer":
             self.passwords.on_answer(str(frame.get("id") or ""), str(frame.get("decision") or ""),
                                      frame.get("ts"), frame.get("signature"))
+        elif t == "mac_unlock_grant":
+            self.grants.handle_frame(frame)
 
     def _rdp_release(self, frame: dict) -> None:
         """Remote Desktop (plan Task 2): Face ID on his iPhone for exactly this session's context, then

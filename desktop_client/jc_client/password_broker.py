@@ -58,12 +58,16 @@ class _Request:
 class PasswordBroker:
     def __init__(self, up: Callable[[dict], None], ui_broadcast: Callable[[dict], None],
                  ask_app: Callable[[dict, float], dict], *, clock: Callable[[], float] = time.time,
+                 unlock_grant: Callable[[], Optional[dict]] = lambda: None, device_id: str = "",
                  wait: Callable[[threading.Event, float], bool] = lambda e, t: e.wait(t)) -> None:
         self._up = up
         self._ui = ui_broadcast
         self._ask_app = ask_app
         self._clock = clock
         self._wait = wait
+        # His standing unlock permission (jc_client/unlock_grant.py): an unlock tries it before asking the phone.
+        self._unlock_grant = unlock_grant
+        self._device_id = device_id
         self._lock = threading.Lock()
         self._reqs: dict = {}
         self._sudo_given: dict = {}   # sudo pid -> when it got a password
@@ -87,6 +91,10 @@ class PasswordBroker:
         text = (context or "") if kind in COMMAND_KINDS else (context or "")[:MAX_CONTEXT]
         req = _Request(secrets.token_hex(8), kind, text, secrets.token_hex(16), now, why=why)
         rid = req.public["id"]
+        if kind == "unlock":
+            done = self._unlock_with_permission(rid, req)
+            if done is not None:
+                return done
         with self._lock:
             self._reqs[rid] = req
         self._send("mac_password_request", "password_request", dict(req.public))
@@ -125,6 +133,27 @@ class PasswordBroker:
                     self._sudo_given[ppid] = self._clock()
             return {"ok": True, "password": result.get("password") or ""}
         return {"ok": True}
+
+    def _unlock_with_permission(self, rid: str, req: _Request) -> Optional[dict]:
+        """With his unlock permission: the app checks it and types; no phone. None → ask him as usual (no
+        permission, or the app refused it)."""
+        try:
+            grant = self._unlock_grant()
+        except Exception:  # noqa: BLE001
+            grant = None
+        if not grant:
+            return None
+        try:
+            result = self._ask_app({"type": "password_fill", "id": rid, "kind": "unlock",
+                                    "nonce": req.public["nonce"], "context": req.public["context"],
+                                    "grant": grant, "device": self._device_id}, _FILL_TIMEOUT) or {}
+        except Exception as exc:  # noqa: BLE001
+            result = {"ok": False, "error": str(exc)}
+        if result.get("ok") is True:
+            log.info("unlocked with his unlock permission (no Face ID)")
+            return {"ok": True}
+        log.info("unlock permission not used (%s); asking for Face ID", result.get("error") or "refused")
+        return None
 
     def _run_command(self, rid: str, req: _Request, answer: dict, run_timeout: int) -> dict:
         if answer.get("decision") == "timeout":
