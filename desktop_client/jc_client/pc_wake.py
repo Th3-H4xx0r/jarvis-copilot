@@ -34,7 +34,8 @@ class PcWake:
                  suspend: Callable[[], None], idle_seconds: Callable[[], float], display_on: Callable[[], None],
                  hold: Callable[[float], None], clock: Callable[[], float] = time.time,
                  retry_sleep: Callable[[float], None] = time.sleep,
-                 fired: Optional[Callable[[], bool]] = None) -> None:
+                 fired: Optional[Callable[[], bool]] = None,
+                 sleep_marker: Optional[Callable[[], float]] = None) -> None:
         self._checkin = checkin
         self._arm_fn = arm
         self._cancel = cancel
@@ -47,6 +48,11 @@ class PcWake:
         # Whether the wake timer itself went off (the real answer to "was this resume ours?"; review: a
         # power-button press 90 s before the timer was taken for it and slept again).
         self._fired = fired
+        # Total time slept so far (wall clock minus the awake-only clock): it changes with every sleep, so two
+        # signals for one resume share it and a new resume — even 9 s later — doesn't (live 2026-11-19 23:02:
+        # Wake PC 11 s after a check-in passed for that resume's duplicate; the reconnect waited a minute).
+        self._sleep_marker = sleep_marker
+        self._handled_marker: Optional[float] = None
         self._lock = threading.Lock()
         self.timer_on = True
         self._wake_at: Optional[float] = None
@@ -91,6 +97,14 @@ class PcWake:
         if unreported:
             log.info("pc wake: the timer went off and no resume was reported; checking in from the ticks")
             self.on_did_wake()
+
+    def _marker(self) -> Optional[float]:
+        if self._sleep_marker is None:
+            return None
+        try:
+            return float(self._sleep_marker())
+        except Exception:  # noqa: BLE001
+            return None
 
     def _safe_fired(self) -> bool:
         try:
@@ -142,9 +156,13 @@ class PcWake:
             now = self._clock()
             if self._quiet_since is not None and not self._asleep:
                 return False                 # a check-in for this resume is already running (review: a 2nd one lost his wake)
-            if self._handled_at is not None and now - self._handled_at < DEDUPE_S:
+            marker = self._marker()
+            if marker is not None and self._handled_marker is not None:
+                if abs(marker - self._handled_marker) < 2.0:
+                    return self._last_result         # the same resume, reported twice
+            elif self._handled_at is not None and now - self._handled_at < DEDUPE_S:
                 return self._last_result
-            self._handled_at = now
+            self._handled_at, self._handled_marker = now, marker
             self._asleep = False
             self.seq += 1
             timer_went_off = (self._safe_fired() if self._fired is not None else

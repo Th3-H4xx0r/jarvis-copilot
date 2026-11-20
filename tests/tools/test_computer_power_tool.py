@@ -42,17 +42,17 @@ def test_sleep_and_wake_the_pc(monkeypatch):
     store = _rig(monkeypatch)
     out = json.loads(T.handle_computer_power({"computer": "PC", "action": "sleep"}, task_id="t1"))
     assert out["ok"] is True and store.calls == [("sleep", "pc-1")]
-    _rig(monkeypatch, "wake my pc")
-    store = T._store()
     out = json.loads(T.handle_computer_power({"computer": "my PC", "action": "wake"}, task_id="t1"))
-    assert out["ok"] is True and store.calls == [("wake", "pc-1")] and "Pod" in out["result"]
+    assert out == {"ok": True, "result": "The PC is already awake."}
 
 
 def test_picks_the_computer_by_name_or_kind(monkeypatch):
     store = _rig(monkeypatch, "wake my mac")
+    woke = []
+    monkeypatch.setattr(T, "_ensure_awake", lambda did: woke.append(did) or (True, "The Mac is awake."))
     T.handle_computer_power({"computer": "Mac", "action": "wake"}, task_id="t1")
     T.handle_computer_power({"computer": "pranav-computer", "action": "keep_awake_on"}, task_id="t1")
-    assert store.calls == [("wake", "mac-1"), ("keep", "pc-1", True)]
+    assert woke == ["mac-1"] and store.calls == [("keep", "pc-1", True)]
     out = json.loads(T.handle_computer_power({"computer": "toaster", "action": "wake"}, task_id="t1"))
     assert out["ok"] is False and "pranav-computer" in out["error"]
 
@@ -70,11 +70,11 @@ def test_lock_is_the_pcs(monkeypatch):
 
 
 def test_a_pending_wake_says_when(monkeypatch):
-    store = _rig(monkeypatch, "wake my pc")
-    store.wake = lambda did: {"ok": True, "pending": True, "via": "the PC itself", "within_min": 15}
-    out = json.loads(T.handle_computer_power({"computer": "PC", "action": "wake"}, task_id="t1"))
-    assert out["ok"] is True and "15 minutes" in out["result"] and "the PC itself" in out["result"]
-
+    _rig(monkeypatch, "wake my mac")
+    monkeypatch.setattr(T, "_ensure_awake", lambda did: (False, "The Mac didn't come up yet; the PC itself picks up "
+                                                                "the wake request within 15 minutes. Try again then."))
+    out = json.loads(T.handle_computer_power({"computer": "Mac", "action": "wake"}, task_id="t1"))
+    assert out["ok"] is False and "15 minutes" in out["error"]
 
 
 def test_keep_awake_for_a_sleeping_computer_says_it_applies_later(monkeypatch):
@@ -83,3 +83,18 @@ def test_keep_awake_for_a_sleeping_computer_says_it_applies_later(monkeypatch):
     store.keep_awake = lambda did, on: {"ok": True, "delivered": False}
     out = json.loads(T.handle_computer_power({"computer": "PC", "action": "keep_awake_on"}, task_id="t1"))
     assert out["ok"] is True and "next" in out["result"]
+
+
+
+def test_wake_needs_no_power_word_and_waits_until_ready(monkeypatch):
+    # Live 2026-11-19: "Launch it now." — the wake was refused for lacking a power word, and the turn gave up.
+    store = _rig(monkeypatch, "Launch it now.")
+    ROWS[0]["state"] = "sleeping"
+    try:
+        monkeypatch.setattr(T, "_ensure_awake", lambda did: (True, "The PC is awake."))
+        out = json.loads(T.handle_computer_power({"computer": "PC", "action": "wake"}, task_id="t1"))
+        assert out == {"ok": True, "result": "The PC is awake."}
+        out = json.loads(T.handle_computer_power({"computer": "PC", "action": "sleep"}, task_id="t1"))
+        assert out["ok"] is False                       # sleeping still needs his own words
+    finally:
+        ROWS[0]["state"] = "awake"

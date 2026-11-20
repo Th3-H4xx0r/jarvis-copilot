@@ -584,3 +584,62 @@ def test_the_schema_tells_the_model_to_name_the_device(monkeypatch):
     tool = {t["name"]: t for t in device_skill_tools.get_device_tools()}["device_open_url"]
     desc = tool["schema"]["parameters"]["properties"]["device"]["description"]
     assert "ran_on" in desc and "named" in desc
+
+
+
+def test_a_sleeping_pc_is_woken_before_the_call(monkeypatch):
+    # Live 2026-11-19: device_open_app on the sleeping PC answered "device not connected" and the turn gave up.
+    _reset(monkeypatch, [
+        {"device_id": "pc", "device_name": "pranav-computer", "name": "open_app",
+         "description": "Open an app.", "input_schema": {"type": "object", "properties": {}}},
+        {"device_id": "mac", "device_name": "Mac", "name": "open_app",
+         "description": "Open an app.", "input_schema": {"type": "object", "properties": {}}},
+    ])
+    monkeypatch.setattr(device_bridge, "in_process_available", lambda: True)
+    up = {"mac"}
+    monkeypatch.setattr(device_bridge, "reachable_device_ids", lambda: set(up))
+    from agent.computer import wake
+    monkeypatch.setattr(wake, "sleeping_computers", lambda: [{"device_id": "pc", "device_os": "windows"}] if "pc" not in up else [])
+    woke = []
+    monkeypatch.setattr(wake, "ensure_awake", lambda did, **kw: (woke.append(did), up.add(did), (True, "awake"))[2])
+    calls = []
+    monkeypatch.setattr(device_bridge, "invoke_skill", lambda d, s, a, timeout=30.0: calls.append(d) or {"ok": True})
+    tools = {t["name"]: t for t in device_skill_tools.get_device_tools()}
+    out = json.loads(tools["device_open_app"]["handler"](args={"device": "pranav-computer", "name": "Battle.net"}))
+    assert out["ok"] is True and woke == ["pc"] and calls == ["pc"]
+
+
+def test_a_pc_that_wont_wake_says_so(monkeypatch):
+    _reset(monkeypatch, [
+        {"device_id": "pc", "device_name": "pranav-computer", "name": "open_app",
+         "description": "Open an app.", "input_schema": {"type": "object", "properties": {}}},
+    ])
+    monkeypatch.setattr(device_bridge, "in_process_available", lambda: True)
+    monkeypatch.setattr(device_bridge, "reachable_device_ids", lambda: set())
+    from agent.computer import wake
+    monkeypatch.setattr(wake, "sleeping_computers", lambda: [{"device_id": "pc", "device_os": "windows"}])
+    monkeypatch.setattr(wake, "ensure_awake", lambda did, **kw: (False, "The PC didn't come up within 2 minutes."))
+    tools = {t["name"]: t for t in device_skill_tools.get_device_tools()}
+    out = json.loads(tools["device_open_app"]["handler"](args={"name": "Battle.net"}))
+    assert out == {"ok": False, "error": "The PC didn't come up within 2 minutes."}
+
+
+def test_the_conversation_picks_the_device_without_asking(monkeypatch):
+    # His ask 2026-11-19: "it needs context so I don't have to say PC or Mac" — Jarvis asked "Which PC did you mean?"
+    _reset(monkeypatch, [
+        {"device_id": "pc", "device_name": "pranav-computer", "device_os": "windows", "name": "open_app",
+         "description": "Open an app.", "input_schema": {"type": "object", "properties": {}}},
+        {"device_id": "mac", "device_name": "Pranavs-MacBook-Pro.local", "device_os": "macos", "name": "open_app",
+         "description": "Open an app.", "input_schema": {"type": "object", "properties": {}}},
+    ])
+    monkeypatch.setattr(device_bridge, "in_process_available", lambda: True)
+    monkeypatch.setattr(device_bridge, "reachable_device_ids", lambda: {"pc", "mac"})
+    from agent import mac_browser_gate
+    monkeypatch.setattr(mac_browser_gate, "turn_text", lambda tid: "Hold. Can you launch Call of Duty: Warzone.")
+    monkeypatch.setattr(mac_browser_gate, "recent_texts", lambda tid, n=3: ["Launch it now.",
+                                                                            "Can you turn on my PC and launch Battle.net"])
+    calls = []
+    monkeypatch.setattr(device_bridge, "invoke_skill", lambda d, s, a, timeout=30.0: calls.append(d) or {"ok": True})
+    tools = {t["name"]: t for t in device_skill_tools.get_device_tools()}
+    out = json.loads(tools["device_open_app"]["handler"](args={"name": "Call of Duty"}, task_id="chat1"))
+    assert out["ok"] is True and calls == ["pc"], out

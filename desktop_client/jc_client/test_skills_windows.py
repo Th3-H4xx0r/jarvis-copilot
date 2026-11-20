@@ -104,3 +104,31 @@ def test_open_url_in_a_named_browser(monkeypatch):
     w.open_url_in("https://example.com/?q=a b", "Google Chrome")
     script, env = seen[0]
     assert env == {"JC_APP": "chrome.exe", "JC_ARG": "https://example.com/?q=a b"} and "-ArgumentList" in script
+
+
+
+START_APPS = [{"Name": "Battle.net", "AppID": "{7C5A40EF}\\Battle.net\\Battle.net Launcher.exe"},
+              {"Name": "Call of Duty", "AppID": "battlenet://game/auks"},
+              {"Name": "Visual Studio Code", "AppID": "Microsoft.VisualStudioCode"},
+              {"Name": "Steam", "AppID": "{7C5A40EF}\\Steam\\steam.exe"}]
+
+
+def test_apps_are_found_like_the_start_menu_does():
+    # Live 2026-11-19: "Call of Duty: Warzone" and "Battle.net" didn't open on the PC.
+    from jc_client.skills.windows import pick_start_app
+    assert pick_start_app("Call of Duty: Warzone", START_APPS)["Name"] == "Call of Duty"
+    assert pick_start_app("warzone", START_APPS)["Name"] == "Call of Duty"
+    assert pick_start_app("battle.net", START_APPS)["Name"] == "Battle.net"
+    assert pick_start_app("vs code", START_APPS)["Name"] == "Visual Studio Code"
+    assert pick_start_app("photoshop", START_APPS) is None
+
+
+def test_a_battlenet_game_launches_the_game_not_just_its_page():
+    from jc_client.skills.windows import launch_argv
+    exe = "C:\\Program Files (x86)\\Battle.net\\Battle.net.exe"
+    assert launch_argv({"Name": "Call of Duty", "AppID": "battlenet://game/auks"}, exe_exists=lambda p: True) == \
+        [exe, '--exec="launch auks"']
+    assert launch_argv({"Name": "Call of Duty", "AppID": "battlenet://game/auks"}, exe_exists=lambda p: False) == \
+        ["battlenet://game/auks"]
+    assert launch_argv({"Name": "Visual Studio Code", "AppID": "Microsoft.VisualStudioCode"}) == \
+        ["shell:AppsFolder\\Microsoft.VisualStudioCode"]

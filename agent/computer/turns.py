@@ -9,6 +9,7 @@ the turn straight to a Computer node.
 from __future__ import annotations
 
 import json
+import re
 import logging
 import threading
 import time
@@ -84,12 +85,33 @@ def _copy_asked(task_id) -> bool:
     return clipboard_asked(turn_text(task_id))
 
 
-def run_task(goal, steps, task_id, app=None) -> tuple:
-    """``(Result, None)`` or ``(None, error)``: find the Mac, run the loop (on ``app`` when named)."""
-    from agent.computer import mac
-    device, name, err = mac.find_mac(task_id)
+# The app isn't on this computer (live 2026-11-19: `open -a Battle.net` on the Mac; Battle.net lives on his PC).
+_APP_MISSING = re.compile(r"\['open', '-a'|unable to find application|can't find (?:the )?app|"
+                          r"isn't installed|is not installed|no application", re.I)
+
+
+def run_task(goal, steps, task_id, app=None, prefer: str = "") -> tuple:
+    """``(Result, None)`` or ``(None, error)``: find the computer this turn means (waking it if it sleeps), run
+    the loop (on ``app`` when named); an app missing there is tried once on his other computer."""
+    from agent.computer import mac, wake
+    device, name, err = mac.find_mac(task_id, prefer=prefer) if prefer else mac.find_mac(task_id)
     if err:
         return None, err
+    ok, why = wake.ensure_awake(device)
+    if not ok:
+        return None, why
+    result = _run_on(goal, steps, task_id, app, device, name)
+    if result.status != "done" and _APP_MISSING.search(result.reason or "") and not prefer:
+        other = mac.other_computer(device, task_id)
+        if other:
+            ok, _ = wake.ensure_awake(other[0])
+            if ok:
+                logger.info("computer_do: the app isn't on %s; trying %s", name, other[1])
+                return _run_on(goal, steps, task_id, app, other[0], other[1]), None
+    return result, None
+
+
+def _run_on(goal, steps, task_id, app, device, name):
     b = bound(task_id) or Binding(None, None)
     from agent.computer import screen
     share = screen.start(goal, task_id, device)  # the chat's live view; ending it makes the computer upload the replay
@@ -101,7 +123,7 @@ def run_task(goal, steps, task_id, app=None) -> tuple:
         screen.end(share)
     if share:
         result.share = share
-    return result, None
+    return result
 
 
 def tool_result(result: _loop.Result):

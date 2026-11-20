@@ -77,6 +77,10 @@ _asked_from: "OrderedDict[str, Optional[str]]" = OrderedDict()
 _pinned: set = set()
 # This turn's words, for tools that pick a device from what he said ("on my MacBook").
 _turn_text: "OrderedDict[str, str]" = OrderedDict()
+# A chat's last few user turns, newest last: which computer a turn means can come from the conversation
+# ("launch Warzone" right after "turn on my PC" is the PC — live 2026-11-19).
+_recent: "OrderedDict[str, list]" = OrderedDict()
+_RECENT_KEEP = 4
 
 BLOCK_MESSAGE = (
     "Blocked: this tool drives the user's own Mac browser, which is only used when the user "
@@ -187,6 +191,12 @@ def note_turn(task_id: Optional[str], text, *, prev_assistant=None, history=None
             _turn_text.move_to_end(task_id)
             while len(_turn_text) > _MAX_TURNS:
                 _turn_text.popitem(last=False)
+            turns = _recent.setdefault(task_id, [])
+            turns.append(_text(text)[:500])
+            del turns[:-_RECENT_KEEP]
+            _recent.move_to_end(task_id)
+            while len(_recent) > _MAX_TURNS:
+                _recent.popitem(last=False)
     if parent:
         # A harness background job ("<chat>~<node>"): its text is model-written, so it
         # follows the chat turn that started it and never unlocks the Mac itself.
@@ -248,6 +258,14 @@ def turn_text(task_id: Optional[str]) -> str:
     key = str(task_id or "").split("~", 1)[0]
     with _lock:
         return _turn_text.get(key, "")
+
+
+def recent_texts(task_id: Optional[str], n: int = 3) -> list:
+    """The chat's previous user turns (not this one), newest first."""
+    key = str(task_id or "").split("~", 1)[0]
+    with _lock:
+        turns = list(_recent.get(key) or [])
+    return list(reversed(turns[:-1]))[:n]
 
 
 def allowed(task_id: Optional[str]) -> bool:
@@ -354,3 +372,4 @@ def reset_for_tests() -> None:
         _pinned.clear()
         _asked_from.clear()
         _turn_text.clear()
+        _recent.clear()

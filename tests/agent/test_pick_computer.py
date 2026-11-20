@@ -94,3 +94,27 @@ def test_mac_address_and_pc_stats_are_not_computers():
     # Review: "find my MAC address" from the PC drove the Mac; "open PC Stats" from the Mac drove the PC.
     assert mac.pick_computer([MAC, PC], "pc-1", "open network settings and find my MAC address")[0] is PC
     assert mac.pick_computer([MAC, PC], "mac-1", "open PC Stats in chrome")[0] is MAC
+
+
+
+SLEEPING_PC = dict(PC, asleep=True)
+
+
+def test_the_conversation_says_which_computer():
+    # Live 2026-11-19: "Can you launch Call of Duty: Warzone" right after "turn on my PC and launch Battle.net"
+    # went to the Mac. His words never had to say "PC" again: the chat already did.
+    row, _ = mac.pick_computer([MAC], "mac-1", "Hold. Can you launch Call of Duty: Warzone.",
+                               recent=["Launch it now.", "Can you turn on my PC and launch Battle.net"],
+                               sleeping=[SLEEPING_PC])
+    assert row["device_id"] == "pc-1"
+
+
+def test_the_chat_models_choice_wins():
+    assert mac.pick_computer([MAC, PC], "mac-1", "launch it", prefer="PC")[0] is PC
+    assert mac.pick_computer([MAC, PC], "pc-1", "open it", prefer="my mac")[0] is MAC
+
+
+def test_a_sleeping_computer_is_picked_only_when_meant():
+    assert mac.pick_computer([MAC], None, "open spotify", sleeping=[SLEEPING_PC])[0] is MAC
+    assert mac.pick_computer([MAC], None, "open notepad on my pc", sleeping=[SLEEPING_PC])[0]["device_id"] == "pc-1"
+    assert mac.pick_computer([], None, "open notepad", sleeping=[SLEEPING_PC])[0]["device_id"] == "pc-1"

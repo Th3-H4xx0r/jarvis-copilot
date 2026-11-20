@@ -439,27 +439,58 @@ _MAC_WORDS = re.compile(r"\b(?:mac(?:book)?|laptop|computer|desktop)\b", re.I)
 _PHONE_WORDS = re.compile(r"\b(?:i?phone)\b", re.I)
 
 
+def _os_of(c: dict) -> str:
+    kind = c.get("device_os") or ""
+    if not kind:
+        try:
+            from api import device_bridge
+            kind = device_bridge.device_os(c["device_id"]) or ""
+        except Exception:
+            kind = ""
+    return kind
+
+
+def _is_pc(c: dict) -> bool:
+    return _os_of(c) == "windows"
+
+
 def _is_mac(c: dict) -> bool:
-    return bool(_MAC_WORDS.search(c.get("device_name") or "")) or _device_offers(c["device_id"], "ui_look") \
-        or _device_offers(c["device_id"], "chrome_navigate")
+    # The PC has computer control too (ui_look): it is never the Mac.
+    return not _is_pc(c) and (bool(_MAC_WORDS.search(c.get("device_name") or "")) or _device_offers(c["device_id"], "ui_look")
+                              or _device_offers(c["device_id"], "chrome_navigate"))
+
+
+def _named_in(text: str, candidates: list[dict]) -> Optional[str]:
+    from agent.computer.mac import _SAYS_MAC, _SAYS_PC
+    pc = bool(_SAYS_PC.search(text))
+    mac = bool(_SAYS_MAC.search(text)) or (not pc and bool(_MAC_WORDS.search(text)))
+    phone = bool(_PHONE_WORDS.search(text))
+    if (pc, mac, phone).count(True) != 1:
+        return None
+    if pc:
+        fits = [c for c in candidates if _is_pc(c)]
+    elif mac:
+        fits = [c for c in candidates if _is_mac(c)]
+    else:
+        fits = [c for c in candidates if _PHONE_WORDS.search(c.get("device_name") or "") and not _is_mac(c)
+                and not _is_pc(c)]
+    return fits[0]["device_id"] if len(fits) == 1 else None
 
 
 def _named_device(task_id, candidates: list[dict]) -> Optional[str]:
-    """The device the user named in this turn ("on my MacBook", "on my phone") when
-    exactly one candidate fits, else None."""
+    """The device the user meant ("on my MacBook", "on my PC", "on my phone") when exactly one candidate fits:
+    this turn's words first, then his last few turns — a chat about the PC stays on the PC without him saying it
+    again (his ask 2026-11-19: "it needs context so I don't have to say PC or Mac")."""
     try:
-        from agent.mac_browser_gate import turn_text
-        text = turn_text(task_id)
+        from agent.mac_browser_gate import recent_texts, turn_text
+        texts = [turn_text(task_id), *recent_texts(task_id)]
     except Exception:
         return None
-    mac, phone = bool(_MAC_WORDS.search(text)), bool(_PHONE_WORDS.search(text))
-    if mac == phone:
-        return None
-    if mac:
-        fits = [c for c in candidates if _is_mac(c)]
-    else:
-        fits = [c for c in candidates if _PHONE_WORDS.search(c.get("device_name") or "") and not _is_mac(c)]
-    return fits[0]["device_id"] if len(fits) == 1 else None
+    for text in texts:
+        hit = _named_in(text or "", candidates)
+        if hit:
+            return hit
+    return None
 
 
 def _resolve_device(args: dict, candidates: list[dict], preferred: Optional[str] = None,
@@ -548,8 +579,42 @@ def _ui_for_model(skill_name: str, result: dict) -> Any:
     return json.dumps({"ok": bool(inner.get("ok", True)), "summary": text}, ensure_ascii=False)
 
 
+def _wake_if_meant(args: dict, candidates: list[dict], task_id) -> str:
+    """Wake the sleeping computer this call means (named, or the only one offering the skill when nothing else
+    can take it) and wait for it. "" when there's nothing to wake or it came up; else why it didn't."""
+    try:
+        from agent.computer import wake
+        rows = {r["device_id"]: r for r in wake.sleeping_computers()}
+    except Exception:
+        return ""
+    sleeping = [c for c in candidates if c.get("device_id") in rows]
+    if not sleeping:
+        return ""
+    target = None
+    wanted = str(args.get("device") or "").strip().lower()
+    if wanted:
+        for c in sleeping:
+            kind = rows[c["device_id"]].get("device_os")
+            if (c["device_id"].lower() == wanted or wanted in str(c.get("device_name") or "").lower()
+                    or (kind == "windows" and re.search(r"\b(?:pc|windows)\b", wanted))
+                    or (kind == "macos" and re.search(r"\bmac", wanted))):
+                target = c["device_id"]
+                break
+    elif not _reachable([c for c in candidates if c.get("device_id") not in rows]):
+        target = sleeping[0]["device_id"] if len(sleeping) == 1 else None
+    if target is None:
+        return ""
+    ok, why = wake.ensure_awake(target)
+    return "" if ok else why
+
+
 def _make_handler(skill_name: str, candidates: list[dict]) -> Callable:
     def _handler(args=None, **_kw):
+        # A sleeping Mac/PC the call means is woken and waited for first, like a person would (live 2026-11-19:
+        # "launch Battle.net" right after the wake answered "device not connected" and the turn gave up).
+        woke = _wake_if_meant(args or {}, candidates, _kw.get("task_id"))
+        if woke:
+            return json.dumps({"ok": False, "error": woke})
         # The tool lists every paired device that offers the skill; only the
         # ones reachable now (live socket or push) can take the call.
         reachable = _reachable(candidates)
@@ -685,6 +750,7 @@ def rebuild_device_tools() -> list[dict]:
         grouped.setdefault(name, []).append({
             "device_id": entry.get("device_id"),
             "device_name": entry.get("device_name") or "device",
+            "device_os": entry.get("device_os") or entry.get("os") or "",   # which computer (never in the schema)
             "description": entry.get("description") or "",
             "input_schema": entry.get("input_schema"),
         })

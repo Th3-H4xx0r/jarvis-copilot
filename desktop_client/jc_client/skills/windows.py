@@ -7,9 +7,11 @@ are tested on any OS. Imported only on win32 (skills/__init__.load_all).
 from __future__ import annotations
 
 import ctypes
+import json
 import ctypes.wintypes as wt
 import logging
 import os
+import re
 import subprocess
 import threading
 import time
@@ -81,6 +83,58 @@ def open_url_in(url: str, app: str) -> None:
         env={"JC_APP": app_command(app), "JC_ARG": url})
 
 
+# Everyday names for things the Start menu lists under another name (live 2026-11-19: "Call of Duty: Warzone").
+_APP_ALIASES = {"warzone": "call of duty", "cod": "call of duty", "black ops": "call of duty",
+                "modern warfare": "call of duty", "wow": "world of warcraft", "ow": "overwatch", "ow2": "overwatch",
+                "vs code": "visual studio code", "vscode": "visual studio code", "bnet": "battle.net",
+                "battlenet": "battle.net", "blizzard": "battle.net"}
+_BATTLENET_EXE = "C:\\Program Files (x86)\\Battle.net\\Battle.net.exe"
+_WORD = re.compile(r"[a-z0-9.]+")
+_FILLER = {"the", "a", "an", "app", "game", "launch", "open", "start", "on", "my", "pc", "windows"}
+
+
+def _words(text: str) -> set:
+    return {w for w in _WORD.findall(str(text or "").lower().replace("®", "").replace("™", "")) if w not in _FILLER}
+
+
+def pick_start_app(query: str, apps: list):
+    """The Start menu entry a person would pick for ``query``: every word of the entry's name in what he said
+    (or the reverse), the closest match first; aliases map nicknames ("warzone" → "Call of Duty")."""
+    q = str(query or "").lower()
+    for nick, real in _APP_ALIASES.items():
+        if re.search(rf"\b{re.escape(nick)}\b", q):
+            q = f"{q} {real}"
+    want = _words(q)
+    if not want:
+        return None
+    best, best_score = None, 0.0
+    for app in apps or []:
+        name = _words(app.get("Name"))
+        if not name:
+            continue
+        if name <= want:
+            score = 2.0 + len(name) / 10.0          # all of the entry's words: the strongest sign
+        elif want <= name:
+            score = 1.0 + len(want) / max(len(name), 1)
+        else:
+            continue
+        if score > best_score:
+            best, best_score = app, score
+    return best
+
+
+def launch_argv(app: dict, exe_exists=os.path.exists) -> list:
+    """How to start a Start menu entry: a Battle.net game through Battle.net's own launch (its Start entry only
+    opens the game's page), another link as itself, an app by its AppID."""
+    app_id = str(app.get("AppID") or "")
+    m = re.match(r"^battlenet://game/(\w+)", app_id, re.I)
+    if m and exe_exists(_BATTLENET_EXE):
+        return [_BATTLENET_EXE, f'--exec="launch {m.group(1)}"']
+    if re.match(r"^[a-z][a-z0-9+.-]*://", app_id, re.I):
+        return [app_id]
+    return [f"shell:AppsFolder\\{app_id}"]
+
+
 def app_command(name: str) -> str:
     """The command that starts ``name`` (its everyday name mapped, anything else as given)."""
     return _APP_COMMANDS.get(str(name or "").strip().lower(), str(name or "").strip())
@@ -96,8 +150,29 @@ def app_command(name: str) -> str:
 def open_app(name: str) -> dict:
     if not name:
         raise ValueError("name required")
+    known = str(name).strip().lower() in _APP_COMMANDS or os.path.sep in str(name) or str(name).lower().endswith(".exe")
+    if not known:
+        app = pick_start_app(name, _start_apps())
+        if app is not None:
+            argv = launch_argv(app)
+            env = {"JC_APP": argv[0], "JC_ARG": argv[1] if len(argv) > 1 else ""}
+            _ps("if ($env:JC_ARG) { Start-Process -FilePath $env:JC_APP -ArgumentList $env:JC_ARG } "
+                "else { Start-Process -FilePath $env:JC_APP }", env=env)
+            return {"ok": True, "name": name, "launched": app.get("Name")}
     _ps(_OPEN_SCRIPT, env={"JC_APP": app_command(name)})
     return {"ok": True, "name": name}
+
+
+def _start_apps() -> list:
+    """The Start menu's app list (name + AppID), as the person sees it."""
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-Command",
+                              "Get-StartApps | Select-Object Name,AppID | ConvertTo-Json -Compress"],
+                             capture_output=True, text=True, timeout=20, check=False, creationflags=_NO_WINDOW).stdout
+        data = json.loads(out or "[]")
+        return data if isinstance(data, list) else [data]
+    except Exception:  # noqa: BLE001
+        return []
 
 
 @skill(

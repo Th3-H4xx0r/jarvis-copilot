@@ -24,7 +24,12 @@ COMPUTER_DO_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
-            "goal": {"type": "string", "description": "What should be true on the Mac when done."},
+            "goal": {"type": "string", "description": "What should be true on the computer when done."},
+            "computer": {"type": "string",
+                         "description": "Which of his computers: 'PC' (Windows) or 'Mac'. He rarely says — infer it "
+                                        "from the conversation (a PC chat stays on the PC) and from the app (Windows "
+                                        "games and launchers like Battle.net or Steam are on the PC). A sleeping "
+                                        "computer is woken and waited for first."},
             "app": {"type": "string", "description": "The app it happens in, e.g. 'Calculator' (opened if needed; "
                                                     "works even when another app is in front)."},
             "steps": {
@@ -56,7 +61,8 @@ def handle_computer_do(args: dict, task_id=None, **_kw):
     handed = handover.maybe_hand_over(goal, task_id)   # installs/setup on the PC → the IT agent
     if handed:
         return handed
-    result, err = turns.run_task(goal, (args or {}).get("steps"), task_id, app=(args or {}).get("app"))
+    result, err = turns.run_task(goal, (args or {}).get("steps"), task_id, app=(args or {}).get("app"),
+                                 prefer=str((args or {}).get("computer") or "").strip())
     if err:
         return json.dumps({"ok": False, "error": err})
     if result.status == "stuck":

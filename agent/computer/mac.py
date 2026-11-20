@@ -55,37 +55,69 @@ def _os_of(row: dict) -> str:
     return str(row.get("device_os") or "macos")
 
 
-def pick_computer(offers: list, origin, text: str) -> tuple:
-    """``(row, "")`` for the computer to drive, else ``(None, error)``.
-
-    Pranav's rule (2026-11-19, "words win"; was turn-device-first from 2026-11-15): the computer his words
-    name (its device name, "PC"/"Windows" or "Mac"); else the turn's own computer; else the Mac; else
-    whatever computer is on."""
-    if not offers:
-        return None, ("No computer with computer control is online. Open Jarvis on your Mac or PC "
-                      "(jc-client) and make sure it is up to date.")
-    own = next((o for o in offers if origin and o.get("device_id") == origin), None)
-    words = str(text or "")
-    low = words.lower()
-    named = next((o for o in offers if str(o.get("device_name") or "").strip()
+def _meant(rows: list, words: str):
+    """The row these words point at: a device name, else "PC"/"Windows" vs "Mac"; (row, kind)."""
+    low = str(words or "").lower()
+    named = next((o for o in rows if str(o.get("device_name") or "").strip()
                   and str(o.get("device_name")).lower() in low), None)
     if named is not None:
         return named, ""
     # A Mac mention wins: "on my Mac, open the photo of my PC build" is the Mac.
-    wants = "macos" if _SAYS_MAC.search(words) else "windows" if _SAYS_PC.search(words) else ""
-    if wants:
-        hit = next((o for o in offers if _os_of(o) == wants), None)
-        if hit is None:
-            return None, f"Your {'PC' if wants == 'windows' else 'Mac'} isn't online with computer control."
-        return hit, ""
+    kind = "macos" if _SAYS_MAC.search(words or "") else "windows" if _SAYS_PC.search(words or "") else ""
+    if kind:
+        return next((o for o in rows if _os_of(o) == kind), None), kind
+    return None, ""
+
+
+def pick_computer(offers: list, origin, text: str, recent=(), prefer: str = "", sleeping=()) -> tuple:
+    """``(row, "")`` for the computer to drive, else ``(None, error)``.
+
+    Pranav's rules ("words win" 2026-11-19; "it needs context so I don't have to say PC or Mac" 2026-11-19): the
+    computer the chat model chose from the conversation (``prefer``); else the one his words name (its device name,
+    "PC"/"Windows" or "Mac"); else the one his last few turns named (``recent``, newest first); else the turn's own
+    computer; else the Mac; else whatever computer is on. ``sleeping`` computers can be meant (they get woken);
+    with nothing meant, an awake one is used."""
+    offers = list(offers or [])
+    known = offers + [s for s in (sleeping or ()) if s.get("device_id") not in {o.get("device_id") for o in offers}]
+    if not known:
+        return None, ("No computer with computer control is online. Open Jarvis on your Mac or PC "
+                      "(jc-client) and make sure it is up to date.")
+    for words in [prefer, text, *list(recent or ())]:
+        if not str(words or "").strip():
+            continue
+        hit, kind = _meant(known, words)
+        if hit is not None:
+            return hit, ""
+        if kind:
+            return None, f"Your {'PC' if kind == 'windows' else 'Mac'} isn't online with computer control."
+    own = next((o for o in offers if origin and o.get("device_id") == origin), None)
     if own is not None:
         return own, ""
-    return next((o for o in offers if _os_of(o) == "macos"), offers[0]), ""
+    if offers:
+        return next((o for o in offers if _os_of(o) == "macos"), offers[0]), ""
+    return next((o for o in known if _os_of(o) == "macos"), known[0]), ""
 
 
-def find_mac(task_id=None) -> tuple:
-    """``(device_id, name, None)`` for the computer offering ``ui_look`` that this turn
-    means (pick_computer), else ``(None, "", error)``."""
+def other_computer(device_id, task_id=None):
+    """Another computer than ``device_id`` (awake or asleep) as ``(device_id, name)``, or None."""
+    try:
+        offers = [s for s in _skills() if isinstance(s, dict) and s.get("name") == LOOK_SKILL and s.get("device_id")]
+    except Exception:
+        offers = []
+    try:
+        from agent.computer import wake
+        offers += wake.sleeping_computers()
+    except Exception:
+        pass
+    for o in offers:
+        if o.get("device_id") != device_id:
+            return str(o["device_id"]), str(o.get("device_name") or ("PC" if _os_of(o) == "windows" else "Mac"))
+    return None
+
+
+def find_mac(task_id=None, prefer: str = "") -> tuple:
+    """``(device_id, name, None)`` for the computer (offering ``ui_look``, or asleep) that this turn means
+    (pick_computer), else ``(None, "", error)``. A sleeping one is returned as is: callers wake it."""
     try:
         offers = [s for s in _skills() if isinstance(s, dict) and s.get("name") == LOOK_SKILL and s.get("device_id")]
     except Exception as exc:
@@ -93,9 +125,15 @@ def find_mac(task_id=None) -> tuple:
     try:
         from agent import mac_browser_gate
         text = mac_browser_gate.turn_text(task_id)
+        recent = mac_browser_gate.recent_texts(task_id)
     except Exception:
-        text = ""
-    pick, err = pick_computer(offers, _origin(task_id), text)
+        text, recent = "", []
+    try:
+        from agent.computer import wake
+        sleeping = wake.sleeping_computers()
+    except Exception:
+        sleeping = []
+    pick, err = pick_computer(offers, _origin(task_id), text, recent=recent, prefer=prefer, sleeping=sleeping)
     if pick is None:
         return None, "", err
     fallback = "PC" if _os_of(pick) == "windows" else "Mac"

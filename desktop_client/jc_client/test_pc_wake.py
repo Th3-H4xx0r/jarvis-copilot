@@ -181,3 +181,18 @@ def test_a_fired_timer_nobody_reported_is_checked_in_by_the_ticks():
     rig.t += 45
     rig.wake.tick()                                      # neither the app nor the clock check said "resumed"
     assert rig.checkins == 1 and rig.suspends == 1
+
+
+
+def test_a_real_wake_right_after_a_check_in_is_a_new_resume():
+    # Live 2026-11-19 23:02: Wake PC came 11 s after a quiet check-in; it was taken for that resume's duplicate,
+    # so the reconnect waited a full minute (Battle.net "device not connected").
+    rig = Rig()
+    slept = {"s": 0.0}
+    rig.wake._sleep_marker = lambda: slept["s"]
+    rig.sleep_until_timer()
+    slept["s"] += 900
+    assert rig.wake.on_did_wake() is False                # the quiet check-in → back to sleep
+    rig.t += 11
+    slept["s"] += 9                                       # a magic packet woke it 9 s later
+    assert rig.wake.on_did_wake() is True and not rig.wake.asleep() and not rig.wake.quiet()

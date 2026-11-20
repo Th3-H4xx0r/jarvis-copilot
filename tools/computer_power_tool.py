@@ -15,7 +15,8 @@ COMPUTER_POWER_SCHEMA = {
     "name": "computer_power",
     "description": (
         "Put the user's Mac or Windows PC to sleep, wake it, lock or unlock it (unlock asks his Face ID on his "
-        "iPhone), or turn keep-awake on or off. Instant: the same as the buttons on the Agents card."
+        "iPhone), or turn keep-awake on or off — the Agents card's buttons. Wake returns once the computer is up "
+        "and ready (up to 2 minutes), so the next step can use it right away."
     ),
     "parameters": {
         "type": "object",
@@ -42,6 +43,16 @@ def _store():
 def _turn_text(task_id) -> str:
     from agent import mac_browser_gate
     return mac_browser_gate.turn_text(task_id)
+
+
+def _ensure_awake(did: str) -> tuple:
+    from agent.computer import wake
+    return wake.ensure_awake(did)
+
+
+# Waking (or keeping awake) can't hurt: no own-words check (live 2026-11-19: "Launch it now." was refused a wake
+# and the turn gave up). Sleeping, locking and unlocking still need his own words.
+_ANY_TURN = frozenset({"wake", "keep_awake_on"})
 
 
 def _name_of(did: str) -> str:
@@ -81,7 +92,7 @@ def handle_computer_power(args: dict, task_id=None, **_kw) -> str:
     action = str(args.get("action") or "").strip()
     if action not in ACTIONS:
         return json.dumps({"ok": False, "error": f"action must be one of {', '.join(ACTIONS)}"})
-    if not _ASKS.search(_turn_text(task_id) or ""):
+    if action not in _ANY_TURN and not _ASKS.search(_turn_text(task_id) or ""):
         return json.dumps({"ok": False, "error": "Power actions run only when the user asks for one in his own "
                                                   "words this turn."})
     try:
@@ -97,6 +108,12 @@ def handle_computer_power(args: dict, task_id=None, **_kw) -> str:
     noun = "PC" if is_pc else "Mac"
     if action == "lock" and not is_pc:
         return json.dumps({"ok": False, "error": "Lock works on the PC only (the Mac locks when it sleeps)."})
+    if action == "wake":
+        # Like a person: turn it on and wait until it's ready, so the next step can use it.
+        if row.get("state") == "awake":
+            return json.dumps({"ok": True, "result": f"The {noun} is already awake."})
+        ok, note = _ensure_awake(did)
+        return json.dumps({"ok": True, "result": note or f"The {noun} is awake."} if ok else {"ok": False, "error": note})
     out = (store.wake(did) if action == "wake" else store.let_sleep(did) if action == "sleep"
            else store.lock(did) if action == "lock" else store.unlock(did) if action == "unlock"
            else store.keep_awake(did, action == "keep_awake_on")) or {}

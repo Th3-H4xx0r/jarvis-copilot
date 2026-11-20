@@ -250,7 +250,7 @@ def _battery() -> tuple:
 class PcPower:
     UI_REQUESTS = frozenset({"mac_power_state", "mac_power_set", "password_fill_result", "rdp_credential"})
     WAKE_EVERY = 5.0
-    RESUME_JUMP_S = 30.0
+    RESUME_JUMP_S = 4.0     # short sleeps too (a wake 9 s after a check-in's re-sleep)
 
     def __init__(self, send_up: Callable[[dict], object], *, set_state: Callable[[int], int] = _win_set_state,
                  lock: Callable[[], None] = _win_lock, suspend: Callable[[], None] = _win_suspend,
@@ -296,7 +296,8 @@ class PcPower:
                           suspend=lambda: threading.Thread(target=self._suspend, daemon=True,
                                                            name="pc-checkin-sleep").start(),
                           idle_seconds=_win_idle_seconds, display_on=_win_display_on, hold=self._timed_hold,
-                          fired=timer.fired)
+                          fired=timer.fired,
+                          sleep_marker=lambda: time.time() - _win_unbiased_ms() / 1000.0)
         self.power = wake
 
     # ── state ────────────────────────────────────────────────────────────
