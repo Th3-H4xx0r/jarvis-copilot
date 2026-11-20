@@ -98,6 +98,8 @@ def run_task(goal, steps, task_id, app=None, prefer: str = "") -> tuple:
     if err:
         return None, err
     ok, why = wake.ensure_awake(device)
+    if ok:
+        ok, why = wake.ensure_unlocked(device)   # a person signs in before using it (live 2026-11-20)
     if not ok:
         return None, why
     result = _run_on(goal, steps, task_id, app, device, name)
@@ -105,6 +107,8 @@ def run_task(goal, steps, task_id, app=None, prefer: str = "") -> tuple:
         other = mac.other_computer(device, task_id)
         if other:
             ok, _ = wake.ensure_awake(other[0])
+            if ok:
+                ok, _ = wake.ensure_unlocked(other[0])
             if ok:
                 logger.info("computer_do: the app isn't on %s; trying %s", name, other[1])
                 return _run_on(goal, steps, task_id, app, other[0], other[1]), None

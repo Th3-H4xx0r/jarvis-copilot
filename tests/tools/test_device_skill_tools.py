@@ -602,6 +602,7 @@ def test_a_sleeping_pc_is_woken_before_the_call(monkeypatch):
     monkeypatch.setattr(wake, "sleeping_computers", lambda: [{"device_id": "pc", "device_os": "windows"}] if "pc" not in up else [])
     woke = []
     monkeypatch.setattr(wake, "ensure_awake", lambda did, **kw: (woke.append(did), up.add(did), (True, "awake"))[2])
+    monkeypatch.setattr(wake, "ensure_unlocked", lambda did, **kw: (True, ""))
     calls = []
     monkeypatch.setattr(device_bridge, "invoke_skill", lambda d, s, a, timeout=30.0: calls.append(d) or {"ok": True})
     tools = {t["name"]: t for t in device_skill_tools.get_device_tools()}

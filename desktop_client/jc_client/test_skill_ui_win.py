@@ -302,3 +302,15 @@ def test_backend_click_and_scroll_use_the_mouse_controller(monkeypatch):
 def test_pc_open_url_uses_the_named_browser(be):
     out = ui_win.do_action("open_url", url="https://www.google.com/search?q=pcs", app="Google Chrome")
     assert out["ok"] and ("open_url", "https://www.google.com/search?q=pcs", "Google Chrome") in be.calls
+
+
+def test_open_app_reports_what_it_really_launched(monkeypatch):
+    # Live 2026-11-20: "Warzone" launched "Call of Duty"; the loop needs that name to find its window.
+    from jc_client.skills import ui_win
+    be = FakeBackend()
+    be.open_app = lambda name: {"ok": True, "name": name, "launched": "Call of Duty"}
+    be.find_window = lambda app: None
+    monkeypatch.setattr(ui_win, "_backend", lambda: be)
+    monkeypatch.setattr(ui_win.time, "sleep", lambda s: None)
+    out = ui_win._do(be, "open_app", None, None, None, None, None, None, None, "Warzone", None)
+    assert out["ok"] is True and out.get("launched") == "Call of Duty"

@@ -132,3 +132,10 @@ def test_a_battlenet_game_launches_the_game_not_just_its_page():
         ["battlenet://game/auks"]
     assert launch_argv({"Name": "Visual Studio Code", "AppID": "Microsoft.VisualStudioCode"}) == \
         ["shell:AppsFolder\\Microsoft.VisualStudioCode"]
+
+
+def test_a_locked_desktop_is_seen():
+    from jc_client.skills.common import desktop_locked
+    assert desktop_locked(open_desktop=lambda: None, name_of=lambda h: "") is True          # can't open it: locked
+    assert desktop_locked(open_desktop=lambda: 7, name_of=lambda h: "Winlogon") is True
+    assert desktop_locked(open_desktop=lambda: 7, name_of=lambda h: "Default") is False

@@ -83,3 +83,42 @@ def ensure_awake(device_id: str, wait_s: float = WAIT_S, *, clock: Callable[[], 
                        f"{out.get('within_min') or 15} minutes. Try again then.")
     return False, (f"Sent the wake signal through {out.get('via') or 'another device'}, but the {noun} didn't come "
                    f"up within {int(wait_s // 60)} minutes; it picks up the request at its next 15-minute check-in.")
+
+
+UNLOCK_WAIT_S = 150.0   # his Face ID on the iPhone (2 minutes) plus the typing
+
+
+def _locked(device_id: str):
+    """True/False from the computer's screen_locked skill; None when it can't say (an older jc-client)."""
+    try:
+        from api import device_bridge
+        res = device_bridge.invoke_skill(device_id, "screen_locked", {}, timeout=10.0) or {}
+    except Exception:  # noqa: BLE001
+        return None
+    inner = res.get("result") if isinstance(res.get("result"), dict) else {}
+    if not res.get("ok") or "locked" not in inner:
+        return None
+    return bool(inner["locked"])
+
+
+def ensure_unlocked(device_id: str, wait_s: float = UNLOCK_WAIT_S, *, clock: Callable[[], float] = time.monotonic,
+                    sleep: Callable[[float], None] = time.sleep) -> tuple:
+    """Before driving the screen: a locked Mac/PC is unlocked through the Face ID unlock (or his standing unlock
+    permission) and waited for. ``(True, note)`` when unlocked ("" when it already was), else ``(False, why)``.
+    Live 2026-11-20: woken from sleep, the PC sat at its lock screen and the task failed on it."""
+    if not _locked(device_id):
+        return True, ""
+    try:
+        out = _store().unlock(device_id) or {}
+    except Exception as exc:  # noqa: BLE001
+        return False, f"The screen is locked and the unlock couldn't start: {exc}"
+    if not out.get("ok"):
+        return False, str(out.get("error") or "The screen is locked and the unlock couldn't start.")
+    start = clock()
+    while clock() - start < wait_s:
+        sleep(2.0)
+        if _locked(device_id) is False:
+            logger.info("unlocked %s in %.0f s", device_id, clock() - start)
+            return True, "The screen is unlocked now."
+    return False, ("The screen is still locked: approve the unlock with Face ID on your iPhone (or give Jarvis "
+                   "unlock permission), then ask again.")

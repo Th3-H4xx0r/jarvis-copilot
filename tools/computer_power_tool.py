@@ -46,8 +46,15 @@ def _turn_text(task_id) -> str:
 
 
 def _ensure_awake(did: str) -> tuple:
+    """Turn it on like a person: wake it, wait for it, sign in (unlock) so it's ready to use."""
     from agent.computer import wake
-    return wake.ensure_awake(did)
+    ok, note = wake.ensure_awake(did)
+    if not ok:
+        return ok, note
+    ok2, note2 = wake.ensure_unlocked(did)
+    if not ok2:
+        return True, f"{note} {note2}".strip()   # awake; the unlock waits for him
+    return True, " ".join(x for x in (note, note2) if x)
 
 
 # Waking (or keeping awake) can't hurt: no own-words check (live 2026-11-19: "Launch it now." was refused a wake

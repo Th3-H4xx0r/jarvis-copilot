@@ -109,6 +109,24 @@ def describe(action: dict, look: dict) -> str:
     return str(a)
 
 
+LAUNCH_TRIES = 30          # a launcher or a game takes a while to show its window (~45 s)
+LAUNCH_POLL_S = 1.5
+
+
+def _look_after_open(mac, device, app, launched=None) -> dict:
+    """After open_app: look for what really started (open_app says: "Warzone" → "Call of Duty"), patiently —
+    a game through its launcher takes tens of seconds (live 2026-11-20: gave up after one second)."""
+    names = [n for n in dict.fromkeys([launched, app]) if n]
+    look = {"ok": False, "error": f"{app} didn't open"}
+    for attempt in range(LAUNCH_TRIES):
+        for name in names:
+            look = mac.look(device, app=name)
+            if look.get("ok"):
+                return look
+        time.sleep(0.5 if attempt < 3 else LAUNCH_POLL_S)
+    return look
+
+
 def _look_soon(mac, device, app, tries=4, wait=0.5) -> dict:
     """A just-opened app's window can take a moment: look a few times before giving up."""
     look = mac.look(device, app=app)
@@ -320,11 +338,12 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 out.status, out.reason = "error", res.get("error") or "could not open the app"
                 break
             nxt = res.get("look") if isinstance(res.get("look"), dict) else None
-            look = nxt if nxt and nxt.get("ok", True) else _look_soon(mac, device, step["app"])
+            launched = res.get("launched")
+            look = nxt if nxt and nxt.get("ok", True) else _look_after_open(mac, device, step["app"], launched)
             if not look.get("ok", True):
                 out.status, out.reason = "error", look.get("error") or f"could not see {step['app']}"
                 break
-            anchor = look.get("app") or step["app"]
+            anchor = look.get("app") or launched or step["app"]
             if _open_only(step):
                 history.append(f"step done: {step.get('do')}")
                 continue  # "open Calculator": opening it was the whole step
@@ -472,7 +491,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             if last_unlanded:
                 history.append("the move didn't land")
             if action.get("action") == "open_app":
-                anchor = action.get("app") or anchor
+                anchor = res.get("launched") or action.get("app") or anchor
             new_look = res.get("look") if isinstance(res.get("look"), dict) else None
             if new_look is None or not new_look.get("ok", True):
                 new_look = relook()

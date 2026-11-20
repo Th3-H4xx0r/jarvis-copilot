@@ -108,3 +108,17 @@ def test_an_app_missing_on_the_mac_is_tried_on_the_pc(monkeypatch):
     monkeypatch.setattr(L, "run", run)
     out = json.loads(T.handle_computer_do({"goal": "launch Battle.net"}, task_id="t1"))
     assert ran == ["mac", "pc"] and out["ok"] is True
+
+
+
+def test_the_computer_is_unlocked_after_waking_before_the_loop(monkeypatch):
+    from tools import computer_do_tool as T
+    order = []
+    monkeypatch.setattr("agent.computer.mac.find_mac", lambda task_id=None, prefer="": ("pc", "pranav-computer", None))
+    monkeypatch.setattr("agent.computer.wake.ensure_awake", lambda did, **kw: order.append("awake") or (True, ""))
+    monkeypatch.setattr("agent.computer.wake.ensure_unlocked", lambda did, **kw: order.append("unlocked") or (True, ""))
+    monkeypatch.setattr("agent.computer.decide.pick_decision_ref", lambda pref: pref)
+    monkeypatch.setattr("tools.vision_tools._model_sees_images", lambda: False)
+    monkeypatch.setattr(L, "run", lambda goal, steps, cfg, **kw: order.append("loop") or L.Result("done"))
+    T.handle_computer_do({"goal": "launch Warzone", "computer": "PC"}, task_id="t1")
+    assert order == ["awake", "unlocked", "loop"]

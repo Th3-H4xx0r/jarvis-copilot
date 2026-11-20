@@ -605,6 +605,8 @@ def _wake_if_meant(args: dict, candidates: list[dict], task_id) -> str:
     if target is None:
         return ""
     ok, why = wake.ensure_awake(target)
+    if ok:
+        ok, why = wake.ensure_unlocked(target)   # just woken to be used: sign in like a person would
     return "" if ok else why
 
 

@@ -347,11 +347,16 @@ def _do(be, action, look_id, element, text, keys, direction, x, y, app, url) -> 
     if action == "open_app":
         if not app:
             return {"ok": False, "error": "open_app needs app"}
-        be.open_app(app)
+        res = be.open_app(app)
+        # What really started ("Warzone" → "Call of Duty" through Battle.net): the window to look for.
+        launched = str(res.get("launched") or "") if isinstance(res, dict) else ""
         deadline = time.monotonic() + 3.0
-        while time.monotonic() < deadline and not be.find_window(app):
+        while time.monotonic() < deadline and not be.find_window(launched or app):
             time.sleep(0.1)
-        return {"ok": True, "did": "open_app", "via": "app"}
+        out = {"ok": True, "did": "open_app", "via": "app"}
+        if launched:
+            out["launched"] = launched
+        return out
     if action == "open_url":
         if not str(url or "").startswith(("https://", "http://")):
             return {"ok": False, "error": "open_url needs an http(s) url"}
@@ -561,9 +566,9 @@ class _WinBackend:
         m.scroll(0, 5 if direction == "up" else -5)
         m.position = old
 
-    def open_app(self, name: str) -> None:
+    def open_app(self, name: str):
         from jc_client.skills.windows import open_app
-        open_app(name)
+        return open_app(name)
 
     def open_url(self, url: str, app: Optional[str] = None) -> None:
         # The browser he named (startfile with no default browser set pops Windows' app picker — live).

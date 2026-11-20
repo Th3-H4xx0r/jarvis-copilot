@@ -266,8 +266,9 @@ def test_done_before_any_move_on_a_step_needs_the_fallback():
     assert r.status == "done"
 
 
-def test_a_failed_look_after_opening_is_retried_then_reported():
+def test_a_failed_look_after_opening_is_retried_then_reported(monkeypatch):
     """Demo: a cold-launched app's first looks failed and the deciders ran on nothing."""
+    monkeypatch.setattr(L.time, "sleep", lambda s: None)   # it now waits ~45 s for a slow launch
     class SlowMac(FakeMac):
         def __init__(self):
             super().__init__()
@@ -765,3 +766,33 @@ def test_planner_model_setting_is_used_for_plan_and_reads(monkeypatch):
 
     L.run("g", None, _cfg(), device="m", decide=_never, fallback=_never, mac=FakeMac(), plan=plan, read=read)
     assert seen == [("plan", "@celeris:celeris-1"), ("read", "@celeris:celeris-1")]
+
+
+def test_a_launched_app_is_looked_for_by_its_real_name_and_given_time(monkeypatch):
+    # Live 2026-11-20: open_app("Warzone") launched Call of Duty through Battle.net; the loop looked for a
+    # "Warzone" window for a second and gave up ("Warzone isn't running").
+    monkeypatch.setattr(L.time, "sleep", lambda s: None)
+
+    class GameMac(FakeMac):
+        def __init__(self):
+            super().__init__()
+            self.looks, self.boot = [], 6
+
+        def look(self, device, app=None):
+            self.looks.append(app)
+            if app == "Call of Duty":
+                self.boot -= 1
+                if self.boot <= 0:
+                    return super().look(device, app)
+            if app:
+                return {"ok": False, "error": f"{app} isn't running. Open it first (open_app)."}
+            return super().look(device, app)
+
+        def act(self, device, action, look_id):
+            self.acts.append((action, look_id))
+            return {"ok": True, "did": "open_app", "via": "app", "launched": "Call of Duty"}
+
+    mac = GameMac()
+    r = L.run("launch Warzone", [{"do": "open Warzone", "app": "Warzone"}], _cfg(), device="pc",
+              decide=_never, fallback=_never, mac=mac)
+    assert r.status == "done" and mac.looks.count("Call of Duty") >= 6

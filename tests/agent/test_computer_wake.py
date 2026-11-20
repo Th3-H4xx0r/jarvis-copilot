@@ -62,3 +62,41 @@ def test_recent_turns_are_kept_per_chat():
     g.note_turn("chat-recent", "Hold. Can you launch Call of Duty: Warzone.")
     assert g.recent_texts("chat-recent") == ["Launch it now.", "Can you turn on my PC and launch Battle.net"]
     assert g.recent_texts("chat-other") == []
+
+
+class Unlocker:
+    def __init__(self):
+        self.unlocks = []
+
+    def unlock(self, did):
+        self.unlocks.append(did)
+        return {"ok": True}
+
+
+def _lock_rig(monkeypatch, states):
+    seq = list(states)
+    store = Unlocker()
+    clock = {"t": 0.0}
+    monkeypatch.setattr(W, "_store", lambda: store)
+    monkeypatch.setattr(W, "_locked", lambda did: seq.pop(0) if len(seq) > 1 else seq[0])
+    return store, (lambda: clock["t"]), (lambda s: clock.__setitem__("t", clock["t"] + s))
+
+
+def test_a_locked_pc_is_unlocked_before_acting(monkeypatch):
+    # Live 2026-11-20: woken from sleep, the PC sat at its lock screen and nothing unlocked it.
+    store, clock, sleep = _lock_rig(monkeypatch, [True, True, False])
+    ok, note = W.ensure_unlocked("pc", clock=clock, sleep=sleep)
+    assert ok is True and store.unlocks == ["pc"] and "unlocked" in note
+
+
+def test_an_unlocked_screen_or_an_old_client_needs_nothing(monkeypatch):
+    store, clock, sleep = _lock_rig(monkeypatch, [False])
+    assert W.ensure_unlocked("pc", clock=clock, sleep=sleep) == (True, "") and store.unlocks == []
+    store, clock, sleep = _lock_rig(monkeypatch, [None])
+    assert W.ensure_unlocked("pc", clock=clock, sleep=sleep) == (True, "") and store.unlocks == []
+
+
+def test_a_pc_still_locked_says_it_needs_his_ok(monkeypatch):
+    store, clock, sleep = _lock_rig(monkeypatch, [True])
+    ok, note = W.ensure_unlocked("pc", wait_s=30, clock=clock, sleep=sleep)
+    assert ok is False and "Face ID" in note and store.unlocks == ["pc"]

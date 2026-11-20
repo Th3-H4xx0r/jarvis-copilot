@@ -33,6 +33,58 @@ log = logging.getLogger(__name__)
 # ── URLs / system info ─────────────────────────────────────────────────────
 
 
+def _win_open_input_desktop():
+    import ctypes
+    return ctypes.windll.user32.OpenInputDesktop(0, False, 0x0100) or None   # DESKTOP_SWITCHDESKTOP
+
+
+def _win_desktop_name(handle) -> str:
+    import ctypes
+    from ctypes import wintypes
+    buf = ctypes.create_unicode_buffer(256)
+    needed = wintypes.DWORD(0)
+    try:
+        if ctypes.windll.user32.GetUserObjectInformationW(handle, 2, buf, ctypes.sizeof(buf), ctypes.byref(needed)):
+            return buf.value
+        return ""
+    finally:
+        ctypes.windll.user32.CloseDesktop(handle)
+
+
+def desktop_locked(open_desktop=_win_open_input_desktop, name_of=_win_desktop_name) -> bool:
+    """Windows: the lock screen (or sign-in) is showing — the input desktop can't be opened, or isn't "Default"."""
+    handle = open_desktop()
+    if not handle:
+        return True
+    return str(name_of(handle) or "").lower() != "default"
+
+
+def _mac_locked() -> bool:
+    try:
+        import Quartz  # type: ignore
+        info = Quartz.CGSessionCopyCurrentDictionary() or {}
+        return bool(info.get("CGSSessionScreenIsLocked", False))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+@skill(
+    "screen_locked",
+    "Whether this computer's screen is locked (the lock screen or sign-in is showing).",
+    {"type": "object", "properties": {}},
+)
+def screen_locked() -> dict:
+    # Live 2026-11-20: woken from sleep, the PC sat at its lock screen and nothing noticed; the server checks this
+    # before driving the screen, and unlocks first (agent/computer/wake.py ensure_unlocked).
+    if sys.platform == "win32":
+        locked = desktop_locked()
+    elif sys.platform == "darwin":
+        locked = _mac_locked()
+    else:
+        locked = False
+    return {"ok": True, "locked": bool(locked)}
+
+
 @skill(
     "wol_send",
     "Wake another computer on this network (Pranav's PC) with a Wake-on-LAN magic packet. "
