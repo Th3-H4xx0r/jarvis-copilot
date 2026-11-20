@@ -146,3 +146,13 @@ def test_the_session_lock_state_comes_from_windows():
     assert session_locked(flags=lambda: 0) is True          # WTS_SESSIONSTATE_LOCK
     assert session_locked(flags=lambda: 1) is False         # WTS_SESSIONSTATE_UNLOCK
     assert session_locked(flags=lambda: None) is None       # can't tell: the desktop check decides
+
+
+def test_the_session_info_is_read_at_the_right_offsets():
+    # Live 2026-11-20: WTSINFOEXW pads 4 bytes after Level (the union holds 8-byte times), so reading the 4th int
+    # took SessionState (Active = 0) for the flags and said "locked" on an active session.
+    from jc_client.skills.common import _flags_from
+    assert _flags_from([1, 0, 4, 0, 1]) == 1        # level 1, pad, session 4, WTSActive, UNLOCK
+    assert _flags_from([1, 0, 4, 0, 0]) == 0        # locked
+    assert _flags_from([2, 0, 4, 0, 1]) is None     # unknown level
+    assert _flags_from([1, 0, 4, 0, -1]) is None    # WTS_SESSIONSTATE_UNKNOWN

@@ -64,11 +64,16 @@ def _wts_session_flags():
     if not wts.WTSQuerySessionInformationW(None, sid.value, 25, ctypes.byref(buf), ctypes.byref(size)):  # WTSSessionInfoEx
         return None
     try:
-        # WTSINFOEXW { DWORD Level; WTSINFOEX_LEVEL1_W { ULONG SessionId; int SessionState; LONG SessionFlags; ... } }
-        level, _session, _state, flags = ctypes.cast(buf, ctypes.POINTER(ctypes.c_int32 * 4)).contents
-        return None if level != 1 or flags == -1 else int(flags)
+        return _flags_from(list(ctypes.cast(buf, ctypes.POINTER(ctypes.c_int32 * 5)).contents))
     finally:
         wts.WTSFreeMemory(buf)
+
+
+def _flags_from(ints) -> "int | None":
+    """WTSINFOEXW { DWORD Level; [4 bytes padding: the union holds 8-byte times]; WTSINFOEX_LEVEL1_W { ULONG
+    SessionId; int SessionState; LONG SessionFlags; … } } as int32s → SessionFlags (0 locked, 1 unlocked)."""
+    level, _pad, _session, _state, flags = (list(ints) + [None] * 5)[:5]
+    return None if level != 1 or flags is None or flags == -1 else int(flags)
 
 
 def session_locked(flags=_wts_session_flags):
