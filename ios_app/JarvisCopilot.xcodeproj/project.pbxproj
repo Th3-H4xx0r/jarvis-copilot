@@ -1192,6 +1192,7 @@
 		D9471411A29FAAE1E381CFB8 /* VoiceAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85B674E595DCFA0823883A2 /* VoiceAPI.swift */; };
 		D95F53BAE120CBBBB10DBBFF /* RingSceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0C659B43FE2C191B8FAB857 /* RingSceneView.swift */; };
 		D99495A303A29427FA0E9831 /* AgentsSleepCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BDF20BB23637DDBDBB55C14 /* AgentsSleepCard.swift */; };
+		D9A2F0E761764D604CCD9720 /* MacUnlockGrant.swift in Sources */ = {isa = PBXBuildFile; fileRef = D55FC3998F4735E7BC407985 /* MacUnlockGrant.swift */; };
 		DA0861D1D6CC174333058B4A /* WidgetLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = E54BDF8A038718B4D0815E5A /* WidgetLayout.swift */; };
 		DA8B57E370EE78BB79760D2B /* WearableControlsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEF634F684255E22206A46C5 /* WearableControlsSection.swift */; };
 		DA98C647879DE5BF26F3C41B /* WidgetCreatorPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C268B9654A2CEFBCEAEF945B /* WidgetCreatorPage.swift */; };
@@ -1368,6 +1369,7 @@
 		FC4507A64F24FEF1F033A638 /* JcLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5072183EC782BEB4F738CF5E /* JcLog.swift */; };
 		FC5BA42C90943C4E829B09AC /* AppleFoundationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6998747AD0EC6B5B3EB2EA90 /* AppleFoundationModel.swift */; };
 		FCF615BA88462F44799984AC /* VaultSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F3793EAC5E7BAB49FD57EF3 /* VaultSession.swift */; };
+		FCFCFCC77BF703B300E5E059 /* MacUnlockGrantTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 133094E5D5ED280E185407F5 /* MacUnlockGrantTests.swift */; };
 		FD3D77AD611C57774C7D223F /* MelkWriteQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24090A87FCE1CE3FEB502377 /* MelkWriteQueue.swift */; };
 		FD5D894E637CB850201974B1 /* InsightsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABB3F558D05BF433A58D7179 /* InsightsUITests.swift */; };
 		FD74ED10B9F9C1F02B65DF83 /* LiveCaptureSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 858D84003EB96FA3460A1BB1 /* LiveCaptureSource.swift */; };
@@ -1565,6 +1567,7 @@
 		1214332EFACB64EEB1C57FC3 /* ControlButtonsPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ControlButtonsPage.swift; sourceTree = "<group>"; };
 		13230616650AD4EA4F83CF5A /* X5Protocol.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5Protocol.swift; sourceTree = "<group>"; };
 		132AAD600C97329A4954EDA6 /* CarCardText.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarCardText.swift; sourceTree = "<group>"; };
+		133094E5D5ED280E185407F5 /* MacUnlockGrantTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacUnlockGrantTests.swift; sourceTree = "<group>"; };
 		133F6A5DE33D36FDF8CC9578 /* JarvisWatchWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = JarvisWatchWidget.swift; path = JarvisWatchWidget/JarvisWatchWidget.swift; sourceTree = "<group>"; };
 		137F8D68A44C517D75AAAA5A /* ThinkingDots.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ThinkingDots.swift; sourceTree = "<group>"; };
 		13D09CC62009E9E6FCC897A9 /* JarvisAlarmActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = JarvisAlarmActivity.swift; path = JarvisWidget/JarvisAlarmActivity.swift; sourceTree = "<group>"; };
@@ -2568,6 +2571,7 @@
 		D51B9B9ECE349E04BA2068FA /* JcUnified.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JcUnified.swift; sourceTree = "<group>"; };
 		D529970991DA150147C03D34 /* HabitHoldButton.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HabitHoldButton.swift; sourceTree = "<group>"; };
 		D537EC19112FCFAA45FCE86D /* DashcamGoogleSignIn.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamGoogleSignIn.swift; sourceTree = "<group>"; };
+		D55FC3998F4735E7BC407985 /* MacUnlockGrant.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacUnlockGrant.swift; sourceTree = "<group>"; };
 		D58B78E101F917C3929CCFB0 /* VoiceTurnMachineTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceTurnMachineTests.swift; sourceTree = "<group>"; };
 		D5913A62B3554196E1D94E28 /* GlassesNoteWireTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesNoteWireTests.swift; sourceTree = "<group>"; };
 		D591E254B4FFB6316C26EBDC /* RdpSessionView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RdpSessionView.swift; sourceTree = "<group>"; };
@@ -3886,6 +3890,7 @@
 				4D5D84832A87356FCBD83F52 /* PcStats */,
 				5014343196DD14882EA868A3 /* ComputerTools.swift */,
 				D7AF84F7279BC41764E347FA /* RemoteDesktop */,
+				D55FC3998F4735E7BC407985 /* MacUnlockGrant.swift */,
 			);
 			name = Agents;
 			path = Agents;
@@ -4303,6 +4308,7 @@
 				370B4AA481C344AEA123F577 /* ComputerToolsTests.swift */,
 				0B6B642522A481B412813525 /* RemoteDesktopTests.swift */,
 				A4AED5A15B6A62EBCF8B6DDD /* PcAdminRunTests.swift */,
+				133094E5D5ED280E185407F5 /* MacUnlockGrantTests.swift */,
 			);
 			name = Agents;
 			path = Agents;
@@ -5995,6 +6001,7 @@
 				32BD5592A9DE39035CA8A842 /* ComputerToolsTests.swift in Sources */,
 				65D04508227DA22BEA7C8321 /* RemoteDesktopTests.swift in Sources */,
 				D751BAA38F824218D935992F /* PcAdminRunTests.swift in Sources */,
+				FCFCFCC77BF703B300E5E059 /* MacUnlockGrantTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6931,6 +6938,7 @@
 				4FB90086BF0AA14ED4BDA883 /* RdpSessionModel.swift in Sources */,
 				CEEC6F54BC8AD3816822FD69 /* RdpSessionView.swift in Sources */,
 				C3D4183B70277F95B2578EA4 /* RdpTransfers.swift in Sources */,
+				D9A2F0E761764D604CCD9720 /* MacUnlockGrant.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
