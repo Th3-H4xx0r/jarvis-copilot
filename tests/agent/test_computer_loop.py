@@ -819,11 +819,15 @@ def test_a_launcher_opened_for_a_game_gets_its_play_click(monkeypatch):
             return super().act(device, action, look_id)
 
     mac = LauncherMac()
-    decide = _decider(Move({"action": "click", "element": 1}, 0.9, "decision", 1))
+    seen = []
+
+    def fallback(ref, look, goal, step, history, **kw):
+        seen.append(step.get("do"))
+        return Move({"action": "done"}, 0.9, "fallback", 1)
     r = L.run("launch Warzone", [{"do": "open Warzone", "app": "Warzone"}], _cfg(), device="pc",
-              decide=decide, fallback=_never, mac=mac)
+              decide=_decider(), fallback=fallback, mac=mac)
     assert r.status == "done" and any("Play" in (s.get("do") or "") for s in r.steps)
-    assert any("Play" in (c or "") for c in decide.calls)
+    assert any("Play" in (c or "") for c in seen)          # the screenshot model handled the drawn Play button
 
 
 def test_a_click_that_changed_nothing_goes_to_the_screenshot_model_next():
@@ -844,6 +848,60 @@ def test_a_click_that_changed_nothing_goes_to_the_screenshot_model_next():
                 else Move({"action": "done"}, 0.9, "fallback", 5))
 
     decide = _decider(*[Move({"action": "click", "element": 3}, 0.98, "decision", 1)] * 5)
-    r = L.run("g", [{"do": "click the Play button"}], _cfg(), device="pc", decide=decide, fallback=fallback,
+    r = L.run("g", [{"do": "start the game"}], _cfg(), device="pc", decide=decide, fallback=fallback,
               mac=StillMac())
     assert len(decide.calls) == 1 and calls and r.status in ("done", "stuck")
+
+
+def test_a_named_button_that_isnt_a_labeled_element_goes_to_the_screenshot_model():
+    # Live 2026-11-20: "click the Play button" in Battle.net — Play is drawn, not a labeled control; the fast model
+    # clicked an unlabeled group and called it done. The screenshot model sees the button.
+    seen = []
+
+    def fallback(ref, look, goal, step, history, **kw):
+        seen.append(step.get("do"))
+        return (Move({"action": "click", "x": 106, "y": 502}, 0.9, "fallback", 5) if len(seen) == 1
+                else Move({"action": "done"}, 0.9, "fallback", 5))
+
+    decide = _decider(Move({"action": "click", "element": 3}, 0.93, "decision", 1))
+    r = L.run("launch Warzone", [{"do": "click the Play button"}], _cfg(), device="pc", decide=decide,
+              fallback=fallback, mac=FakeMac())
+    assert decide.calls == [] and seen and r.actions[0]["did"].startswith("click 106,502")
+
+
+def test_a_labeled_button_is_clicked_without_the_screenshot_model():
+    mac = FakeMac()
+    r = L.run("g", [{"do": "click the 7 button"}], _cfg(), device="m", decide=_decider(), fallback=_never, mac=mac)
+    assert r.status == "done" and mac.acts[0][0] == {"action": "click", "element": 1}
+
+
+def test_a_launcher_game_gets_select_then_play(monkeypatch):
+    monkeypatch.setattr(L.time, "sleep", lambda s: None)
+
+    class LauncherMac(FakeMac):
+        def act(self, device, action, look_id):
+            self.acts.append((action, look_id))
+            if action["action"] == "open_app":
+                self.n += 1
+                return {"ok": True, "did": "open_app", "via": "app", "launched": "Battle.net", "launcher": True,
+                        "game": "Call of Duty", "look": _look(self.n)}
+            return super().act(device, action, look_id)
+
+    r = L.run("launch Warzone", [{"do": "open Warzone", "app": "Warzone"}, {"do": "click the Play button"}], _cfg(),
+              device="pc", decide=_decider(), fallback=lambda *a, **k: Move({"action": "done"}, 0.9, "fallback", 1),
+              mac=LauncherMac())
+    dos = [s.get("do") for s in r.steps]
+    assert any("Call of Duty" in d and "select" in d.lower() for d in dos)
+    assert dos.index(next(d for d in dos if "select" in d.lower())) < dos.index("click the Play button")
+
+
+def test_selecting_an_unlabeled_game_goes_to_the_screenshot_model():
+    seen = []
+
+    def fallback(ref, look, goal, step, history, **kw):
+        seen.append(step.get("do"))
+        return Move({"action": "done"}, 0.9, "fallback", 1)
+    decide = _decider(Move({"action": "click", "element": 2}, 0.9, "decision", 1))
+    L.run("g", [{"do": "select Call of Duty in Battle.net's game list (skip if its page is showing)"}], _cfg(),
+          device="pc", decide=decide, fallback=fallback, mac=FakeMac())
+    assert decide.calls == [] and seen

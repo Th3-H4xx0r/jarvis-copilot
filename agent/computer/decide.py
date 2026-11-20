@@ -65,7 +65,8 @@ in a calendar, first click Today, then move to the date.
 - Only UI moves and read steps: the reply to the user is written afterwards from the screen, so never add a step \
 to tell, say or report something.
 - Games on a PC start from their launcher (Battle.net, Steam, Epic): step 1 opens the game by its name ("app" = the \
-game, which opens its launcher on the game), step 2 "click the Play button". Nothing more: no waiting steps."""
+game, which opens its launcher), step 2 "select <game> in <launcher>'s game list", step 3 "click the Play button". \
+Nothing more: no waiting steps."""
 
 
 @dataclass

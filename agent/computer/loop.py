@@ -115,6 +115,22 @@ LAUNCH_TRIES = 30          # a launcher or a game takes a while to show its wind
 LAUNCH_POLL_S = 1.5
 
 
+_NAMED = re.compile(r"\bclick (?:on )?(?:the )?[\"“']?(.+?)[\"”']? (?:button|tab|icon|link)\b|"
+                    r"\bselect [\"“']?(.+?)[\"”']? in\b", re.I)
+
+
+def _unlabeled_target(step: dict, look: dict) -> bool:
+    """The step names a button ("click the Play button") that no labeled element on screen carries: it's drawn,
+    not a control (live 2026-11-20: Battle.net's Play) — only the screenshot model can click it."""
+    m = _NAMED.search(str(step.get("do") or ""))
+    if not m or not look.get("elements"):
+        return False
+    want = (m.group(1) or m.group(2) or "").strip().lower()
+    if not want:
+        return False
+    return not any(want in str(e.get("label") or "").lower() for e in look.get("elements") or [])
+
+
 _VAGUE_ROLES = ("group", "image", "statictext", "text", "pane", "generic", "unknown", "document", "window")
 
 
@@ -362,11 +378,19 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 out.status, out.reason = "error", look.get("error") or f"could not see {step['app']}"
                 break
             anchor = look.get("app") or launched or step["app"]
-            if res.get("launcher") and not any("play" in str(s.get("do") or "").lower() for s in steps[at + 1:]):
-                # A game opens in its launcher (Battle.net, Steam…): a person then clicks Play (live 2026-11-20).
+            if res.get("launcher"):
+                # A game opens in its launcher (Battle.net, Steam…): a person picks the game there, then clicks Play
+                # (live 2026-11-20: Battle.net stayed on Home and nothing was played).
                 game = res.get("game") or step["app"]
-                steps.insert(at + 1, {"do": f"click the Play button for {game} in {launched or 'the launcher'}"})
-                history.append(f"{launched or 'the launcher'} is open on {game}; next: click Play")
+                where = launched or "the launcher"
+                later = [str(s.get("do") or "").lower() for s in steps[at + 1:]]
+                play_at = next((at + 1 + i for i, d in enumerate(later) if "play" in d), None)
+                if play_at is None:
+                    steps.insert(at + 1, {"do": "click the Play button"})
+                    play_at = at + 1
+                if not any("select" in d or str(game).lower() in d for d in later):
+                    steps.insert(play_at, {"do": f"select {game} in {where}'s game list (skip if its page is showing)"})
+                history.append(f"{where} is open; next: pick {game}, then click Play")
             if _open_only(step):
                 history.append(f"step done: {step.get('do')}")
                 continue  # "open Calculator": opening it was the whole step
@@ -443,8 +467,9 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             # After a fast-model move that changed nothing, the screenshot model picks the next one: the target
             # likely isn't a labeled element (live 2026-11-20: three "click group" in Battle.net; Play was a pixel).
             move = decide(cfg.decision_ref, look, goal, step, history, instructions=cfg.instructions,
-                          plan=steps, at=at) if cfg.decision_ref and not see_next else None
-            see_next = False
+                          plan=steps, at=at) if (cfg.decision_ref and not see_next
+                                                 and not _unlabeled_target(step, look)) else None
+            # (once a step is handed to the screenshot model it keeps it: the fast model already couldn't)
             out.timing["decide_ms"] += (move.ms or 0) if move else 0
             # "done" before any move on this step is often wrong (a pressed ×
             # leaves no trace): only the fallback can confirm it.
@@ -530,7 +555,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 history.append("nothing changed on screen")
                 # A fast-model click on something vague (an unlabeled group, a missing number, a pixel) that changed
                 # nothing: the screenshot model picks the next move.
-                see_next = move.by == "decision" and bool(cfg.fallback_ref) and _vague_target(action, look)
+                see_next = see_next or (move.by == "decision" and bool(cfg.fallback_ref) and _vague_target(action, look))
             if new_look.get("ok", True):
                 look = new_look
             sig = look.get("sig")
