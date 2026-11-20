@@ -112,14 +112,20 @@ def invoke(name: str, args: dict | None = None) -> Any:
     # Reject extra args so a typo on the agent side surfaces loudly
     # instead of getting silently dropped.
     sig = inspect.signature(fn)
-    allowed = set(sig.parameters.keys())
+    params = sig.parameters
+    allowed = set(params.keys())
     unknown = set(args) - allowed
-    if unknown and not any(
-        p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-    ):
-        raise TypeError(
-            f"skill {name!r} got unexpected args: {sorted(unknown)}"
-        )
+    if unknown and not any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        missing = [n for n, p in params.items() if p.default is inspect.Parameter.empty and n not in args
+                   and p.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)]
+        if len(unknown) == 1 and len(missing) == 1:
+            # One wrong name for the one argument it needs ({"app": "Discord"} for name): that's what was meant
+            # (live 2026-11-20: device_open_app {app: …} failed and the run gave up).
+            args = {**{k: v for k, v in args.items() if k not in unknown}, missing[0]: args[next(iter(unknown))]}
+        else:
+            raise TypeError(
+                f"skill {name!r} got unexpected args: {sorted(unknown)}; it takes: {sorted(allowed)}"
+            )
     return fn(**args)
 
 

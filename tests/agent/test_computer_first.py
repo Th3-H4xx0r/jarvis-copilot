@@ -53,12 +53,23 @@ def test_stuck_hands_over(monkeypatch):
     assert [m["role"] for m in messages] == ["user", "assistant", "tool"]
 
 
-def test_computer_first_skipped_without_mac_ask(monkeypatch):
+def test_computer_first_runs_without_magic_words(monkeypatch):
+    # His call 2026-11-20: driving his computers needs no "on my Mac".
     mac_browser_gate.note_turn("t1", "open calculator")
-    monkeypatch.setattr(turns, "run_task", lambda *a: pytest.fail("must not touch the Mac"))
+    ran = []
+    monkeypatch.setattr(turns, "run_task", lambda goal, steps, task_id, app=None: ran.append(goal) or
+                        (_result("stuck"), None))
+    turns.computer_first(_agent(), [{"role": "user", "content": "open calculator"}], "open calculator", "t1")
+    assert ran == ["open calculator"]
+
+
+def test_computer_first_skipped_when_he_took_it_back_or_for_web_research(monkeypatch):
+    monkeypatch.setattr(turns, "run_task", lambda *a, **k: pytest.fail("must not touch the computer"))
+    mac_browser_gate.note_turn("t1", "don't use my mac")
     messages = [{"role": "user", "content": "open calculator"}]
-    assert turns.computer_first(_agent(), messages, "open calculator", "t1") is None
-    assert len(messages) == 1
+    assert turns.computer_first(_agent(), messages, "open calculator", "t1") is None and len(messages) == 1
+    mac_browser_gate.note_turn("t2", "search the web for robot vacuum reviews")
+    assert turns.computer_first(_agent(), messages, "search the web for robot vacuum reviews", "t2") is None
 
 
 def test_no_mac_appends_nothing(monkeypatch):

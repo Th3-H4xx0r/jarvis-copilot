@@ -256,7 +256,8 @@ def start_it_job(task_id: str, goal: str) -> dict:
     if not ref:
         return {"ok": False, "error": error}
     request_text = mac_browser_gate.turn_text(task_id)
-    screen_allowed = bool(mac_browser_gate.allowed(task_id))
+    screen_allowed = bool(mac_browser_gate.control_allowed(task_id))   # screen steps: unless he took it back
+    asked = bool(mac_browser_gate.allowed(task_id))                     # running things on the PC: his words
     device_id, device_name, error = pc.find_pc(f"{goal} {request_text}")
     if not device_id:
         return {"ok": False, "error": error}
@@ -269,7 +270,7 @@ def start_it_job(task_id: str, goal: str) -> dict:
     job_id = escalation.start_escalation(
         session_id=sid, reason="it_task", summary=goal, model=ref,
         runner=make_runner(sid, goal, request_text, screen_allowed, ref, device_id, device_name,
-                           pc_allowed=asked_for_pc(request_text, screen_allowed), look_only=looking,
+                           pc_allowed=asked_for_pc(request_text, asked), look_only=looking,
                            previous=_previous_report(device_id)),
         parent={**IT_PARENT, "question": request_text or goal}, origin=hr.job_origin(sid, "chat"))
     escalation.update_job(job_id, device_id=device_id)

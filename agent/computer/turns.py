@@ -161,11 +161,11 @@ def computer_first(agent, messages: list, user_text, task_id) -> Optional[str]:
     its result are appended and None is returned (the stuck node's model takes
     over). Not asked for the Mac / no Mac → nothing appended, None."""
     from agent import mac_browser_gate
-    if not mac_browser_gate.allowed(task_id):
-        return None
     goal = mac_browser_gate._text(user_text).strip()
     if not goal:
         return None
+    if mac_browser_gate.block_message(TOOL_NAME, task_id, {"goal": goal}):
+        return None     # he took his computers back, or it's web browsing he didn't ask his computer for
     call_id = f"call_computer_{uuid.uuid4().hex[:12]}"
     cb = getattr(agent, "tool_progress_callback", None)
     if cb:

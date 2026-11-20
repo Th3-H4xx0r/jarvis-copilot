@@ -152,13 +152,14 @@ def test_opening_a_link_on_the_mac_counts_as_driving_its_browser(monkeypatch):
 
 
 @pytest.mark.parametrize("name", ["computer_do", "device_ui_do", "device_ui_look", "device_mouse_click",
-                                  "device_type_text", "device_key_press", "device_system_command"])
-def test_mac_control_tools_need_an_ask(name):
-    """Driving his Mac's mouse/keyboard/screen follows the same rule as his browser."""
+                                  "device_type_text", "device_key_press", "device_system_command",
+                                  "device_run_shell", "device_quit_app", "device_focus_window"])
+def test_driving_his_computer_needs_no_magic_words(name):
+    """His call 2026-11-20: "that gate is kinda annoying… make it smarter" — "Turn on pc and launch warzone"
+    was refused three times. Apps, games and settings on his computers need no special wording."""
     gate.note_turn("t1", "open calculator and add 2 and 2")
-    assert "only done when the user explicitly asks" in gate.block_message(name, "t1")
-    gate.note_turn("t2", "on my Mac open calculator and add 2 and 2")
-    assert gate.block_message(name, "t2") is None
+    assert gate.block_message(name, "t1", {"goal": "open Calculator", "app": "Calculator"}) is None
+    assert gate.control_allowed("t1")
 
 
 def test_on_my_screen_counts_as_an_ask():
@@ -201,10 +202,33 @@ def test_note_turn_uses_origin_and_history(monkeypatch):
     assert gate.allowed("t3")
 
 
-@pytest.mark.parametrize("name", ["device_run_shell", "device_quit_app", "device_focus_window"])
-def test_more_mac_control_tools_are_gated(name):
-    gate.note_turn("t1", "hello")
-    assert gate.block_message(name, "t1")
+@pytest.mark.parametrize("text", ["Turn on pc and launch warzone", "launch warzone on pc",
+                                  "Turn on pc and launch warzone, use computer do", "do it with computer_do",
+                                  "wake up the pc and open discord", "turn my pc on", "boot my mac"])
+def test_everyday_ways_of_naming_his_computer_count(text):
+    assert gate.explicit_mac_request(text)
+
+
+def test_driving_a_browser_on_his_computer_still_needs_his_ask():
+    """His rule 2026-10-11: research runs on the server's headless browser; his own browser only when he says."""
+    gate.note_turn("r", "research the best robot vacuums")
+    for tool, args in (("computer_do", {"goal": "find robot vacuum reviews", "app": "Google Chrome"}),
+                       ("computer_do", {"goal": "x", "steps": [{"do": "open the page", "url": "https://x.com"}]}),
+                       ("computer_do", {"goal": "search the web for robot vacuums"}),
+                       ("device_ui_do", {"action": "open_url", "url": "https://x.com"})):
+        assert gate.block_message(tool, "r", args) == gate.BROWSER_CONTROL_MESSAGE, args
+    gate.note_turn("r2", "on my mac search robot vacuums in chrome")
+    assert gate.block_message("computer_do", "r2", {"goal": "search", "app": "Google Chrome"}) is None
+
+
+def test_he_can_take_his_computers_back():
+    gate.note_turn("c", "open discord")
+    gate.note_turn("c", "don't use my pc")
+    assert gate.block_message("computer_do", "c", {"goal": "open Discord"}) == gate.CONTROL_BLOCK_MESSAGE
+    gate.note_turn("c", "try again")
+    assert not gate.control_allowed("c") and not gate.control_allowed("c~background-1")
+    gate.note_turn("c", "ok, on my pc open discord")
+    assert gate.block_message("computer_do", "c", {"goal": "open Discord"}) is None
 
 
 def test_a_harness_background_job_follows_its_chat_turn():
@@ -289,7 +313,7 @@ def test_a_car_turn_never_inherits_the_macs_ask(devices):
     devices["voice"] = "iphone-1"
     gate.note_turn("voice", "Play Blinding Lights on Spotify")
     assert not gate.allowed("voice")
-    assert gate.block_message("computer_do", "voice") is not None
+    assert gate.block_message("computer_do", "voice", {"goal": "open the deals page", "app": "Safari"}) is not None
 
 
 def test_the_same_device_keeps_its_ask_for_the_chat(devices):
@@ -340,16 +364,12 @@ def test_looking_at_a_screen_that_isnt_his_is_not_an_ask():
     assert not gate.explicit_mac_request("don't look at my screen")
 
 
-def test_reading_the_screen_is_allowed_for_a_turn_from_the_mac(monkeypatch):
-    """Push to talk / the island chat on the Mac can see what's on it; driving it still needs an ask,
-    and a turn from the phone can't look at the Mac unasked."""
+def test_looking_and_driving_need_no_ask_from_any_device(monkeypatch):
     monkeypatch.setattr(gate, "_from_mac", lambda task_id: task_id == "mac-turn")
-    gate.note_turn("mac-turn", "what does this error mean?")
-    assert gate.block_message("device_ui_look", "mac-turn") is None
-    assert gate.block_message("device_ui_do", "mac-turn") is not None
-    assert gate.block_message("device_mouse_click", "mac-turn") is not None
-    gate.note_turn("phone-turn", "what does this error mean?")
-    assert gate.block_message("device_ui_look", "phone-turn") is not None
+    for turn in ("mac-turn", "phone-turn"):
+        gate.note_turn(turn, "what does this error mean?")
+        assert gate.block_message("device_ui_look", turn) is None
+        assert gate.block_message("device_mouse_click", turn) is None
 
 
 # ── the clipboard: copied or read only when he asks (live 2026-10-09: an API key leaked) ──

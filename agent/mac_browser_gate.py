@@ -30,9 +30,13 @@ _MAC_CONTROL_PREFIXES = ("computer_do", "device_ui_", "device_mouse_", "device_t
                          "device_system_command", "device_run_shell", "device_quit_app", "device_focus_window")
 _TARGET = r"(?:mac(?:book)?(?:\s+(?:pro|air))?|laptop|computer|desktop|gaming\s+pc|windows\s+pc|pc)"
 _BROWSER = r"(?:chrome|browser)"
+_DET = r"(?:(?:the|my(?:\s+own)?)\s+)?"
 _ASKS = (
-    # "on my mac", "in Chrome on the Mac", "pull up kayak on my MacBook"
-    re.compile(rf"\b(?:on|in|with|using|via|through|from)\s+(?:the\s+|my\s+(?:own\s+)?){_TARGET}\b", re.I),
+    # "on my mac", "in Chrome on the Mac", "pull up kayak on my MacBook", "launch it on pc" (live 2026-11-20)
+    re.compile(rf"\b(?:on|in|with|using|via|through|from)\s+{_DET}{_TARGET}\b", re.I),
+    # "turn on pc", "wake up the PC", "boot my mac", "turn my pc on" (live 2026-11-20: refused three times)
+    re.compile(rf"\b(?:turn|switch|power|boot|start|wake)(?:\s+(?:on|up))?\s+{_DET}{_TARGET}\b", re.I),
+    re.compile(rf"\b(?:turn|switch|power)\s+{_DET}{_TARGET}\s+on\b", re.I),
     # "in my browser", "in my Chrome", "with my laptop's browser"
     re.compile(rf"\b(?:on|in|with|using|via|through)\s+my\s+(?:own\s+)?(?:{_TARGET}(?:'s)?\s+)?{_BROWSER}\b", re.I),
     # "use my mac", "drive my mac browser", "use my computer's browser"
@@ -47,7 +51,7 @@ _ASKS = (
                rf"(?:screen|display|monitor)\b", re.I),
     # "use computer control", "do it with visual control", "you must choose Computer Control"
     # (live 2026-10-30: "use visual control with clicks to do this" was refused)
-    re.compile(r"\b(?:computer|visual|screen|mac|desktop|pc)[\s-]+control\b", re.I),
+    re.compile(r"\b(?:computer|visual|screen|mac|desktop|pc)[\s_-]+(?:control|do|use)\b", re.I),
 )
 # "stop using my Mac", "no more controlling my laptop" — takes a chat's ask back.
 _STOP_MAC = re.compile(rf"\b(?:stop|quit|no\s+more)\s+(?:using|controlling|driving|touching)\s+(?:the\s+|my\s+(?:own\s+)?)"
@@ -162,10 +166,48 @@ def _from_mac(task_id) -> bool:
         return False
 
 
+# Driving his computers (apps, games, settings) needs no special wording (his call 2026-11-20: "that gate is kinda
+# annoying… make it smarter"). Two limits stay: he said in this chat not to use them, and a web browser on them is
+# driven only when he asks (his 2026-10-11 rule: research runs on the server's headless browser).
 CONTROL_BLOCK_MESSAGE = (
-    "Blocked: this drives the user's own computer (his Mac or PC: its screen, mouse and keyboard), which is only done when the "
-    "user explicitly asks for it (e.g. \"on my Mac\", \"on my PC\"). Ask the user first."
+    "Blocked: the user said in this chat not to use his computer (Mac or PC). Don't drive it unless he asks again."
 )
+BROWSER_CONTROL_MESSAGE = (
+    "Blocked: this would drive a web browser on the user's own computer, which is only done when he asks for his "
+    "computer or browser. Use the headless browser and web tools on the server instead."
+)
+_BROWSER_APPS = re.compile(r"^\s*(?:google\s+)?(?:chrome|chromium|safari|firefox|(?:microsoft\s+)?edge|brave(?:\s+browser)?|"
+                           r"arc|opera|browser)\s*$", re.I)
+_BROWSER_TEXT = re.compile(r"\b(?:browser|web\s*(?:site|page|search)|search\s+(?:the\s+)?(?:web|internet|online)|"
+                           r"google\s+(?:it|for|search)|(?:google\s+)?chrome|safari|firefox)\b|https?://|\bwww\.", re.I)
+# Chats where he took his computers back ("don't use my PC"), until he asks again.
+_control_refused: "OrderedDict[str, bool]" = OrderedDict()
+
+
+def _drives_browser(tool_name: str, args) -> bool:
+    """Whether a control call drives a web browser: a browser app, a URL, or web searching in its words."""
+    if not isinstance(args, dict):
+        return False
+    if args.get("action") == "open_url" or args.get("url"):
+        return True
+    apps = [args.get("app")]
+    texts = [args.get("goal")]
+    for step in args.get("steps") or []:
+        if isinstance(step, dict):
+            if step.get("url"):
+                return True
+            apps.append(step.get("app"))
+            texts.append(step.get("do"))
+    if any(a and _BROWSER_APPS.match(str(a)) for a in apps):
+        return True
+    return tool_name == "computer_do" and bool(_BROWSER_TEXT.search(" ".join(str(t) for t in texts if t)))
+
+
+def control_allowed(task_id: Optional[str]) -> bool:
+    """Whether Jarvis may drive his computers this turn: yes, unless he took them back in this chat."""
+    key = str(task_id or "").split("~", 1)[0]
+    with _lock:
+        return not _control_refused.get(key, False)
 
 
 def is_mac_browser_tool(name: Optional[str]) -> bool:
@@ -217,6 +259,13 @@ def note_turn(task_id: Optional[str], text, *, prev_assistant=None, history=None
         except Exception:
             from_history = False
     with _lock:
+        if refused:
+            _control_refused[task_id] = True
+            _control_refused.move_to_end(task_id)
+            while len(_control_refused) > _MAX_TURNS:
+                _control_refused.popitem(last=False)
+        elif allowed:
+            _control_refused.pop(task_id, None)
         if task_id in _pinned:
             return
         if refused:
@@ -279,13 +328,6 @@ def _remember(task_id: str, value: bool) -> None:
     while len(_allowed) > _MAX_TURNS:
         old, _ = _allowed.popitem(last=False)
         _pinned.discard(old)
-
-
-# Reading the Mac's screen (no clicking, no typing): a turn from the Mac itself —
-# its push to talk or its island chat — may look at what's on it unasked
-# (Pranav 2026-10-16: push to talk should "collect auto context on what I'm
-# seeing"). Driving the Mac still needs an explicit ask.
-_LOOK_TOOLS = frozenset({"device_ui_look"})
 
 
 SPOTIFY_BLOCK_MESSAGE = (
@@ -360,9 +402,11 @@ def block_message(tool_name: str, task_id: Optional[str], args=None) -> Optional
         # Live 2026-10-21 00:01: it clicked into Spotify's search box and typed nothing.
         return SPOTIFY_BLOCK_MESSAGE
     if is_mac_control_tool(tool_name):
-        if allowed(task_id) or (tool_name in _LOOK_TOOLS and _from_mac(task_id)):
-            return None
-        return CONTROL_BLOCK_MESSAGE
+        if not control_allowed(task_id):
+            return CONTROL_BLOCK_MESSAGE
+        if _drives_browser(tool_name, args) and not allowed(task_id):
+            return BROWSER_CONTROL_MESSAGE
+        return None
     return None
 
 
@@ -373,3 +417,4 @@ def reset_for_tests() -> None:
         _asked_from.clear()
         _turn_text.clear()
         _recent.clear()
+        _control_refused.clear()
