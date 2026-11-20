@@ -26,6 +26,8 @@ dependencies = [
   "keyring>=24,<26",
   # YAML fallback for hand-edited config files (json is the default).
   "pyyaml>=6.0,<7",
+  # PC lighting: OpenRGB's SDK client (the PC drives its RGB through OpenRGB).
+  "openrgb-python>=0.3.8,<0.4; sys_platform == 'win32'",
   # MCP SDK — powers `jc-client mcp-serve` (the jarviscopilot-code-assist
   # stdio server that Claude Code launches). Without it the server crashes
   # on launch and Claude reports the MCP connection as failed (-32000).

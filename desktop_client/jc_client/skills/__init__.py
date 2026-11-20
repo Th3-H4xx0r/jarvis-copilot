@@ -201,6 +201,14 @@ def load_all(allow_shell: bool = False) -> None:
         except Exception as exc:
             log.warning("Failed to load IT agent skills: %s", exc)
 
+    # PC lighting (OpenRGB) — server-only skills the server's pc_lighting tools drive.
+    if sys.platform == "win32":
+        try:
+            from jc_client.pc_lighting import skills as pc_lighting_skills
+            pc_lighting_skills.register()
+        except Exception as exc:
+            log.warning("Failed to load PC lighting skills: %s", exc)
+
     # Fast computer control on the PC (ui_look / ui_do over UI Automation).
     if sys.platform == "win32":
         try:

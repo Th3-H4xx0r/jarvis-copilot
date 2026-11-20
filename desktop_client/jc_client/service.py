@@ -593,6 +593,14 @@ class Service:
                 except Exception as exc:  # noqa: BLE001 — never fatal
                     log.warning("pc power unavailable: %s", exc)
                     self._power = None
+                try:   # PC lighting: Jarvis's effect engine driving OpenRGB (server-only lighting_* skills)
+                    from jc_client.pc_lighting import skills as pc_lighting_skills
+                    from jc_client.pc_lighting.engine import Engine as LightingEngine
+                    self._lighting = LightingEngine(self._send_up_ok)
+                    pc_lighting_skills.set_engine(self._lighting)
+                    self._lighting.start()
+                except Exception as exc:  # noqa: BLE001 — never fatal
+                    log.warning("pc lighting unavailable: %s", exc)
             self._start_agents_link()
             link = self._agents_link
             server = HookServer(_hook_socket_path(), self._agent_engine,
