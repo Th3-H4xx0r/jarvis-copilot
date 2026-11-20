@@ -545,6 +545,9 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                     continue
             strikes = 0
             action = move.action
+            # A click on something without a label (a drawn button, a pixel): whether it worked shows only on the
+            # screen, so it isn't done until the screenshot model has looked again (live 2026-11-20: Play missed).
+            vague = _vague_target(action, look)
             if action.get("action") == "done":
                 history.append(f"step done: {step.get('do')}")
                 logger.info("Computer step done: %s by=%s conf=%s", step.get("do"), move.by, move.confidence)
@@ -613,7 +616,9 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 out.status, out.reason = "stuck", ("Going in circles between the same screens on step "
                                                    f"“{step.get('do')}”; stopped (the screen shows where it got to).")
                 break
-            if res.get("ok") and not last_unlanded and not (unchanged and see_next) and ((field is not None and not step.get("text"))
+            if vague and cfg.fallback_ref:
+                see_next = True
+            if res.get("ok") and not last_unlanded and not vague and not (unchanged and see_next) and ((field is not None and not step.get("text"))
                                   or (_ONE_MOVE.match(str(step.get("do") or ""))
                                       and action.get("action") not in ("scroll", "wait"))):
                 # A field click, or a one-move step whose move just worked: no "is it done?" call.

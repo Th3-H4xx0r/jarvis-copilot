@@ -934,3 +934,25 @@ def test_an_app_that_isnt_there_is_replanned_with_what_is_installed():
               fallback=_never, mac=MissMac(), plan=plan)
     assert seen and seen[0]["apps"] == ["Call of Duty", "Discord"] and "Warzone" in seen[0]["progress"]
     assert r.status == "done"
+
+
+def test_a_click_on_something_unlabeled_is_checked_on_the_screen_before_the_step_counts():
+    # Live 2026-11-20: the screenshot model clicked Battle.net's Play (an unlabeled group), the step counted as done
+    # at once, and Play was never pressed. The screenshot model looks again and says done — or tries again.
+    seen = []
+
+    def fallback(ref, look, goal, step, history, **kw):
+        seen.append(look.get("look_id"))
+        return (Move({"action": "click", "element": 3}, None, "fallback", 5) if len(seen) == 1
+                else Move({"action": "done"}, None, "fallback", 5))
+
+    class WebMac(FakeMac):
+        def act(self, device, action, look_id):
+            self.acts.append((action, look_id))
+            self.n += 1
+            return {"ok": True, "did": "click", "via": "cursor",
+                    "look": _look(self.n, els=[{"i": 3, "role": "AXGroup", "label": ""}])}
+
+    r = L.run("launch it", [{"do": "click the Play button"}], _cfg(), device="pc", decide=_decider(),
+              fallback=fallback, mac=WebMac())
+    assert len(seen) == 2 and r.status == "done"

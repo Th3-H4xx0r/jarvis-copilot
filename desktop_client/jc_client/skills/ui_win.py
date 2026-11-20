@@ -233,6 +233,11 @@ def _wait_for_user(be) -> None:
         time.sleep(0.05)
 
 
+# Roles with nothing to activate: a click on one is a mouse click on its middle.
+_DRAWN_ROLES = frozenset({"axgroup", "aximage", "axstatictext", "axpane", "axgeneric", "axunknown", "axdocument",
+                          "axlayoutarea", "axcustom"})
+
+
 def _front(be, hwnd) -> None:
     _wait_for_user(be)
     if not hwnd or be.frontmost()[0] == hwnd:
@@ -287,6 +292,13 @@ def _do(be, action, look_id, element, text, keys, direction, x, y, app, url) -> 
         _front(be, hwnd)
         be.click(px, py)
         _last_own[0] = time.monotonic()
+
+    if action == "click" and el is not None and str(el.get("role") or "").lower() in _DRAWN_ROLES \
+            and hwnd and any(el["pt"][2:]):
+        # Nothing to press: a group, picture or text drawn on a page (live 2026-11-20: Battle.net's Play is an
+        # unlabeled group on a web page; the element press did nothing). A person clicks it with the mouse.
+        cursor_click(*_center(el["pt"]))
+        return {"ok": True, "did": "click", "via": "cursor", "landed": "unknown"}
 
     if seen is not None and seen.get("engine") == "agent-desktop" and el is not None \
             and action in ("click", "fill", "scroll"):

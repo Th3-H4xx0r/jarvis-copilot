@@ -167,6 +167,34 @@ def test_pc_look_uses_agent_desktop_first(be, monkeypatch):
     assert ad.calls[0][1]["app"] == "notepad"
 
 
+WEB_SNAPSHOT = {"ok": True, "data": {
+    "app": "Notepad", "complete": True, "ref_count": 2, "snapshot_id": "p2",
+    "window": {"id": "w-7", "title": "Untitled - Notepad", "bounds": _bx(100, 100, 800, 600)},
+    "tree": {"role": "window", "children": [
+        {"role": "group", "name": "", "ref_id": "@p2:e1", "bounds": _bx(127, 583, 157, 37)},
+        {"role": "button", "name": "Close", "ref_id": "@p2:e2", "bounds": _bx(480, 110, 30, 20)},
+    ]}}}
+
+
+def test_a_drawn_button_is_clicked_with_the_mouse(be, monkeypatch):
+    # Live 2026-11-20: Battle.net's Play is an unlabeled group on a web page; agent-desktop's element press did
+    # nothing. A person clicks it: the cursor goes to its middle.
+    ad = FakeAD(WEB_SNAPSHOT)
+    monkeypatch.setattr(ui_win, "_ad_client", lambda: ad)
+    look = ui_win.read_window(app="notepad")
+    out = ui_win.do_action("click", look_id=look["look_id"], element=1)
+    assert out["ok"] and out["via"] == "cursor"
+    assert ("click", 206, 602) in be.calls and not [c for c in ad.calls if c[0] == "desktop_click"]
+
+
+def test_a_real_button_still_gets_the_element_press(be, monkeypatch):
+    ad = FakeAD(WEB_SNAPSHOT, VERIFIED)
+    monkeypatch.setattr(ui_win, "_ad_client", lambda: ad)
+    look = ui_win.read_window(app="notepad")
+    out = ui_win.do_action("click", look_id=look["look_id"], element=2)
+    assert out["via"] == "agent-desktop" and ad.calls[-1] == ("desktop_click", {"ref_id": "@p2:e2"})
+
+
 def test_pc_look_falls_back_to_uia_with_note(be, monkeypatch):
     ad = FakeAD({"ok": False, "error": {"code": "WINDOW_NOT_FOUND", "message": "no window"}})
     monkeypatch.setattr(ui_win, "_ad_client", lambda: ad)
