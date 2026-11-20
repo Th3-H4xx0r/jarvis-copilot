@@ -231,3 +231,21 @@ def test_the_planner_prompt_carries_the_installed_apps_and_the_progress():
 def test_no_flow_is_hard_coded_in_the_planner():
     from agent.computer import decide as D
     assert "Battle.net" not in D._PLAN_PROMPT and "Warzone" not in D._PLAN_PROMPT
+
+
+def test_the_goal_check_reads_the_models_verdict():
+    from agent.computer import decide as D
+    reply = lambda text: (lambda **kw: type("R", (), {"choices": [type("C", (), {"message": type("M", (), {  # noqa
+        "content": text})()})()]})())
+    ok = D.verify_goal("@f:m", {"base64": ""}, "launch Warzone", ["click 52"],
+                       call=reply('{"done": true, "seen": "Warzone is launching", "missing": ""}'))
+    assert ok == {"done": True, "seen": "Warzone is launching", "missing": ""}
+    no = D.verify_goal("@f:m", {}, "g", [], call=reply('{"done": false, "seen": "Home", "missing": "press Play"}'))
+    assert no["done"] is False and no["missing"] == "press Play"
+    assert D.verify_goal("@f:m", {}, "g", [], call=reply("no idea"))["done"] is None
+
+
+def test_the_goal_check_counts_starting_as_done():
+    from agent.computer import decide as D
+    assert "launching" in D._VERIFY_PROMPT and "loading" in D._VERIFY_PROMPT
+

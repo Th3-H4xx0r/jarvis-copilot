@@ -43,6 +43,7 @@ class Config:
     max_seconds: float = 120.0
     min_conf: float = 0.5
     instructions: str = ""
+    verify: bool = True   # look once more at the end: is what he asked for done? (his ask 2026-11-20)
 
 
 @dataclass
@@ -52,6 +53,7 @@ class Result:
     actions: list = field(default_factory=list)
     look: dict | None = None
     reason: str = ""
+    check: dict | None = None    # the end-of-run check: {"done", "seen", "missing"}
     steps: list = field(default_factory=list)
     device_name: str = ""
     values: dict = field(default_factory=dict)  # read off the screen by "read" steps
@@ -66,6 +68,11 @@ class Result:
         lines = [head + (f" {self.reason}" if self.reason else "")]
         if self.steps:
             lines.append("Steps: " + "; ".join(f"{i + 1}) {s.get('do')}" for i, s in enumerate(self.steps)))
+        if self.check is not None:
+            if self.check.get("done") is True:
+                lines.append(f"Checked on screen: {self.check.get('seen') or 'done'}")
+            elif self.check.get("done") is None:
+                lines.append("Checked on screen: couldn't confirm it's done — look before saying so.")
         if self.values:
             lines.append("Read on screen: " + "; ".join(f"{k} = {v}" for k, v in self.values.items()))
         if self.actions:
@@ -145,6 +152,14 @@ def _vague_target(action: dict, look: dict) -> bool:
         return True
     role = str(el.get("role") or "").lower().replace("ax", "", 1)
     return not str(el.get("label") or "").strip() and any(role.startswith(r) for r in _VAGUE_ROLES)
+
+
+VERIFY_SETTLE_S = 1.0
+
+
+def _acted(actions) -> bool:
+    """Whether the run changed anything on screen (not only waited, scrolled or read)."""
+    return any(not str(a.get("did") or "").startswith(("wait", "scroll", "read", "look")) for a in actions or [])
 
 
 def _words(name) -> set:
@@ -234,11 +249,13 @@ def _with_values(step: dict, values: dict) -> dict:
 
 
 def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, should_stop=None,
-        decide=None, fallback=None, mac=None, plan=None, app=None, read=None, allow_copy=False) -> Result:
+        decide=None, fallback=None, mac=None, plan=None, app=None, read=None, allow_copy=False,
+        verify=None) -> Result:
     read = read or _decide_mod.read_value
     decide = decide or _decide_mod.decide
     fallback = fallback or _decide_mod.fallback_step
     plan = plan or _decide_mod.plan_steps
+    verify = verify or _decide_mod.verify_goal
     mac = mac or _mac_mod
     started = time.monotonic()
     out = Result("done", device_name=device_name)
@@ -325,6 +342,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
 
     skip_until = 0
     replans = [0]
+    checks = [0]
 
     def replan(why: str, keep_current: bool) -> bool:
         """Plan what's left from the screen now (a person adjusting when reality isn't the plan). At most twice."""
@@ -349,7 +367,53 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
         history.append(f"re-planned ({why})")
         return True
 
-    for at, step in enumerate(steps):
+    def final_check() -> bool:
+        """The steps ran out with nothing failed: is what he asked for done on the screen? A person glances before
+        saying so (his ask 2026-11-20). True when it planned more steps to run."""
+        nonlocal look
+        if not (out.status == "done" and cfg.verify and cfg.fallback_ref and checks[0] < 2 and not out.values
+                and _acted(out.actions)):
+            return False
+        checks[0] += 1
+        time.sleep(VERIFY_SETTLE_S)            # let the last click show (a button turning into "Launching…")
+        now = {}
+        # The app it worked in — or, when that's gone (the task closed it), whatever is in front now.
+        for where in ([anchor, None] if anchor else [None]):
+            try:
+                now = mac.look(device, app=where) if where else mac.look(device)
+            except Exception:  # noqa: BLE001
+                now = {}
+            if isinstance(now, dict) and now.get("ok"):
+                break
+        if not (isinstance(now, dict) and now.get("ok")):
+            out.check = {"done": None, "seen": "", "missing": ""}   # no fresh screen: never judge a stale one
+            return False
+        look = now
+        t_check = time.monotonic()
+        out.check = verify(cfg.fallback_ref, look, goal, history)
+        out.timing["decide_ms"] += int((time.monotonic() - t_check) * 1000)
+        logger.info("Computer check: done=%s seen=%s missing=%s", out.check.get("done"), out.check.get("seen"),
+                    out.check.get("missing"))
+        if out.check.get("done") is not False:
+            return False
+        missing = out.check.get("missing") or "the screen doesn't show it done"
+        history.append(f"checked: not done yet ({missing})")
+        if replan(f"the request isn't done yet: {missing}", keep_current=True):
+            return True                         # the new steps run next, then it's checked again
+        out.status, out.reason = "stuck", f"The screen doesn't show it done: {missing}."
+        return False
+
+    def each_step():
+        """The steps in order (re-planned ones included), then the end-of-run check, which may add more."""
+        i = 0
+        while True:
+            while i < len(steps):
+                yield i, steps[i]
+                i += 1
+            if not final_check():
+                return
+
+    for at, step in each_step():
         if at < skip_until:
             continue  # pressed in a batch with the step before
         step = _with_values(step, out.values)

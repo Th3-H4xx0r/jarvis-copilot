@@ -30,6 +30,7 @@ class FakeMac:
 
 
 def _cfg(**kw):
+    kw.setdefault("verify", False)   # the end-of-run check has its own tests
     return L.Config(decision_ref="@d:m", fallback_ref="@f:m", **kw)
 
 
@@ -956,3 +957,97 @@ def test_a_click_on_something_unlabeled_is_checked_on_the_screen_before_the_step
     r = L.run("launch it", [{"do": "click the Play button"}], _cfg(), device="pc", decide=_decider(),
               fallback=fallback, mac=WebMac())
     assert len(seen) == 2 and r.status == "done"
+
+
+# ── the end-of-run check: is what he asked for done on the screen? (his ask 2026-11-20) ──
+
+def _verifier(*verdicts):
+    seq, calls = list(verdicts), []
+
+    def fn(ref, look, goal, history, **kw):
+        calls.append(goal)
+        return seq.pop(0) if seq else {"done": True, "seen": "done"}
+    fn.calls = calls
+    return fn
+
+
+def test_the_request_is_checked_on_the_screen_at_the_end(monkeypatch):
+    monkeypatch.setattr(L.time, "sleep", lambda s: None)
+    verify = _verifier({"done": True, "seen": "Call of Duty is launching"})
+    r = L.run("launch Warzone", [{"do": "click the 7 button"}], _cfg(verify=True), device="pc", decide=_decider(),
+              fallback=_never, mac=FakeMac(), verify=verify)
+    assert verify.calls == ["launch Warzone"] and r.status == "done"
+    assert "Checked on screen: Call of Duty is launching" in r.summary()
+
+
+def test_a_request_the_screen_doesnt_show_done_is_planned_on(monkeypatch):
+    monkeypatch.setattr(L.time, "sleep", lambda s: None)
+    verify = _verifier({"done": False, "missing": "press Play"}, {"done": True, "seen": "launching"})
+    progress = []
+
+    def plan(ref, goal, look, **kw):
+        progress.append(kw.get("progress", ""))
+        return {"steps": [{"do": "click the = button"}], "say": ""}
+    r = L.run("launch Warzone", [{"do": "click the 7 button"}], _cfg(verify=True), device="pc", decide=_decider(),
+              fallback=_never, mac=FakeMac(), verify=verify, plan=plan)
+    assert len(verify.calls) == 2 and r.status == "done" and "press Play" in progress[0]
+    assert [s["do"] for s in r.steps] == ["click the 7 button", "click the = button"]
+
+
+def test_a_request_still_not_done_is_reported_honestly(monkeypatch):
+    monkeypatch.setattr(L.time, "sleep", lambda s: None)
+    verify = _verifier(*[{"done": False, "missing": "the game didn't start"}] * 3)
+    r = L.run("launch Warzone", [{"do": "click the 7 button"}], _cfg(verify=True), device="pc", decide=_decider(),
+              fallback=_never, mac=FakeMac(), verify=verify, plan=lambda *a, **k: {"steps": [], "say": ""})
+    assert r.status == "stuck" and "the game didn't start" in r.reason
+    assert not r.summary().startswith("Done")
+
+
+def test_an_unclear_check_keeps_the_result_and_says_so(monkeypatch):
+    monkeypatch.setattr(L.time, "sleep", lambda s: None)
+    verify = _verifier({"done": None, "seen": ""})
+    r = L.run("g", [{"do": "click the 7 button"}], _cfg(verify=True), device="m", decide=_decider(),
+              fallback=_never, mac=FakeMac(), verify=verify)
+    assert r.status == "done" and "couldn't confirm" in r.summary()
+
+
+def test_nothing_done_on_screen_means_nothing_to_check(monkeypatch):
+    verify = _verifier()
+    L.run("g", [], _cfg(verify=True), device="m", decide=_decider(), fallback=_never, mac=FakeMac(), verify=verify)
+    assert verify.calls == []
+
+
+
+def test_a_closed_app_is_checked_on_whatever_is_in_front(monkeypatch):
+    monkeypatch.setattr(L.time, "sleep", lambda s: None)
+    seen = []
+
+    def verify(ref, look, goal, history, **kw):
+        seen.append(look.get("look_id"))
+        return {"done": True, "seen": "desktop"}
+
+    class GoneMac(FakeMac):
+        def look(self, device, app=None, **kw):
+            return {"ok": False, "error": "no window"} if app else dict(_look(99), app="Explorer")
+
+    L.run("close Calc", [{"do": "click the 7 button"}], _cfg(verify=True), device="m", app="Calc", decide=_decider(),
+          fallback=_never, mac=GoneMac(), verify=verify)
+    assert seen == ["L99"]
+
+
+def test_no_fresh_screen_means_no_guess(monkeypatch):
+    monkeypatch.setattr(L.time, "sleep", lambda s: None)
+
+    class BlindMac(FakeMac):
+        def __init__(self):
+            super().__init__()
+            self.looks = 0
+
+        def look(self, device, app=None, **kw):
+            self.looks += 1
+            return _look(1) if self.looks == 1 else {"ok": False, "error": "screen gone"}
+
+    verify = _verifier()
+    r = L.run("g", [{"do": "click the 7 button"}], _cfg(verify=True), device="m", decide=_decider(), fallback=_never,
+              mac=BlindMac(), verify=verify)
+    assert verify.calls == [] and r.status == "done" and "couldn't confirm" in r.summary()

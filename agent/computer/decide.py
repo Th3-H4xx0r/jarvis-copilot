@@ -42,6 +42,16 @@ Reply with ONLY one JSON object:
 - done: the current step already shows as finished. stuck: you cannot see a way forward, or the window shown is \
 not the app this task is about."""
 
+_VERIFY_PROMPT = """The user asked for this on their computer: {goal}
+Moves made so far: {history}
+
+Look at the screenshot. Is what the user asked for done? Something visibly starting, launching or loading counts \
+as done (apps and games take a while to open). Only the thing they asked for counts: a page or app that merely \
+shows it, with the asked action not taken, is not done.
+
+Reply with ONLY one JSON object:
+{{"done": true|false, "seen": "<what the screen shows, a few words>", "missing": "<what is still to do, if not done>"}}"""
+
 _PLAN_PROMPT = """The user asked for something to be done on their {computer}. Split it into as few UI steps as possible.
 
 Request: {goal}
@@ -211,6 +221,20 @@ def fallback_step(ref, look, goal, step, history, *, instructions="", call=None,
     raw = _json(out)
     why = str(raw.get("why") or "")[:160] if isinstance(raw, dict) else str(out or "")[:160]
     return Move(_valid(raw, look, step), None, "fallback", int((time.monotonic() - started) * 1000), why=why)
+
+
+def verify_goal(ref, look, goal, history, *, call=None) -> dict:
+    """Whether the screen shows the request done: ``{"done": True|False|None, "seen", "missing"}`` (None: the
+    model couldn't say — the run keeps its result and says it wasn't confirmed)."""
+    try:
+        raw = _json(_call(call, ref, _VERIFY_PROMPT.format(goal=goal, history="; ".join(history[-12:]) or "none"),
+                          look or {}, 200))
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("computer: goal check failed", exc_info=True)
+        return {"done": None, "seen": "", "missing": "", "error": str(exc)[:160]}
+    if not isinstance(raw, dict) or not isinstance(raw.get("done"), bool):
+        return {"done": None, "seen": "", "missing": ""}
+    return {"done": raw["done"], "seen": str(raw.get("seen") or "")[:160], "missing": str(raw.get("missing") or "")[:200]}
 
 
 _WINDOWS_APP_NAMES = (" by its Windows name (Settings, File Explorer, Calculator, Notepad, Microsoft Edge, Task "
