@@ -1,0 +1,562 @@
+[
+ {
+  "effect": "static",
+  "color": "#22d3ee",
+  "speed": 1,
+  "seg_ord": 0,
+  "i": 0,
+  "n": 8,
+  "t": 0.0,
+  "rgb": [
+   34,
+   211,
+   238
+  ]
+ },
+ {
+  "effect": "static",
+  "color": "#22d3ee",
+  "speed": 5,
+  "seg_ord": 1,
+  "i": 5,
+  "n": 16,
+  "t": 0.37,
+  "rgb": [
+   34,
+   211,
+   238
+  ]
+ },
+ {
+  "effect": "static",
+  "color": "#22d3ee",
+  "speed": 10,
+  "seg_ord": 2,
+  "i": 29,
+  "n": 30,
+  "t": 2.5,
+  "rgb": [
+   34,
+   211,
+   238
+  ]
+ },
+ {
+  "effect": "static",
+  "color": "#22d3ee",
+  "speed": 5,
+  "seg_ord": 3,
+  "i": 3,
+  "n": 8,
+  "t": 9.9,
+  "rgb": [
+   34,
+   211,
+   238
+  ]
+ },
+ {
+  "effect": "static",
+  "color": "#22d3ee",
+  "speed": 10,
+  "seg_ord": 4,
+  "i": 10,
+  "n": 16,
+  "t": 2.5,
+  "rgb": [
+   34,
+   211,
+   238
+  ]
+ },
+ {
+  "effect": "static",
+  "color": "#22d3ee",
+  "speed": 1,
+  "seg_ord": 0,
+  "i": 17,
+  "n": 30,
+  "t": 9.9,
+  "rgb": [
+   34,
+   211,
+   238
+  ]
+ },
+ {
+  "effect": "static",
+  "color": "#22d3ee",
+  "speed": 5,
+  "seg_ord": 2,
+  "i": 0,
+  "n": 30,
+  "t": 0.37,
+  "rgb": [
+   34,
+   211,
+   238
+  ]
+ },
+ {
+  "effect": "static",
+  "color": "#22d3ee",
+  "speed": 10,
+  "seg_ord": 1,
+  "i": 7,
+  "n": 8,
+  "t": 0.0,
+  "rgb": [
+   34,
+   211,
+   238
+  ]
+ },
+ {
+  "effect": "breathing",
+  "color": "#22d3ee",
+  "speed": 1,
+  "seg_ord": 0,
+  "i": 0,
+  "n": 8,
+  "t": 0.0,
+  "rgb": [
+   5,
+   32,
+   36
+  ]
+ },
+ {
+  "effect": "breathing",
+  "color": "#22d3ee",
+  "speed": 5,
+  "seg_ord": 1,
+  "i": 5,
+  "n": 16,
+  "t": 0.37,
+  "rgb": [
+   14,
+   86,
+   97
+  ]
+ },
+ {
+  "effect": "breathing",
+  "color": "#22d3ee",
+  "speed": 10,
+  "seg_ord": 2,
+  "i": 29,
+  "n": 30,
+  "t": 2.5,
+  "rgb": [
+   34,
+   211,
+   238
+  ]
+ },
+ {
+  "effect": "breathing",
+  "color": "#22d3ee",
+  "speed": 5,
+  "seg_ord": 3,
+  "i": 3,
+  "n": 8,
+  "t": 9.9,
+  "rgb": [
+   6,
+   36,
+   41
+  ]
+ },
+ {
+  "effect": "breathing",
+  "color": "#22d3ee",
+  "speed": 10,
+  "seg_ord": 4,
+  "i": 10,
+  "n": 16,
+  "t": 2.5,
+  "rgb": [
+   34,
+   211,
+   238
+  ]
+ },
+ {
+  "effect": "breathing",
+  "color": "#22d3ee",
+  "speed": 1,
+  "seg_ord": 0,
+  "i": 17,
+  "n": 30,
+  "t": 9.9,
+  "rgb": [
+   5,
+   32,
+   36
+  ]
+ },
+ {
+  "effect": "breathing",
+  "color": "#22d3ee",
+  "speed": 5,
+  "seg_ord": 2,
+  "i": 0,
+  "n": 30,
+  "t": 0.37,
+  "rgb": [
+   14,
+   86,
+   97
+  ]
+ },
+ {
+  "effect": "breathing",
+  "color": "#22d3ee",
+  "speed": 10,
+  "seg_ord": 1,
+  "i": 7,
+  "n": 8,
+  "t": 0.0,
+  "rgb": [
+   5,
+   32,
+   36
+  ]
+ },
+ {
+  "effect": "rainbow",
+  "color": "#ffffff",
+  "speed": 1,
+  "seg_ord": 0,
+  "i": 0,
+  "n": 8,
+  "t": 0.0,
+  "rgb": [
+   255,
+   0,
+   0
+  ]
+ },
+ {
+  "effect": "rainbow",
+  "color": "#ffffff",
+  "speed": 5,
+  "seg_ord": 1,
+  "i": 5,
+  "n": 16,
+  "t": 0.37,
+  "rgb": [
+   0,
+   217,
+   255
+  ]
+ },
+ {
+  "effect": "rainbow",
+  "color": "#ffffff",
+  "speed": 10,
+  "seg_ord": 2,
+  "i": 29,
+  "n": 30,
+  "t": 2.5,
+  "rgb": [
+   0,
+   255,
+   189
+  ]
+ },
+ {
+  "effect": "rainbow",
+  "color": "#ffffff",
+  "speed": 5,
+  "seg_ord": 3,
+  "i": 3,
+  "n": 8,
+  "t": 9.9,
+  "rgb": [
+   189,
+   255,
+   0
+  ]
+ },
+ {
+  "effect": "rainbow",
+  "color": "#ffffff",
+  "speed": 10,
+  "seg_ord": 4,
+  "i": 10,
+  "n": 16,
+  "t": 2.5,
+  "rgb": [
+   0,
+   255,
+   33
+  ]
+ },
+ {
+  "effect": "rainbow",
+  "color": "#ffffff",
+  "speed": 1,
+  "seg_ord": 0,
+  "i": 17,
+  "n": 30,
+  "t": 9.9,
+  "rgb": [
+   255,
+   94,
+   0
+  ]
+ },
+ {
+  "effect": "rainbow",
+  "color": "#ffffff",
+  "speed": 5,
+  "seg_ord": 2,
+  "i": 0,
+  "n": 30,
+  "t": 0.37,
+  "rgb": [
+   1,
+   255,
+   0
+  ]
+ },
+ {
+  "effect": "rainbow",
+  "color": "#ffffff",
+  "speed": 10,
+  "seg_ord": 1,
+  "i": 7,
+  "n": 8,
+  "t": 0.0,
+  "rgb": [
+   255,
+   0,
+   8
+  ]
+ },
+ {
+  "effect": "spectrum",
+  "color": "#ffffff",
+  "speed": 1,
+  "seg_ord": 0,
+  "i": 0,
+  "n": 8,
+  "t": 0.0,
+  "rgb": [
+   255,
+   0,
+   0
+  ]
+ },
+ {
+  "effect": "spectrum",
+  "color": "#ffffff",
+  "speed": 5,
+  "seg_ord": 1,
+  "i": 5,
+  "n": 16,
+  "t": 0.37,
+  "rgb": [
+   255,
+   71,
+   0
+  ]
+ },
+ {
+  "effect": "spectrum",
+  "color": "#ffffff",
+  "speed": 10,
+  "seg_ord": 2,
+  "i": 29,
+  "n": 30,
+  "t": 2.5,
+  "rgb": [
+   0,
+   64,
+   255
+  ]
+ },
+ {
+  "effect": "spectrum",
+  "color": "#ffffff",
+  "speed": 5,
+  "seg_ord": 3,
+  "i": 3,
+  "n": 8,
+  "t": 9.9,
+  "rgb": [
+   147,
+   255,
+   0
+  ]
+ },
+ {
+  "effect": "spectrum",
+  "color": "#ffffff",
+  "speed": 10,
+  "seg_ord": 4,
+  "i": 10,
+  "n": 16,
+  "t": 2.5,
+  "rgb": [
+   0,
+   64,
+   255
+  ]
+ },
+ {
+  "effect": "spectrum",
+  "color": "#ffffff",
+  "speed": 1,
+  "seg_ord": 0,
+  "i": 17,
+  "n": 30,
+  "t": 9.9,
+  "rgb": [
+   131,
+   255,
+   0
+  ]
+ },
+ {
+  "effect": "spectrum",
+  "color": "#ffffff",
+  "speed": 5,
+  "seg_ord": 2,
+  "i": 0,
+  "n": 30,
+  "t": 0.37,
+  "rgb": [
+   255,
+   71,
+   0
+  ]
+ },
+ {
+  "effect": "spectrum",
+  "color": "#ffffff",
+  "speed": 10,
+  "seg_ord": 1,
+  "i": 7,
+  "n": 8,
+  "t": 0.0,
+  "rgb": [
+   255,
+   0,
+   0
+  ]
+ },
+ {
+  "effect": "comet",
+  "color": "#22d3ee",
+  "speed": 1,
+  "seg_ord": 0,
+  "i": 0,
+  "n": 8,
+  "t": 0.0,
+  "rgb": [
+   34,
+   211,
+   238
+  ]
+ },
+ {
+  "effect": "comet",
+  "color": "#22d3ee",
+  "speed": 5,
+  "seg_ord": 1,
+  "i": 5,
+  "n": 16,
+  "t": 0.37,
+  "rgb": [
+   18,
+   109,
+   123
+  ]
+ },
+ {
+  "effect": "comet",
+  "color": "#22d3ee",
+  "speed": 10,
+  "seg_ord": 2,
+  "i": 29,
+  "n": 30,
+  "t": 2.5,
+  "rgb": [
+   0,
+   0,
+   0
+  ]
+ },
+ {
+  "effect": "comet",
+  "color": "#22d3ee",
+  "speed": 5,
+  "seg_ord": 3,
+  "i": 3,
+  "n": 8,
+  "t": 9.9,
+  "rgb": [
+   0,
+   0,
+   0
+  ]
+ },
+ {
+  "effect": "comet",
+  "color": "#22d3ee",
+  "speed": 10,
+  "seg_ord": 4,
+  "i": 10,
+  "n": 16,
+  "t": 2.5,
+  "rgb": [
+   0,
+   0,
+   0
+  ]
+ },
+ {
+  "effect": "comet",
+  "color": "#22d3ee",
+  "speed": 1,
+  "seg_ord": 0,
+  "i": 17,
+  "n": 30,
+  "t": 9.9,
+  "rgb": [
+   0,
+   0,
+   0
+  ]
+ },
+ {
+  "effect": "comet",
+  "color": "#22d3ee",
+  "speed": 5,
+  "seg_ord": 2,
+  "i": 0,
+  "n": 30,
+  "t": 0.37,
+  "rgb": [
+   0,
+   0,
+   0
+  ]
+ },
+ {
+  "effect": "comet",
+  "color": "#22d3ee",
+  "speed": 10,
+  "seg_ord": 1,
+  "i": 7,
+  "n": 8,
+  "t": 0.0,
+  "rgb": [
+   0,
+   0,
+   0
+  ]
+ }
+]
