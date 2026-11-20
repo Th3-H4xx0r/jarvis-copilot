@@ -805,31 +805,6 @@ def test_the_summary_names_the_computer_it_ran_on():
     assert L.Result("done").summary().startswith("Done on the computer.")
 
 
-def test_a_launcher_opened_for_a_game_gets_its_play_click(monkeypatch):
-    # Live 2026-11-20: "launch Warzone" opened Battle.net and then looked for a Warzone window; a person clicks Play.
-    monkeypatch.setattr(L.time, "sleep", lambda s: None)
-
-    class LauncherMac(FakeMac):
-        def act(self, device, action, look_id):
-            self.acts.append((action, look_id))
-            if action["action"] == "open_app":
-                self.n += 1
-                return {"ok": True, "did": "open_app", "via": "app", "launched": "Battle.net", "launcher": True,
-                        "game": "Call of Duty", "look": _look(self.n)}
-            return super().act(device, action, look_id)
-
-    mac = LauncherMac()
-    seen = []
-
-    def fallback(ref, look, goal, step, history, **kw):
-        seen.append(step.get("do"))
-        return Move({"action": "done"}, 0.9, "fallback", 1)
-    r = L.run("launch Warzone", [{"do": "open Warzone", "app": "Warzone"}], _cfg(), device="pc",
-              decide=_decider(), fallback=fallback, mac=mac)
-    assert r.status == "done" and any("Play" in (s.get("do") or "") for s in r.steps)
-    assert any("Play" in (c or "") for c in seen)          # the screenshot model handled the drawn Play button
-
-
 def test_a_click_that_changed_nothing_goes_to_the_screenshot_model_next():
     # Live 2026-11-20: the fast model clicked an unlabeled "group" three times; only the screenshot model found Play.
     class StillMac(FakeMac):
@@ -875,26 +850,6 @@ def test_a_labeled_button_is_clicked_without_the_screenshot_model():
     assert r.status == "done" and mac.acts[0][0] == {"action": "click", "element": 1}
 
 
-def test_a_launcher_game_gets_select_then_play(monkeypatch):
-    monkeypatch.setattr(L.time, "sleep", lambda s: None)
-
-    class LauncherMac(FakeMac):
-        def act(self, device, action, look_id):
-            self.acts.append((action, look_id))
-            if action["action"] == "open_app":
-                self.n += 1
-                return {"ok": True, "did": "open_app", "via": "app", "launched": "Battle.net", "launcher": True,
-                        "game": "Call of Duty", "look": _look(self.n)}
-            return super().act(device, action, look_id)
-
-    r = L.run("launch Warzone", [{"do": "open Warzone", "app": "Warzone"}, {"do": "click the Play button"}], _cfg(),
-              device="pc", decide=_decider(), fallback=lambda *a, **k: Move({"action": "done"}, 0.9, "fallback", 1),
-              mac=LauncherMac())
-    dos = [s.get("do") for s in r.steps]
-    assert any("Call of Duty" in d and "select" in d.lower() for d in dos)
-    assert dos.index(next(d for d in dos if "select" in d.lower())) < dos.index("click the Play button")
-
-
 def test_selecting_an_unlabeled_game_goes_to_the_screenshot_model():
     seen = []
 
@@ -905,3 +860,77 @@ def test_selecting_an_unlabeled_game_goes_to_the_screenshot_model():
     L.run("g", [{"do": "select Call of Duty in Battle.net's game list (skip if its page is showing)"}], _cfg(),
           device="pc", decide=decide, fallback=fallback, mac=FakeMac())
     assert decide.calls == [] and seen
+
+
+def test_when_something_else_opens_the_rest_is_planned_from_the_screen(monkeypatch):
+    # His ask 2026-11-20: nothing hard-coded for one flow — when the screen isn't what the plan expected (asked for
+    # one app, another opened), look and plan the rest, like a person would.
+    monkeypatch.setattr(L.time, "sleep", lambda s: None)
+
+    class OtherMac(FakeMac):
+        def act(self, device, action, look_id):
+            self.acts.append((action, look_id))
+            self.n += 1
+            look = dict(_look(self.n), app="Battle.net", window="Battle.net")
+            if action["action"] == "open_app":
+                return {"ok": True, "did": "open_app", "via": "app", "launched": "Battle.net", "look": look}
+            return {"ok": True, "did": action["action"], "via": "ax", "look": look}
+
+    replans = []
+
+    def plan(ref, goal, look, **kw):
+        replans.append((look.get("app") if look else None, kw.get("progress", "")))
+        return {"steps": [{"do": "click the 7 button"}], "say": ""}
+
+    mac = OtherMac()
+    r = L.run("launch Warzone", [{"do": "open Warzone", "app": "Warzone"}], _cfg(), device="pc",
+              decide=_decider(), fallback=_never, mac=mac, plan=plan)
+    assert replans and replans[0][0] == "Battle.net" and "Battle.net" in replans[0][1]
+    assert r.status == "done" and [s.get("do") for s in r.steps] == ["open Warzone", "click the 7 button"]
+
+
+def test_a_stuck_step_is_replanned_once_from_the_screen_before_giving_up():
+    replans = []
+
+    def plan(ref, goal, look, **kw):
+        replans.append(kw.get("progress", ""))
+        return {"steps": [{"do": "click the 7 button"}], "say": ""}
+
+    stuck = lambda *a, **k: Move({"action": "stuck"}, 0.9, "fallback", 1)   # noqa: E731
+    r = L.run("g", [{"do": "find the hidden thing"}], _cfg(), device="m", decide=_decider(), fallback=stuck,
+              mac=FakeMac(), plan=plan)
+    assert len(replans) == 1 and "find the hidden thing" in replans[0]
+    assert r.status == "done"
+
+
+def test_the_planner_is_told_what_is_installed(monkeypatch):
+    seen = {}
+
+    def plan(ref, goal, look, **kw):
+        seen.update(kw)
+        return {"steps": [{"do": "click the 7 button"}], "say": ""}
+
+    mac = FakeMac()
+    mac.installed_apps = lambda device: ["Call of Duty", "Discord", "Battle.net"]
+    L.run("launch Warzone", None, _cfg(), device="pc", decide=_decider(), fallback=_never, mac=mac, plan=plan)
+    assert seen.get("apps") == ["Call of Duty", "Discord", "Battle.net"]
+
+
+def test_an_app_that_isnt_there_is_replanned_with_what_is_installed():
+    class MissMac(FakeMac):
+        def act(self, device, action, look_id):
+            if action["action"] == "open_app" and action["app"] == "Warzone":
+                self.acts.append((action, look_id))
+                return {"ok": False, "error": "No app called 'Warzone' on this PC.", "apps": ["Call of Duty", "Discord"]}
+            return super().act(device, action, look_id)
+
+    seen = []
+
+    def plan(ref, goal, look, **kw):
+        seen.append(kw)
+        return {"steps": [{"do": "click the 7 button"}], "say": ""}
+
+    r = L.run("launch Warzone", [{"do": "open Warzone", "app": "Warzone"}], _cfg(), device="pc", decide=_decider(),
+              fallback=_never, mac=MissMac(), plan=plan)
+    assert seen and seen[0]["apps"] == ["Call of Duty", "Discord"] and "Warzone" in seen[0]["progress"]
+    assert r.status == "done"

@@ -211,3 +211,20 @@ def act(device_id: str, action: dict, look_id: str | None) -> dict:
     if look_id:
         args["look_id"] = look_id
     return _invoke(device_id, DO_SKILL, args)
+
+
+_APPS: dict = {}
+_APPS_TTL = 600.0
+
+
+def installed_apps(device_id: str) -> list:
+    """The app names this computer's Start menu / Applications lists (cached 10 minutes); [] when it can't say."""
+    import time as _t
+    hit = _APPS.get(device_id)
+    if hit and _t.time() - hit[0] < _APPS_TTL:
+        return hit[1]
+    res = _invoke(device_id, "installed_apps", {})
+    apps = [str(a) for a in (res.get("apps") or [])] if res.get("ok") else []
+    if apps:
+        _APPS[device_id] = (_t.time(), apps)
+    return apps

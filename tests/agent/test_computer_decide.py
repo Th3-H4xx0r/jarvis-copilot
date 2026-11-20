@@ -215,6 +215,19 @@ def test_repair_plan_reads_before_switching_apps_and_types_the_value():
     assert repair_plan(good) == good
 
 
-def test_the_pc_planner_knows_games_start_from_their_launcher():
+def test_the_planner_prompt_carries_the_installed_apps_and_the_progress():
     from agent.computer import decide as D
-    assert "launcher" in D._PLAN_PROMPT and "click the Play button" in D._PLAN_PROMPT
+    seen = {}
+
+    def call(**kw):
+        seen["prompt"] = kw["messages"][0]["content"][0]["text"]
+        return {"steps": [{"do": "x"}]}
+    D.plan_steps("@p:m", "launch Warzone", None, apps=["Call of Duty", "Discord"], progress="Battle.net opened",
+                 call=lambda **kw: type("R", (), {"choices": [type("C", (), {"message": type("M", (), {
+                     "content": (call(**kw), '{"steps": [{"do": "x"}]}')[1]})()})()]})())
+    assert "Call of Duty, Discord" in seen["prompt"] and "Battle.net opened" in seen["prompt"]
+
+
+def test_no_flow_is_hard_coded_in_the_planner():
+    from agent.computer import decide as D
+    assert "Battle.net" not in D._PLAN_PROMPT and "Warzone" not in D._PLAN_PROMPT

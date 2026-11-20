@@ -28,8 +28,8 @@ COMPUTER_DO_SCHEMA = {
             "goal": {"type": "string", "description": "What should be true on the computer when done."},
             "computer": {"type": "string",
                          "description": "Which of his computers: 'PC' (Windows) or 'Mac'. He rarely says — infer it "
-                                        "from the conversation (a PC chat stays on the PC) and from the app (Windows "
-                                        "games and launchers like Battle.net or Steam are on the PC). A sleeping "
+                                        "from the conversation (a PC chat stays on the PC) and from where the app is "
+                                        "installed (an app missing on one is tried on the other). A sleeping "
                                         "computer is woken and waited for first."},
             "app": {"type": "string", "description": "The app it happens in, e.g. 'Calculator' (opened if needed; "
                                                     "works even when another app is in front)."},

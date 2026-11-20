@@ -357,7 +357,9 @@ def _do(be, action, look_id, element, text, keys, direction, x, y, app, url) -> 
         if not app:
             return {"ok": False, "error": "open_app needs app"}
         res = be.open_app(app)
-        # What really started ("Warzone" → Battle.net on Call of Duty's page): the window to look for.
+        if isinstance(res, dict) and res.get("ok") is False:
+            return {"ok": False, "did": "open_app", "error": res.get("error") or f"couldn't open {app}"}
+        # What really started (a link opens in another app's window): the window to look for.
         launched = str(res.get("launched") or "") if isinstance(res, dict) else ""
         deadline = time.monotonic() + 3.0
         found = None
@@ -373,8 +375,6 @@ def _do(be, action, look_id, element, text, keys, direction, x, y, app, url) -> 
         out = {"ok": True, "did": "open_app", "via": "app"}
         if launched:
             out["launched"] = launched
-        if isinstance(res, dict) and res.get("launcher"):
-            out.update(launcher=True, game=res.get("game") or app)
         return out
     if action == "open_url":
         if not str(url or "").startswith(("https://", "http://")):

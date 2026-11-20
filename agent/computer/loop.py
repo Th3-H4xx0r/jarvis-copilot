@@ -147,6 +147,26 @@ def _vague_target(action: dict, look: dict) -> bool:
     return not str(el.get("label") or "").strip() and any(role.startswith(r) for r in _VAGUE_ROLES)
 
 
+def _words(name) -> set:
+    return set(re.findall(r"[a-z0-9]+", str(name or "").lower()))
+
+
+def _same_app(a, b) -> bool:
+    """Loosely the same app ("Call of Duty" vs "Call of Duty®"; "Code" vs "Visual Studio Code")."""
+    wa, wb = _words(a), _words(b)
+    return bool(wa and wb) and (wa <= wb or wb <= wa)
+
+
+def _installed(mac, device) -> list:
+    fn = getattr(mac, "installed_apps", None)
+    if fn is None:
+        return []
+    try:
+        return list(fn(device) or [])
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def _look_after_open(mac, device, app, launched=None) -> dict:
     """After open_app: look for what really started (open_app says: "Warzone" → "Call of Duty"), patiently —
     a game through its launcher takes tens of seconds (live 2026-11-20: gave up after one second)."""
@@ -245,15 +265,18 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
 
     # Plan from his words first (no screenshot: faster), and skip the first look
     # when the first step opens an app or a page anyway.
+    try:
+        on_pc = getattr(mac, "os_of", None) is not None and mac.os_of(device) == "windows"
+    except Exception:
+        on_pc = False
+    # Live: on the PC the plan opened "System Settings" and "Finder" — it must know the computer.
+    plan_extra: dict = {"computer": "Windows PC"} if on_pc else {}
     if steps is None:
         t_plan = time.monotonic()
-        try:
-            on_pc = getattr(mac, "os_of", None) is not None and mac.os_of(device) == "windows"
-        except Exception:
-            on_pc = False
-        # Live: on the PC the plan opened "System Settings" and "Finder" — it must know the computer.
-        extra = {"computer": "Windows PC"} if on_pc else {}
-        planned = plan(planner, goal, None, instructions=cfg.instructions, **extra)
+        apps = _installed(mac, device)
+        if apps:
+            plan_extra["apps"] = apps
+        planned = plan(planner, goal, None, instructions=cfg.instructions, **plan_extra)
         out.timing["plan_ms"] = int((time.monotonic() - t_plan) * 1000)
         steps, out.say = planned["steps"], planned.get("say") or ""
         if not steps and planned.get("error"):
@@ -280,7 +303,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
     # The task stays on its app: if he switches to another app mid-task, the
     # looks keep reading this one (presses work in the background).
     anchor = look.get("app")
-    out.steps = steps   # the same list: steps added on the way (a launcher's Play) show in the result
+    out.steps = steps   # the same list: steps re-planned on the way show in the result
     history: list[str] = []
 
     def record(action, res, move, ms):
@@ -301,6 +324,31 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 pass
 
     skip_until = 0
+    replans = [0]
+
+    def replan(why: str, keep_current: bool) -> bool:
+        """Plan what's left from the screen now (a person adjusting when reality isn't the plan). At most twice."""
+        if replans[0] >= 2 or not planner:
+            return False
+        replans[0] += 1
+        if "apps" not in plan_extra:
+            apps = _installed(mac, device)
+            if apps:
+                plan_extra["apps"] = apps
+        done = "; ".join(str(s.get("do")) for s in steps[:at + (1 if keep_current else 0)]) or "nothing yet"
+        progress = (f"done: {done}. {why}. On screen now: {look.get('app') or '?'} — {look.get('window') or ''}"
+                    .rstrip(" —"))
+        try:
+            planned = plan(planner, goal, look, instructions=cfg.instructions, progress=progress, **plan_extra)
+        except Exception:  # noqa: BLE001
+            return False
+        new = [x for x in (planned or {}).get("steps") or [] if isinstance(x, dict) and x.get("do")]
+        if not new:
+            return False
+        steps[at + 1:] = new
+        history.append(f"re-planned ({why})")
+        return True
+
     for at, step in enumerate(steps):
         if at < skip_until:
             continue  # pressed in a batch with the step before
@@ -369,6 +417,15 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             res = mac.act(device, action, look.get("look_id"))
             record(action, res, None, int((time.monotonic() - t) * 1000))
             if not res.get("ok"):
+                if res.get("apps"):
+                    # Not installed under that name: the computer listed what is — plan again from that list.
+                    plan_extra["apps"] = list(res["apps"])
+                    if not look.get("look_id"):     # the run skipped its first look (step 1 opened an app)
+                        fresh = mac.look(device)
+                        look = fresh if fresh.get("ok") else look
+                    if replan(f"there's no app called {step['app']} ({res.get('error') or 'not found'})",
+                              keep_current=False):
+                        continue
                 out.status, out.reason = "error", res.get("error") or "could not open the app"
                 break
             nxt = res.get("look") if isinstance(res.get("look"), dict) else None
@@ -378,19 +435,9 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 out.status, out.reason = "error", look.get("error") or f"could not see {step['app']}"
                 break
             anchor = look.get("app") or launched or step["app"]
-            if res.get("launcher"):
-                # A game opens in its launcher (Battle.net, Steam…): a person picks the game there, then clicks Play
-                # (live 2026-11-20: Battle.net stayed on Home and nothing was played).
-                game = res.get("game") or step["app"]
-                where = launched or "the launcher"
-                later = [str(s.get("do") or "").lower() for s in steps[at + 1:]]
-                play_at = next((at + 1 + i for i, d in enumerate(later) if "play" in d), None)
-                if play_at is None:
-                    steps.insert(at + 1, {"do": "click the Play button"})
-                    play_at = at + 1
-                if not any("select" in d or str(game).lower() in d for d in later):
-                    steps.insert(play_at, {"do": f"select {game} in {where}'s game list (skip if its page is showing)"})
-                history.append(f"{where} is open; next: pick {game}, then click Play")
+            if launched and not _same_app(launched, step["app"]):
+                # Something else opened (a launcher, hub or start page): look and plan the rest from the screen.
+                replan(f"Asked to open {step['app']}; {launched} opened and is showing now", keep_current=True)
             if _open_only(step):
                 history.append(f"step done: {step.get('do')}")
                 continue  # "open Calculator": opening it was the whole step
@@ -486,6 +533,8 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                     strikes += 1
                     why = (move.why if move else "") or (first.why if first else "") or "no way forward"
                     if strikes >= 2:
+                        if replan(f"step “{step.get('do')}” got stuck ({why})", keep_current=False):
+                            break       # the new steps take over from here
                         out.status, out.reason = "stuck", f"Step “{step.get('do')}”: {why}"
                         break
                     history.append(f"unsure ({why}); looking again")
@@ -571,6 +620,9 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 history.append(f"step done: {step.get('do')}")
                 break
             if repeats >= 2:
+                if replan(f"“{describe(action, look)}” did nothing three times on step “{step.get('do')}”",
+                          keep_current=False):
+                    break
                 out.status, out.reason = "stuck", f"“{describe(action, look)}” did nothing three times."
                 break
         if out.status != "done":

@@ -46,7 +46,7 @@ _PLAN_PROMPT = """The user asked for something to be done on their {computer}. S
 
 Request: {goal}
 Today: {today}
-{notes}
+{notes}{apps}{progress}
 Reply with ONLY one JSON object:
 {{"steps": [{{"do": "<one step>", "app": "<app to open, if any>", "url": "<page to open, if any>", \
 "text": "<exact text to type, if any>"}}]}}
@@ -64,9 +64,8 @@ step's "text". Never write a placeholder like [price].
 in a calendar, first click Today, then move to the date.
 - Only UI moves and read steps: the reply to the user is written afterwards from the screen, so never add a step \
 to tell, say or report something.
-- Games on a PC start from their launcher (Battle.net, Steam, Epic): step 1 opens the game by its name ("app" = the \
-game, which opens its launcher), step 2 "select <game> in <launcher>'s game list", step 3 "click the Play button". \
-Nothing more: no waiting steps."""
+- If what's on screen isn't the thing asked for (a launcher, hub or start page opened instead), carry on there like a \
+person: pick the item the user means, then press the button that opens or starts it. No waiting steps."""
 
 
 @dataclass
@@ -218,13 +217,19 @@ _WINDOWS_APP_NAMES = (" by its Windows name (Settings, File Explorer, Calculator
                       "Manager — never a Mac app like Finder or System Settings)")
 
 
-def plan_steps(ref, goal, look=None, *, instructions="", call=None, computer="Mac") -> dict:
+def plan_steps(ref, goal, look=None, *, instructions="", call=None, computer="Mac", apps=None, progress="") -> dict:
     """``{"steps": [{do, app?, url?, text?}], "say"}`` from his words alone (no screenshot:
     faster); the goal as one step when the reply can't be read; ``{"steps": [], "error"}`` when the
     planning model itself failed (never guess then: the goal alone names no app to stay on)."""
     notes = f"Notes: {instructions}\n" if instructions else ""
     try:
-        prompt = _PLAN_PROMPT.format(goal=goal, notes=notes, today=_today(), computer=computer,
+        # What's installed, so a nickname or a game's own name maps to the real entry (his ask 2026-11-20: like a
+        # person who knows their computer — nothing hard-coded per app).
+        apps_line = (f"Apps on this {computer} (open the one meant by its exact name here): "
+                     f"{', '.join(str(a) for a in list(apps)[:150])}\n" if apps else "")
+        progress_line = f"So far: {progress}\nPlan only what's left, from what the screen shows now.\n" if progress else ""
+        prompt = _PLAN_PROMPT.format(goal=goal, notes=notes, today=_today(), computer=computer, apps=apps_line,
+                                     progress=progress_line,
                                      app_names=_WINDOWS_APP_NAMES if "windows" in computer.lower() else "")
         raw = _json(_call(call, ref, prompt, look or {}, 300))
     except Exception as exc:

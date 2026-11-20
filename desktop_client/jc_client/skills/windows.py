@@ -83,11 +83,6 @@ def open_url_in(url: str, app: str) -> None:
         env={"JC_APP": app_command(app), "JC_ARG": url})
 
 
-# Everyday names for things the Start menu lists under another name (live 2026-11-19: "Call of Duty: Warzone").
-_APP_ALIASES = {"warzone": "call of duty", "cod": "call of duty", "black ops": "call of duty",
-                "modern warfare": "call of duty", "wow": "world of warcraft", "ow": "overwatch", "ow2": "overwatch",
-                "vs code": "visual studio code", "vscode": "visual studio code", "bnet": "battle.net",
-                "battlenet": "battle.net", "blizzard": "battle.net"}
 _WORD = re.compile(r"[a-z0-9.]+")
 _FILLER = {"the", "a", "an", "app", "game", "launch", "open", "start", "on", "my", "pc", "windows"}
 
@@ -98,12 +93,9 @@ def _words(text: str) -> set:
 
 def pick_start_app(query: str, apps: list):
     """The Start menu entry a person would pick for ``query``: every word of the entry's name in what he said
-    (or the reverse), the closest match first; aliases map nicknames ("warzone" → "Call of Duty")."""
-    q = str(query or "").lower()
-    for nick, real in _APP_ALIASES.items():
-        if re.search(rf"\b{re.escape(nick)}\b", q):
-            q = f"{q} {real}"
-    want = _words(q)
+    (or the reverse), the closest match first. No nickname table: a name the Start menu doesn't list is the
+    planner's to map, from the installed apps it's shown (his ask 2026-11-20)."""
+    want = _words(query)
     if not want:
         return None
     best, best_score = None, 0.0
@@ -122,21 +114,38 @@ def pick_start_app(query: str, apps: list):
     return best
 
 
-_LAUNCHER_URIS = {"battlenet": "Battle.net", "steam": "Steam", "com.epicgames.launcher": "Epic Games Launcher"}
+_LINK = re.compile(r"^([a-z][a-z0-9+.-]*)://", re.I)
 
 
-def launcher_of(app: dict) -> str:
-    """The launcher a Start menu entry opens a game in ("Battle.net" for battlenet://game/…), or ""."""
-    m = re.match(r"^([a-z][a-z0-9+.-]*)://", str(app.get("AppID") or ""), re.I)
-    return _LAUNCHER_URIS.get(m.group(1).lower(), "") if m else ""
+def _link_command(scheme: str):
+    """The command Windows runs for ``scheme://`` links (HKEY_CLASSES_ROOT\\<scheme>\\shell\\open\\command)."""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, rf"{scheme}\shell\open\command") as key:
+            return str(winreg.QueryValueEx(key, "")[0] or "")
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def link_handler(app_id: str, query=_link_command) -> str:
+    """The app a link entry opens in, by its program's name ("Battle.net" for battlenet://…), from Windows' own
+    link registration; "" for an ordinary app or an unknown link."""
+    m = _LINK.match(str(app_id or ""))
+    if not m:
+        return ""
+    cmd = query(m.group(1).lower()) or ""
+    exe = re.match(r'\s*"([^"]+)"', cmd) or re.match(r"\s*(\S+)", cmd)
+    if not exe:
+        return ""
+    name = re.split(r"[\\/]", exe.group(1))[-1]
+    return name[:-4] if name.lower().endswith(".exe") else name
 
 
 def launch_argv(app: dict) -> list:
-    """How to start a Start menu entry: a link (a game's launcher page) as itself, an app by its AppID. A Battle.net
-    game opens on its page — a person (or the screen-driven loop) then clicks Play; Battle.net's own "launch"
-    command only selects the game (his word 2026-11-20)."""
+    """How to start a Start menu entry: a link as itself (it opens wherever Windows sends it), an app by its
+    AppID. What happens next is read off the screen, like a person would."""
     app_id = str(app.get("AppID") or "")
-    if re.match(r"^[a-z][a-z0-9+.-]*://", app_id, re.I):
+    if _LINK.match(app_id):
         return [app_id]
     return [f"shell:AppsFolder\\{app_id}"]
 
@@ -157,19 +166,38 @@ def open_app(name: str) -> dict:
     if not name:
         raise ValueError("name required")
     known = str(name).strip().lower() in _APP_COMMANDS or os.path.sep in str(name) or str(name).lower().endswith(".exe")
+    apps = None
     if not known:
-        app = pick_start_app(name, _start_apps())
+        apps = _start_apps()
+        app = pick_start_app(name, apps)
         if app is not None:
             argv = launch_argv(app)
             env = {"JC_APP": argv[0], "JC_ARG": argv[1] if len(argv) > 1 else ""}
             _ps("if ($env:JC_ARG) { Start-Process -FilePath $env:JC_APP -ArgumentList $env:JC_ARG } "
                 "else { Start-Process -FilePath $env:JC_APP }", env=env)
-            launcher = launcher_of(app)
-            if launcher:   # the game's page in its launcher: the window to drive is the launcher's
-                return {"ok": True, "name": name, "launched": launcher, "launcher": True, "game": app.get("Name")}
-            return {"ok": True, "name": name, "launched": app.get("Name")}
-    _ps(_OPEN_SCRIPT, env={"JC_APP": app_command(name)})
+            # A link opens in another app (a game's page in its launcher): that app's window is what to look for.
+            return {"ok": True, "name": name, "launched": link_handler(app.get("AppID")) or app.get("Name")}
+    try:
+        _ps(_OPEN_SCRIPT, env={"JC_APP": app_command(name)})
+    except RuntimeError:
+        if known:
+            raise
+        # Nothing by that name: say what is installed, so the model picks the real one (a game listed under its
+        # series, an app under its maker's name) instead of guessing again.
+        names = _unique_names(apps or [])
+        return {"ok": False, "name": name, "apps": names,
+                "error": f"No app called {name!r} on this PC. Installed: {', '.join(names[:150])}"}
     return {"ok": True, "name": name}
+
+
+def _unique_names(apps: list) -> list:
+    seen, out = set(), []
+    for a in apps:
+        n = str((a or {}).get("Name") or "").strip()
+        if n and n.lower() not in seen:
+            seen.add(n.lower())
+            out.append(n)
+    return out
 
 
 def _start_apps() -> list:

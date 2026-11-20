@@ -122,6 +122,48 @@ def screen_locked() -> dict:
     return {"ok": True, "locked": bool(locked)}
 
 
+_MAC_APP_DIRS = ("/Applications", "/System/Applications", os.path.expanduser("~/Applications"))
+
+
+def installed_app_names(platform: str = sys.platform, *, start_apps=None, app_dirs=None) -> list:
+    """The apps a person sees on this computer: the Start menu's list on Windows, the .app bundles in the app
+    folders (one level of subfolders, like Utilities) on a Mac."""
+    names: list = []
+    if platform == "win32":
+        if start_apps is None:
+            from jc_client.skills.windows import _start_apps as start_apps
+        names = [str((a or {}).get("Name") or "").strip() for a in start_apps() or []]
+    elif platform == "darwin":
+        for d in app_dirs if app_dirs is not None else _MAC_APP_DIRS:
+            try:
+                entries = sorted(os.scandir(d), key=lambda e: e.name.lower())
+            except OSError:
+                continue
+            for e in entries:
+                if e.name.endswith(".app"):
+                    names.append(e.name[:-4])
+                elif e.is_dir() and not e.name.startswith("."):
+                    try:
+                        names += sorted(x.name[:-4] for x in os.scandir(e.path) if x.name.endswith(".app"))
+                    except OSError:
+                        pass
+    seen, out = set(), []
+    for n in names:
+        if n and n.lower() not in seen:
+            seen.add(n.lower())
+            out.append(n)
+    return out
+
+
+@skill(
+    "installed_apps",
+    "List the apps installed on this computer (as the Start menu / Applications folder shows them).",
+    {"type": "object", "properties": {}},
+)
+def installed_apps() -> dict:
+    return {"ok": True, "apps": installed_app_names()}
+
+
 @skill(
     "screen_wake",
     "Turn this computer's display on (after a remote wake it stays dark).",

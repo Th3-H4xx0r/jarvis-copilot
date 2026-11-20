@@ -117,20 +117,58 @@ def test_apps_are_found_like_the_start_menu_does():
     # Live 2026-11-19: "Call of Duty: Warzone" and "Battle.net" didn't open on the PC.
     from jc_client.skills.windows import pick_start_app
     assert pick_start_app("Call of Duty: Warzone", START_APPS)["Name"] == "Call of Duty"
-    assert pick_start_app("warzone", START_APPS)["Name"] == "Call of Duty"
     assert pick_start_app("battle.net", START_APPS)["Name"] == "Battle.net"
-    assert pick_start_app("vs code", START_APPS)["Name"] == "Visual Studio Code"
+    assert pick_start_app("visual studio code", START_APPS)["Name"] == "Visual Studio Code"
     assert pick_start_app("photoshop", START_APPS) is None
 
 
-def test_a_battlenet_game_opens_its_page_in_the_launcher():
-    # His word 2026-11-20: Battle.net's launch command doesn't start the game; a person opens it and clicks Play.
-    from jc_client.skills.windows import launch_argv, launcher_of
+def test_no_nickname_table_decides_what_an_app_is():
+    # His ask 2026-11-20: nothing hard-coded per app. A nickname the Start menu doesn't list isn't guessed here —
+    # the planner sees the installed apps and picks the real name.
+    from jc_client.skills import windows
+    assert windows.pick_start_app("warzone", START_APPS) is None
+    assert not hasattr(windows, "_APP_ALIASES") and not hasattr(windows, "launcher_of")
+
+
+def test_a_link_entry_names_the_app_windows_opens_it_with():
+    # A Start entry that is a link (a game's page in its launcher) opens in whatever app Windows has for that link.
+    from jc_client.skills.windows import launch_argv, link_handler
+    cmd = {"battlenet": '"C:\\Program Files (x86)\\Battle.net\\Battle.net.exe" --uri="%1"',
+           "steam": '"C:\\Program Files (x86)\\Steam\\steam.exe" -- "%1"'}
+    assert link_handler("battlenet://game/auks", query=cmd.get) == "Battle.net"
+    assert link_handler("steam://rungameid/10", query=cmd.get) == "steam"
+    assert link_handler("epic://x", query=cmd.get) == ""
+    assert link_handler("Microsoft.VisualStudioCode", query=cmd.get) == ""
     assert launch_argv({"Name": "Call of Duty", "AppID": "battlenet://game/auks"}) == ["battlenet://game/auks"]
-    assert launcher_of({"Name": "Call of Duty", "AppID": "battlenet://game/auks"}) == "Battle.net"
-    assert launcher_of({"Name": "Discord", "AppID": "com.squirrel.Discord.Discord"}) == ""
     assert launch_argv({"Name": "Visual Studio Code", "AppID": "Microsoft.VisualStudioCode"}) == \
         ["shell:AppsFolder\\Microsoft.VisualStudioCode"]
+
+
+def test_an_app_that_isnt_installed_says_what_is(monkeypatch):
+    from jc_client.skills import windows
+
+    def fail(script, **kw):
+        raise RuntimeError("Start-Process : This command cannot be run")
+    monkeypatch.setattr(windows, "_start_apps", lambda: START_APPS)
+    monkeypatch.setattr(windows, "_ps", fail)
+    out = windows.open_app("warzone")
+    assert out["ok"] is False and "warzone" in out["error"]
+    assert out["apps"] == ["Battle.net", "Call of Duty", "Visual Studio Code", "Steam"]
+
+
+def test_the_installed_apps_are_listed():
+    from jc_client.skills.common import installed_app_names
+    assert installed_app_names("win32", start_apps=lambda: START_APPS + [{"Name": "Steam", "AppID": "x"}]) == \
+        ["Battle.net", "Call of Duty", "Visual Studio Code", "Steam"]
+
+
+def test_the_macs_installed_apps_come_from_its_app_folders(tmp_path):
+    from jc_client.skills.common import installed_app_names
+    (tmp_path / "Safari.app").mkdir()
+    (tmp_path / "Utilities").mkdir()
+    (tmp_path / "Utilities" / "Terminal.app").mkdir()
+    (tmp_path / "notes.txt").write_text("x")
+    assert installed_app_names("darwin", app_dirs=[tmp_path]) == ["Safari", "Terminal"]
 
 
 def test_a_locked_desktop_is_seen():
