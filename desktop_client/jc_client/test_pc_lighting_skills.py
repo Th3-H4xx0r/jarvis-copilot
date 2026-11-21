@@ -134,6 +134,30 @@ def test_a_zone_missing_from_a_frame_keeps_its_last_colours():
     assert tuple(dev.sent[-1][0]) == (0, 255, 0) and tuple(dev.sent[-1][40]) == (0, 0, 255)
 
 
+def test_set_direct_leaves_a_board_already_in_direct_alone():
+    calls = []
+    dev = _device_0_3_8()
+    dev.modes = [SimpleNamespace(name="Static"), SimpleNamespace(name="Direct")]
+    dev.active_mode = 1
+    dev.set_mode = lambda m: calls.append(m)
+    d = driver.Driver("127.0.0.1:6742")
+    d._client = SimpleNamespace(devices=[dev])
+    d.set_direct()
+    assert calls == []          # re-setting Direct blanks his board and eats the next update
+
+
+def test_set_direct_switches_and_waits_when_needed():
+    calls, slept = [], []
+    dev = _device_0_3_8()
+    dev.modes = [SimpleNamespace(name="Static"), SimpleNamespace(name="Direct")]
+    dev.active_mode = 0
+    dev.set_mode = lambda m: calls.append(m)
+    d = driver.Driver("127.0.0.1:6742", sleep=slept.append)
+    d._client = SimpleNamespace(devices=[dev])
+    d.set_direct()
+    assert calls == ["Direct"] and slept and slept[0] >= 0.5
+
+
 def test_address_parsing():
     assert driver.parse_address("127.0.0.1:6742") == ("127.0.0.1", 6742)
     assert driver.parse_address("rtxpc") == ("rtxpc", 6742)

@@ -1,6 +1,8 @@
 """OpenRGB over its SDK (openrgb-python, PC only). Thin on purpose: the engine decides what to write."""
 from __future__ import annotations
 
+import time
+from typing import Callable
 from urllib.parse import urlparse
 
 DEFAULT_HOST, DEFAULT_PORT = "127.0.0.1", 6742
@@ -19,9 +21,10 @@ def parse_address(address: str) -> tuple[str, int]:
 
 
 class Driver:
-    def __init__(self, address: str) -> None:
+    def __init__(self, address: str, sleep: Callable[[float], None] = time.sleep) -> None:
         self.host, self.port = parse_address(address)
         self._client = None
+        self._sleep = sleep
         self._last: dict = {}          # (controller, zone) → the colours last sent
 
     def connect(self) -> None:
@@ -49,13 +52,24 @@ class Driver:
         return out
 
     def set_direct(self) -> None:
+        """Direct mode, only where a controller isn't in it already: on his ASRock re-setting Direct blanks
+        every light and swallows the next update (confirmed live), and a real switch needs a moment."""
+        switched = False
         for dev in self._devices():
-            for name in ("direct", "Direct", "custom", "Custom"):
+            modes = list(getattr(dev, "modes", None) or [])
+            active = getattr(dev, "active_mode", None)
+            current = modes[active].name if modes and isinstance(active, int) and 0 <= active < len(modes) else ""
+            if current.lower() in ("direct", "custom"):
+                continue
+            for name in ("Direct", "direct", "Custom", "custom"):
                 try:
                     dev.set_mode(name)
+                    switched = True
                     break
                 except Exception:  # noqa: BLE001 — not every controller has every mode name
                     continue
+        if switched:
+            self._sleep(0.6)
 
     def write(self, frames: dict) -> None:
         try:
