@@ -190,6 +190,11 @@ class Service:
         # The Jarvis Mac app's link (ui.sock) and the server topics it wants.
         self._ui = None
         self._ui_topics: dict = {}
+        # Topics the jc-client subscribes to for itself on this computer (not the Mac
+        # app's), e.g. game_stream_power on the PC. Merged into every subscription frame.
+        self._pc_topics: dict = {}
+        # Game-streaming log watcher (PC only; starts/stops on the game_stream_power topic).
+        self._game_stream = None
         # Keep-awake, Wake Mac and password autofill (jc_client/power_service.py; macOS).
         self._power = None
         # Claude's limits as the server last had them (plan_usage.ClaudeUsagePoller).
@@ -311,7 +316,7 @@ class Service:
             self._ui_broadcast({"type": "pending", "pending": self._arbiter.pending()})
 
     def _send_subscription(self) -> None:
-        self._forward_up({"type": "subscribe", "topics": dict(self._ui_topics)})
+        self._forward_up({"type": "subscribe", "topics": {**self._pc_topics, **self._ui_topics}})
 
     def _ui_request(self, req: dict) -> dict:
         kind = req.get("type")
@@ -605,6 +610,12 @@ class Service:
                     self._specs.start()
                 except Exception as exc:  # noqa: BLE001 — never fatal
                     log.warning("pc lighting unavailable: %s", exc)
+                try:   # Game streaming: tail Sunshine's log while the Power switch is on
+                    from jc_client.game_stream_power import GameStreamPower
+                    self._game_stream = GameStreamPower(self._send_up_ok)
+                    self._pc_topics["game_stream_power"] = 0.0   # subscribe on (re)connect
+                except Exception as exc:  # noqa: BLE001 — never fatal
+                    log.warning("game streaming unavailable: %s", exc)
             self._start_agents_link()
             link = self._agents_link
             server = HookServer(_hook_socket_path(), self._agent_engine,
@@ -971,7 +982,7 @@ class Service:
             on_connected()
         if self._agents_link is not None:
             self._agents_link.on_connected()
-        if self._ui_topics:
+        if self._ui_topics or self._pc_topics:
             self._send_subscription()  # the server forgets subscriptions with the socket
 
         # Periodic ping thread — keeps NATs / load balancers from
@@ -1063,6 +1074,10 @@ class Service:
             return
 
         if msg_type == "topic":
+            if frame.get("topic") == "game_stream_power" and self._game_stream is not None:
+                # The Game Streaming Power switch (on/off) — start or stop the log watcher.
+                self._executor.submit(self._game_stream.handle_power, frame.get("data") or {})
+                return
             # A server push the Mac app subscribed to (harness_jobs).
             self._ui_broadcast({"type": "topic", "topic": frame.get("topic"),
                                 "data": frame.get("data") or {}})
