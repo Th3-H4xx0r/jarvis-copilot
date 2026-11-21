@@ -60,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.onAppUpdate = { AppUpdater.shared.signal($0) }
         model.attach()
         HoloDrop.shared.start()
+        GameStreaming.shared.start()
         ScreenShareService.shared.start()
         AppUpdater.shared.start()
         MacPowerBridge.start()

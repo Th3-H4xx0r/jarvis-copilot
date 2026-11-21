@@ -165,6 +165,7 @@ final class AppModel {
                 ScreenShareService.shared.poke()  // a share was asked for or ended: look now
             case "power":
                 HoloDrop.shared.powerTopic()   // a Power switch changed: Holo Drop re-reads its own
+                GameStreaming.shared.powerTopic()   // …and Game Streaming its menu entry
             default: break
             }
         default:
