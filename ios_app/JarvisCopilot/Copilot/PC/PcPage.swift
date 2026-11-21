@@ -54,12 +54,14 @@ struct PcPage: View {
     }
 }
 
-/// The page's lower sections (lighting, specs); filled in by their own files.
+/// The page's lower sections: lighting (PC Lighting Power integration) and specs.
 struct PcPageExtras: View {
     @Binding var selectedPart: PcPart?
 
     var body: some View {
-        EmptyView()
+        if PowerState.shared.isOn("pc-lighting") {
+            PcLightingSection(selectedPart: $selectedPart)
+        }
     }
 }
 

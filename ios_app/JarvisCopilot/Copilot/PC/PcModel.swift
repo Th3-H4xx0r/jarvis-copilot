@@ -37,11 +37,19 @@ enum PcModel {
         let leds: [PcLedKey: SCNMaterial]
         let interiorLight: SCNLight
         let floorGlow: SCNMaterial
+        private let byMaterial: [ObjectIdentifier: PcLedKey]
 
         init(scene: SCNScene, camera: SCNNode, root: SCNNode, leds: [PcLedKey: SCNMaterial],
              interiorLight: SCNLight, floorGlow: SCNMaterial) {
             self.scene = scene; self.camera = camera; self.root = root; self.leds = leds
             self.interiorLight = interiorLight; self.floorGlow = floorGlow
+            byMaterial = Dictionary(uniqueKeysWithValues: leds.map { (ObjectIdentifier($0.value), $0.key) })
+        }
+
+        /// The LED socket a tapped node is (calibration taps the lit LED).
+        func socket(of node: SCNNode) -> PcLedKey? {
+            guard let m = node.geometry?.firstMaterial else { return nil }
+            return byMaterial[ObjectIdentifier(m)]
         }
     }
 

@@ -11,6 +11,8 @@ struct PcModelView: View {
     var lit: Bool = true
     var onTapPart: ((PcPart) -> Void)? = nil
     var onTapComponent: ((String) -> Void)? = nil
+    /// Calibration: the exact LED socket tapped (a fan's sector, a strip or logo segment).
+    var onTapLED: ((PcLedKey) -> Void)? = nil
 
     @State private var live = PcModel.build()
     @State private var glow = PcGlow()
@@ -52,6 +54,7 @@ struct PcModelView: View {
     private func tap(_ point: CGPoint, _ view: SCNView) {
         guard let node = view.hitTest(point, options: [.searchMode: SCNHitTestSearchMode.closest.rawValue]).first?.node
         else { return }
+        if let onTapLED, let key = live.socket(of: node) { onTapLED(key); return }
         if let part = PcModel.part(of: node) { onTapPart?(part) }
         else if let comp = PcModel.component(of: node) { onTapComponent?(comp) }
     }
