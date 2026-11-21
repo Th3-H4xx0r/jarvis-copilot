@@ -65,6 +65,34 @@ test('statusLine says needs-sign-in when the login is wrong, not unreachable', (
   assert.strictEqual(G.statusLine({ reachable: false, needs_login: false }), 'Host unreachable');
 });
 
+test('pairSelection keeps the pick, auto-picks the only waiting device, else none', () => {
+  var a = { id: 'a'.repeat(32), name: 'roth', address: '192.168.1.69' };
+  var b = { id: 'b'.repeat(32), name: 'Shield' };
+  assert.strictEqual(G.pairSelection(null, [a]), a.id);
+  assert.strictEqual(G.pairSelection(null, [a, b]), null);
+  assert.strictEqual(G.pairSelection(b.id, [a, b]), b.id);
+  assert.strictEqual(G.pairSelection(a.id, []), null);
+  assert.strictEqual(G.pairSelection(null, undefined), null);
+});
+
+test('pairWaitingLine says what the pair panel is waiting for', () => {
+  var a = { id: 'a'.repeat(32), name: 'roth', address: '192.168.1.69' };
+  assert.strictEqual(G.pairWaitingLine(null), 'Looking for devices…');
+  assert.strictEqual(G.pairWaitingLine({ ok: true, reachable: true, pairings: [] }),
+    'Waiting for a device… On the device, open Moonlight and tap your PC');
+  assert.strictEqual(G.pairWaitingLine({ ok: true, reachable: true, pairings: [a] }),
+    'Enter the PIN shown on roth');
+  assert.strictEqual(G.pairWaitingLine({ ok: true, reachable: true, pairings: [a, { id: 'b' }] }),
+    "Pick the device that's showing a PIN");
+  assert.strictEqual(G.pairWaitingLine({ ok: false, offline: true, pairings: [] }),
+    'Your PC is asleep or offline — wake it to pair');
+  assert.strictEqual(G.pairWaitingLine({ ok: true, needs_login: true, pairings: [] }),
+    'Sunshine needs sign-in — check your password above');
+  assert.strictEqual(G.pairWaitingLine({ ok: true, reachable: false, pairings: [] }),
+    "Sunshine isn't running on your PC");
+  assert.strictEqual(G.pairLabel({ address: '10.0.0.2' }), '10.0.0.2');
+});
+
 test('detectHeadline shows a rejection only when a password is already set', () => {
   assert.strictEqual(G.detectHeadline({ online: true, running: true, needs_login: true }, true),
     'That login was rejected — check your Sunshine password');

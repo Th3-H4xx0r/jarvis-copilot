@@ -42,6 +42,11 @@
 .gstream-card .gstream-line { margin-bottom: 8px; }
 .gstream-actions { display: flex; }
 .gstream-actions .btn { width: 100%; justify-content: center; }
+.gstream-actions { gap: 8px; }
+.gstream-actions[hidden], .gstream-pair[hidden] { display: none; }
+.gstream-pair { margin-top: 8px; }
+.gstream-pair .gstream-pairing[aria-pressed="true"] .intg-row-name { font-weight: 600; }
+.gstream-pair .gstream-pair-error { margin-top: 8px; }
 
 /* Power integrations (power.js) */
 .power-off { display: none !important; }

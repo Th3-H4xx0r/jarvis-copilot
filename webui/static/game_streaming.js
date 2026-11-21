@@ -58,6 +58,29 @@
       }
       return "Sunshine isn't running on your PC yet";
     },
+    /// Which waiting pair request the pair panel answers: the current pick while it is
+    /// still waiting, else the only one waiting, else none (the user picks). Pure.
+    pairSelection: function (current, pairings) {
+      pairings = pairings || [];
+      if (current && pairings.some(function (p) { return p.id === current; })) return current;
+      return pairings.length === 1 ? pairings[0].id : null;
+    },
+    /// The one line above the waiting list, from GET /pairings (or its 409). Pure.
+    pairWaitingLine: function (reply) {
+      if (!reply) return 'Looking for devices…';
+      if (reply.offline) return 'Your PC is asleep or offline — wake it to pair';
+      if (reply.needs_login) return 'Sunshine needs sign-in — check your password above';
+      var pairings = reply.pairings || [];
+      if (reply.reachable === false) return reply.detail || "Sunshine isn't running on your PC";
+      if (!pairings.length) return reply.detail || PAIR_NONE_WAITING;
+      if (pairings.length === 1) return 'Enter the PIN shown on ' + JCGameStreaming.pairLabel(pairings[0]);
+      return "Pick the device that's showing a PIN";
+    },
+    /// A waiting request's name: Sunshine's client name, else its address. Pure.
+    pairLabel: function (p) {
+      p = p || {};
+      return p.name || p.address || 'A device';
+    },
     /// The editable device list: Sunshine's paired clients (type guessed or taken from a
     /// saved target), then any saved target Sunshine no longer lists. Pure, for the test.
     drafts: function (paired, targets) {
@@ -78,6 +101,8 @@
   };
 
   var KIND_LABELS = [['mac', 'Mac'], ['androidtv', 'Android TV'], ['ios', 'iPhone']];
+  var PAIR_NONE_WAITING = 'Waiting for a device… On the device, open Moonlight and tap your PC';
+  var PAIR_POLL_MS = 2000;
 
   if (typeof module !== 'undefined' && module.exports) { module.exports = JCGameStreaming; return; }
   root.JCGameStreaming = JCGameStreaming;
@@ -177,7 +202,8 @@
       (deviceRows || '<div class="intg-card-meta">No devices yet — add one below.</div>') +
       '<div class="intg-row intg-row--click" id="gstreamAdd"><div class="intg-row-main">' +
         '<span class="intg-row-name">Add a device</span><span class="intg-row-sub">Pair a new Moonlight device with a PIN</span></div></div>' +
-      '<div class="gstream-actions"><button type="button" class="btn primary" id="gstreamSave">Save</button></div>';
+      '<div class="gstream-pair" id="gstreamPair" hidden></div>' +
+      '<div class="gstream-actions" id="gstreamSaveRow"><button type="button" class="btn primary" id="gstreamSave">Save</button></div>';
 
     hostEl.querySelectorAll('.gstream-kind').forEach(function (sel) {
       sel.onchange = function () {
@@ -190,13 +216,7 @@
     });
 
     hostEl.querySelector('#gstreamAdd').onclick = function () {
-      var name = window.prompt('A name for the new device'); if (!name) return;
-      var pin = window.prompt('The PIN Moonlight shows on ' + name); if (!pin) return;
-      api('/api/game-streaming/pair', { method: 'POST', body: JSON.stringify({ device: name, pin: pin }) })
-        .then(function (res) {
-          if (typeof showToast === 'function') showToast(res && res.ok ? 'Paired ' + name : (res && res.detail) || 'Pairing didn’t go through');
-          renderSettings(hostEl, JCPower.row(ID) || row);
-        }).catch(function (e) { if (typeof showToast === 'function') showToast((e && e.message) || 'That didn’t work'); });
+      openPairPanel(hostEl, row);
     };
 
     hostEl.querySelector('#gstreamSave').onclick = function () {
@@ -222,6 +242,135 @@
         if (typeof showToast === 'function') showToast((e && e.message) || 'That didn’t work');
       });
     };
+  }
+
+  // The pair panel: opens under "Add a device", polls GET /pairings every 2 s while open,
+  // lists the Moonlight devices waiting to pair (the only one is picked for you), prefills
+  // its name (editable) and answers it with the PIN it shows — Sunshine pairs a specific
+  // waiting request, so the PIN goes with that request's pairing_id. Save hides meanwhile
+  // so Pair is the one filled button.
+  function openPairPanel(hostEl, row) {
+    var panel = hostEl.querySelector('#gstreamPair');
+    var saveRow = hostEl.querySelector('#gstreamSaveRow');
+    if (!panel || !panel.hidden) return;
+    var state = { reply: null, selected: null, name: '', nameEdited: false, pin: '', busy: false, error: '' };
+    var timer = null;
+
+    function close() {
+      if (timer) { clearInterval(timer); timer = null; }
+      panel.hidden = true;
+      panel.innerHTML = '';
+      if (saveRow) saveRow.hidden = false;
+    }
+
+    function pick(id) {
+      state.selected = id;
+      var p = ((state.reply && state.reply.pairings) || []).filter(function (x) { return x.id === id; })[0];
+      if (p && !state.nameEdited) state.name = JCGameStreaming.pairLabel(p);
+    }
+
+    function canPair() {
+      return !!state.selected && !state.busy && state.name.trim() && state.pin.trim().length >= 4;
+    }
+
+    function draw() {
+      var pairings = (state.reply && state.reply.pairings) || [];
+      var list = pairings.map(function (p) {
+        var on = p.id === state.selected;
+        return '<div class="intg-row intg-row--click gstream-pairing" role="button" tabindex="0" data-id="' + esc(p.id) + '"' +
+          ' aria-pressed="' + (on ? 'true' : 'false') + '"><div class="intg-row-main"><span class="intg-row-name">' +
+          esc(JCGameStreaming.pairLabel(p)) + '</span>' + (p.address ? '<span class="intg-row-sub">' + esc(p.address) + '</span>' : '') +
+          '</div>' + (on ? '<span class="intg-row-sub gstream-picked">Selected</span>' : '') + '</div>';
+      }).join('');
+      var details = state.selected
+        ? '<div class="intg-row power-setting"><div class="intg-row-main"><span class="intg-row-name">Name</span></div>' +
+            '<input type="text" id="gstreamPairName" autocomplete="off" value="' + esc(state.name) + '"></div>' +
+          '<div class="intg-row power-setting"><div class="intg-row-main"><span class="intg-row-name">PIN</span>' +
+            '<div class="intg-row-sub">The 4-digit PIN Moonlight shows</div></div>' +
+            '<input type="text" id="gstreamPairPin" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="1234" value="' + esc(state.pin) + '"></div>'
+        : '';
+      panel.innerHTML =
+        '<h4 class="intg-section-title">Waiting to pair</h4>' +
+        '<div class="intg-card-meta gstream-pair-line">' + esc(JCGameStreaming.pairWaitingLine(state.reply)) + '</div>' +
+        list + details +
+        (state.error ? '<div class="intg-card-meta gstream-pair-error" role="alert">' + esc(state.error) + '</div>' : '') +
+        '<div class="gstream-actions">' +
+          '<button type="button" class="btn primary" id="gstreamPairGo"' + (canPair() ? '' : ' disabled') + '>' + (state.busy ? 'Pairing…' : 'Pair') + '</button> ' +
+          '<button type="button" class="btn secondary" id="gstreamPairCancel">Cancel</button>' +
+        '</div>';
+      panel.querySelectorAll('.gstream-pairing').forEach(function (el) {
+        function choose() { pick(el.getAttribute('data-id')); draw(); }
+        el.onclick = choose;
+        el.onkeydown = function (ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); choose(); } };
+      });
+      var nameIn = panel.querySelector('#gstreamPairName');
+      if (nameIn) nameIn.oninput = function () { state.name = nameIn.value; state.nameEdited = true; syncGo(); };
+      var pinIn = panel.querySelector('#gstreamPairPin');
+      if (pinIn) pinIn.oninput = function () { state.pin = pinIn.value; syncGo(); };
+      panel.querySelector('#gstreamPairCancel').onclick = close;
+      panel.querySelector('#gstreamPairGo').onclick = submit;
+    }
+
+    // Typing must not redraw (that would drop focus): only flip the button's disabled state.
+    function syncGo() {
+      var go = panel.querySelector('#gstreamPairGo');
+      if (go) go.disabled = !canPair();
+    }
+
+    function load() {
+      if (!panel.isConnected) { close(); return; }
+      if (state.loading) return;           // a slow PC: don't stack polls
+      state.loading = true;
+      api('/api/game-streaming/pairings').then(function (reply) {
+        state.loading = false;
+        apply(reply || {});
+      }).catch(function (e) {
+        state.loading = false;
+        // 409 = the PC is asleep/offline; anything else, say what happened.
+        var offline = e && (e.status === 409 || /asleep|offline/i.test(e.message || ''));
+        apply(offline ? { offline: true, pairings: [] }
+                      : { reachable: false, pairings: [], detail: (e && e.message) || 'Couldn’t reach your PC' });
+      });
+    }
+
+    function apply(reply) {
+      if (panel.hidden) return;
+      var before = JSON.stringify([state.reply, state.selected]);
+      state.reply = reply;
+      var next = JCGameStreaming.pairSelection(state.selected, reply.pairings);
+      if (next !== state.selected) pick(next);
+      // Redraw only when what's shown changed, so a poll never steals focus mid-typing.
+      if (JSON.stringify([state.reply, state.selected]) !== before) draw();
+    }
+
+    function submit() {
+      if (!canPair()) return;
+      state.busy = true; state.error = ''; draw();
+      var name = state.name.trim();
+      api('/api/game-streaming/pair', { method: 'POST', body: JSON.stringify({
+        pairing_id: state.selected, device: name, pin: state.pin.trim() }) })
+        .then(function (res) {
+          state.busy = false;
+          if (res && res.ok) {
+            close();
+            if (typeof showToast === 'function') showToast((res && res.detail) || ('Paired ' + name));
+            renderSettings(hostEl, (root.JCPower && JCPower.row(ID)) || row);
+            return;
+          }
+          state.error = (res && res.detail) || 'Pairing didn’t go through';
+          draw();
+        }).catch(function (e) {
+          state.busy = false;
+          state.error = (e && e.message) || 'That didn’t work';
+          draw();
+        });
+    }
+
+    panel.hidden = false;
+    if (saveRow) saveRow.hidden = true;
+    draw();
+    load();
+    timer = setInterval(load, PAIR_POLL_MS);
   }
 
   // Register the native card + setup so power.js draws them inside the Game Streaming row.
