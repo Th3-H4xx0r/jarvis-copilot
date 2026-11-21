@@ -10,6 +10,7 @@ struct PcCalibrationPage: View {
     /// Other fans that lit at the same time (a hub that copies one connector to several fans).
     @State private var extras: [PcLedKey] = []
     @State private var seenRed: String?
+    @State private var queue = PcProbeQueue { args in await PcStore.shared.probe(args) }
     @State private var phase: Phase = .scrub
     @State private var startDeg: Double?
     @State private var error: String?
@@ -146,7 +147,8 @@ struct PcCalibrationPage: View {
         var args: [String: Any] = ["controller": job.controller, "zone": job.zone, "led": k]
         if let color { args["color"] = color }
         if let resize = cal?.resizeTo { args["resize"] = resize }
-        Task { if let e = await store.probe(args) { error = e } }
+        queue.onError = { error = $0 }
+        queue.submit(args)
     }
 
     private func tapped(_ key: PcLedKey) {

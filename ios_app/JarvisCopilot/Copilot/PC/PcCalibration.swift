@@ -1,5 +1,33 @@
 import Foundation
 
+/// Calibration probes, newest only: one in flight, and while it's out only the latest position waits
+/// (sliding fast queued dozens that arrived seconds late).
+@MainActor
+final class PcProbeQueue {
+    private let send: ([String: Any]) async -> String?
+    private var inFlight = false
+    private var pending: [String: Any]?
+    var onError: ((String) -> Void)?
+
+    init(send: @escaping ([String: Any]) async -> String?) { self.send = send }
+
+    func submit(_ args: [String: Any]) {
+        if inFlight { pending = args; return }
+        inFlight = true
+        Task { await run(args) }
+    }
+
+    private func run(_ args: [String: Any]) async {
+        var next: [String: Any]? = args
+        while let a = next {
+            if let e = await send(a) { onError?(e) }
+            next = pending
+            pending = nil
+        }
+        inFlight = false
+    }
+}
+
 /// Calibration, as data: walk each OpenRGB zone from its first LED, one fan/ring/strip at a time —
 /// where it ends, which part it is (tapped on the model), where its LED 0 sits and which way it runs —
 /// and out comes the LED map (server-validated on save).

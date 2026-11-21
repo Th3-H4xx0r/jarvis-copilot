@@ -1366,6 +1366,7 @@
 		F50E177FBFCD2BD6CE0AD63E /* MacCommandCenterRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABB92E4393A76BE29885ED47 /* MacCommandCenterRenderTests.swift */; };
 		F53DA9847912BB45A6AB26A0 /* JarvisCarTalkWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 400D1D3E686018E364B71D53 /* JarvisCarTalkWidget.swift */; };
 		F60833FA3907DFF27CE008FF /* VoicePlatform.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14039A35A737105416C29A49 /* VoicePlatform.swift */; };
+		F61EBC1FD4FDCB42419C9616 /* PcProbeQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7366AD8A3D467EB9EC91F8A /* PcProbeQueueTests.swift */; };
 		F6A333C58DA26A41059E7DC0 /* PcEffectsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5EC8248BBA52075C9E5DF79 /* PcEffectsTests.swift */; };
 		F6B55154827CCCCC032D3B08 /* ToyotaStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51CB018D4B4CBC2D328F254C /* ToyotaStore.swift */; };
 		F6F1A1FFF34C797E23C4FC90 /* QuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D087F3502193DBA679D33E0 /* QuotaTests.swift */; };
@@ -2705,6 +2706,7 @@
 		E6E3A3E188EDA825C7949C30 /* LiquidGlassOrb.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiquidGlassOrb.swift; sourceTree = "<group>"; };
 		E6EECBB4BBB75D1EFAAA11C3 /* MessageRow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MessageRow.swift; sourceTree = "<group>"; };
 		E72801038DB85B13E7753B5E /* TemplateEditor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TemplateEditor.swift; sourceTree = "<group>"; };
+		E7366AD8A3D467EB9EC91F8A /* PcProbeQueueTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PcProbeQueueTests.swift; sourceTree = "<group>"; };
 		E7701DADDCB4F7209D0E5A72 /* FaceIDApprovals.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FaceIDApprovals.swift; sourceTree = "<group>"; };
 		E8152F8F3CF43DF519045357 /* Firmware */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = Firmware; sourceTree = "<group>"; };
 		E83314966A024DAD58D98459 /* AppIntents.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppIntents.swift; sourceTree = "<group>"; };
@@ -4294,6 +4296,7 @@
 				D0F9F5E50AC9E6CDC792389A /* PcCalibrationTests.swift */,
 				57571F2958908D4A8E4D3FAC /* PcBuiltForTests.swift */,
 				C26895A7EB76B08CD4B7DC73 /* PcAvailabilityTests.swift */,
+				E7366AD8A3D467EB9EC91F8A /* PcProbeQueueTests.swift */,
 			);
 			name = PC;
 			path = PC;
@@ -6088,6 +6091,7 @@
 				FF1C9A27C4EF935AF9D4C474 /* PcCalibrationTests.swift in Sources */,
 				E0E411D7F0103AB6D026A11E /* PcBuiltForTests.swift in Sources */,
 				3E490E8D36E1E98785D2E957 /* PcAvailabilityTests.swift in Sources */,
+				F61EBC1FD4FDCB42419C9616 /* PcProbeQueueTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
