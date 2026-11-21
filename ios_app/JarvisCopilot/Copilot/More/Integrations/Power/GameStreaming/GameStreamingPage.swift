@@ -126,7 +126,7 @@ struct GameStreamingPage: View {
         JcSectionLabel("Stream to")
         if targets.isEmpty {
             JcCard {
-                Text("No target devices yet. Add them in Settings below as JSON, e.g. [{\"name\":\"Mac\",\"kind\":\"mac\",\"host\":\"gpc\"}].")
+                Text("No devices yet. Add them under Set up below — pick each device's type and Jarvis handles the rest.")
                     .font(.system(size: 12.5))
                     .foregroundStyle(JcTheme.muted)
                     .fixedSize(horizontal: false, vertical: true)

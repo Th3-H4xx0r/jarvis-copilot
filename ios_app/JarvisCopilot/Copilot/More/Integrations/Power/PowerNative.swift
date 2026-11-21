@@ -23,6 +23,7 @@ enum PowerNative {
     static func settings(_ row: PowerRow) -> AnyView? {
         guard row.nativePieces["ios"]?.contains("settings") == true else { return nil }
         switch row.id {
+        case "game-streaming": return AnyView(GameStreamingSetupView(row: row))
         default: return nil
         }
     }

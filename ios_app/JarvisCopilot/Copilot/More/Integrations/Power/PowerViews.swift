@@ -250,8 +250,7 @@ struct PowerSettingsForm: View {
 
     var body: some View {
         if let native = PowerNative.settings(row) {
-            JcSectionLabel("Settings")
-            native
+            native                       // a native setup owns its own section headers
         } else if !row.settingsSchema.isEmpty {
             JcSectionLabel("Settings")
             JcCard {

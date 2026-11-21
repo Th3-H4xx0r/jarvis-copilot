@@ -64,12 +64,15 @@ struct GameTarget: Identifiable, Equatable {
     let name: String
     let kind: String
     let host: String
+    /// An Android TV's own adb address (for `adb connect`); empty for other kinds.
+    let tvAddr: String
     var id: String { name }
 
-    init(name: String, kind: String, host: String = "") {
+    init(name: String, kind: String, host: String = "", tvAddr: String = "") {
         self.name = name
         self.kind = kind
         self.host = host
+        self.tvAddr = tvAddr
     }
 
     init?(json o: [String: Any]) {
@@ -77,6 +80,7 @@ struct GameTarget: Identifiable, Equatable {
         self.name = name
         kind = o["kind"] as? String ?? ""
         host = o["host"] as? String ?? ""
+        tvAddr = o["tv_addr"] as? String ?? ""
     }
 
     /// The device kind in words, for the row's subtitle.
@@ -187,3 +191,105 @@ struct GamePrimary: Equatable {
     let game: String
     let target: String
 }
+
+
+// MARK: - Setup
+
+/// GET /api/game-streaming/detect — whether Sunshine is running on the gaming PC and
+/// whether the login works. Lets the setup page say "Found Sunshine" or show a hint
+/// instead of a bare reachable flag. The PC is reached at localhost by jc-client.
+struct GameDetect: Equatable {
+    var online: Bool
+    var running: Bool
+    var needsLogin: Bool
+
+    init(online: Bool = false, running: Bool = false, needsLogin: Bool = false) {
+        self.online = online
+        self.running = running
+        self.needsLogin = needsLogin
+    }
+
+    init(json o: [String: Any]) {
+        online = o["online"] as? Bool ?? false
+        running = o["running"] as? Bool ?? false
+        needsLogin = o["needsLogin"] as? Bool ?? (o["needs_login"] as? Bool ?? false)
+    }
+
+    /// True only when Sunshine was found and the login already works.
+    var found: Bool { online && running && !needsLogin }
+
+    /// The one status line shown at the top of setup. Pure, for the tests.
+    var headline: String {
+        if !online { return "Your PC is offline — turn it on to finish setup" }
+        if found { return "Found Sunshine on your gaming PC" }
+        if running { return "Sunshine is running — add your Sunshine login below" }
+        return "Sunshine isn't running on your PC yet"
+    }
+}
+
+/// Guesses a device's type from its paired name, best-effort and always editable.
+/// SHIELD/Fire/Google TV/Android TV -> Android TV; iPhone/iPad -> iPhone;
+/// MacBook/iMac/Mac -> Mac. Anything else falls back to Mac.
+enum GameTypeGuess {
+    static func kind(for name: String) -> String {
+        let n = name.lowercased()
+        func has(_ needles: [String]) -> Bool { needles.contains { n.contains($0) } }
+        if has(["shield", "fire tv", "firestick", "fire stick", "google tv",
+                "android tv", "androidtv", "nvidia", "chromecast", "mi box", "onn", " tv"]) {
+            return "androidtv"
+        }
+        if has(["iphone", "ipad", "ipod"]) { return "ios" }
+        if has(["macbook", "imac", "mac mini", "mac studio", "mac pro", "mac"]) { return "mac" }
+        return "mac"
+    }
+}
+
+/// One editable row on the setup page: a device name, its (guessed, editable) type,
+/// and an Android TV's adb address. No host field — the Moonlight host auto-fills server-side.
+struct GameDeviceDraft: Identifiable, Equatable {
+    var name: String
+    var kind: String
+    var tvAddr: String
+    var id: String { name }
+
+    init(name: String, kind: String, tvAddr: String = "") {
+        self.name = name
+        self.kind = kind
+        self.tvAddr = tvAddr
+    }
+
+    /// The device kind in words, for the type control.
+    static let kinds: [(value: String, label: String)] =
+        [("mac", "Mac"), ("androidtv", "Android TV"), ("ios", "iPhone")]
+}
+
+/// What POST /api/game-streaming/targets writes for one device.
+struct GameTargetEdit: Equatable {
+    let name: String
+    let kind: String
+    let tvAddr: String
+}
+
+/// Builds the setup device list: Sunshine's paired clients first, then any saved
+/// targets Sunshine no longer lists, each with its saved type (or a guess) and an
+/// Android TV's address carried over. Pure, for the tests.
+enum GameSetupModel {
+    static func drafts(paired: [GamePaired], targets: [GameTarget]) -> [GameDeviceDraft] {
+        let byName = Dictionary(targets.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
+        var seen = Set<String>()
+        var out: [GameDeviceDraft] = []
+        for p in paired {
+            let existing = byName[p.name]
+            out.append(GameDeviceDraft(
+                name: p.name,
+                kind: existing?.kind ?? GameTypeGuess.kind(for: p.name),
+                tvAddr: existing?.tvAddr ?? ""))
+            seen.insert(p.name)
+        }
+        for t in targets where !seen.contains(t.name) {
+            out.append(GameDeviceDraft(name: t.name, kind: t.kind, tvAddr: t.tvAddr))
+        }
+        return out
+    }
+}
+

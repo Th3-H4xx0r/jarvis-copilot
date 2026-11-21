@@ -13,6 +13,14 @@ protocol GameStreamingAPI {
     func stop(target: String?) async throws
     func pair(device: String, pin: String) async throws -> GamePairOutcome
     func unpair(device: String) async throws
+    func detect() async throws -> GameDetect
+    func setTargets(_ targets: [GameTargetEdit]) async throws
+}
+
+// Default setup calls so operational-only fakes (the card/page tests) keep conforming.
+extension GameStreamingAPI {
+    func detect() async throws -> GameDetect { GameDetect() }
+    func setTargets(_ targets: [GameTargetEdit]) async throws {}
 }
 
 struct GameStreamingClient: GameStreamingAPI {
@@ -59,5 +67,16 @@ struct GameStreamingClient: GameStreamingAPI {
 
     func unpair(device: String) async throws {
         _ = try await api.post("/api/game-streaming/unpair", json: ["device": device])
+    }
+
+    func detect() async throws -> GameDetect {
+        GameDetect(json: try await api.get("/api/game-streaming/detect", timeout: 20).object())
+    }
+
+    func setTargets(_ targets: [GameTargetEdit]) async throws {
+        let rows: [[String: Any]] = targets.map {
+            ["name": $0.name, "kind": $0.kind, "tv_addr": $0.tvAddr]
+        }
+        _ = try await api.post("/api/game-streaming/targets", json: ["targets": rows])
     }
 }
