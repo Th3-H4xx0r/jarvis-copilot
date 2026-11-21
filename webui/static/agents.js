@@ -670,6 +670,26 @@
       '<span class="agents-row-detail tone-waiting">' + (noun === 'PC' ? 'Approve on your iPhone' : 'Approve on your iPhone or Mac') +
       '</span></span></div></div>';
   }
+  // The Mac/PC card's buttons — here and on the Devices panel's PC card (pc_device.js).
+  function macAct(t) {
+    switch (t.dataset.act) {
+      case 'mac-wake': macPower('wake', t.dataset.device); return true;
+      case 'mac-unlock': macPower('unlock', t.dataset.device); return true;
+      case 'mac-share': if (window.MacScreen) window.MacScreen.startAnytime(t.dataset.device, (macRow(t.dataset.device) || {}).os); return true;
+      case 'mac-lock': macPower('lock', t.dataset.device); return true;
+      case 'pc-stats': if (window.JCPcStats) window.JCPcStats.open(t.dataset.device); return true;
+      case 'rdp-open': {
+        const row = ((st.list && st.list.mac) || []).find((x) => x.device_id === t.dataset.device);
+        if (window.JCRdp) window.JCRdp.open(t.dataset.device, ownName(row && row.name, 'windows') || 'Your PC');
+        return true;
+      }
+      case 'mac-sleep': macPower('let-sleep', t.dataset.device); return true;
+      case 'mac-keep': macPower('keep-awake', t.dataset.device, !t.dataset.on); return true;
+      case 'mac-timer': macPower('timer', t.dataset.device, !t.dataset.on); return true;
+      default: return false;
+    }
+  }
+  window.JCMacControls = { html: (m) => macHtml(m), act: macAct };
   async function macPower(action, deviceId, on) {
     const key = 'mac:' + deviceId;
     if (!deviceId || st.busy[key]) return;
@@ -1852,6 +1872,7 @@
     const act = t.dataset.act;
     const c = currentConv();
     if (st.menuOpen && act !== 'menu' && act !== 'sync') st.menuOpen = false;
+    if (macAct(t)) return;
     switch (act) {
       case 'open': selectSession(t.dataset.ckey); break;
       case 'back': goBack(); break;
@@ -1871,19 +1892,6 @@
         break;
       }
       case 'dismiss': dismissCard(t.dataset.device); break;
-      case 'mac-wake': macPower('wake', t.dataset.device); break;
-      case 'mac-unlock': macPower('unlock', t.dataset.device); break;
-      case 'mac-share': if (window.MacScreen) window.MacScreen.startAnytime(t.dataset.device, (macRow(t.dataset.device) || {}).os); break;
-      case 'mac-lock': macPower('lock', t.dataset.device); break;
-      case 'pc-stats': if (window.JCPcStats) window.JCPcStats.open(t.dataset.device); break;
-      case 'rdp-open': {
-        const row = ((st.list && st.list.mac) || []).find((x) => x.device_id === t.dataset.device);
-        if (window.JCRdp) window.JCRdp.open(t.dataset.device, ownName(row && row.name, 'windows') || 'Your PC');
-        break;
-      }
-      case 'mac-sleep': macPower('let-sleep', t.dataset.device); break;
-      case 'mac-keep': macPower('keep-awake', t.dataset.device, !t.dataset.on); break;
-      case 'mac-timer': macPower('timer', t.dataset.device, !t.dataset.on); break;
       case 'continue':
         doContinue(splitKeys(t.dataset.ckeys), t.dataset.to || 'server', { scope: t.dataset.scope, name: t.dataset.name });
         break;

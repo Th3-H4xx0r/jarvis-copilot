@@ -1008,3 +1008,18 @@
 @media (max-width:760px){
   :root.dark[data-skin="jarvis"] .onboarding-sidebar{border-right:0;border-bottom:1px solid var(--jc-hair);}
 }
+
+/* PC card in Devices (pc_device.js): model still, lighting, specs. Colour only in the light swatches. */
+.pcd-card { display: flex; flex-direction: column; gap: 12px; }
+.pcd-hero img { width: 100%; max-height: 320px; object-fit: contain; display: block; }
+.pcd-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0; }
+.pcd-row input[type="range"] { flex: 1; min-width: 140px; }
+.pcd-toggle { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.pcd-chip.is-on, .pcd-row .agents-pill-btn.is-on { background: #fff; color: #000; }
+.pcd-chip.is-dim { opacity: .5; }
+.pcd-swatch { width: 26px; height: 26px; border-radius: 50%; border: 0; cursor: pointer; }
+.pcd-swatch.is-on { outline: 2px solid #fff; outline-offset: 2px; }
+.pcd-dots span { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted, #8e8e93); }
+.pcd-dots i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.pcd-muted { color: var(--muted, #8e8e93); font-size: 13px; margin: 4px 0; }
+.pcd-err { color: var(--danger, #ff453a); font-size: 13px; margin: 4px 0; }

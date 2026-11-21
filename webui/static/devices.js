@@ -179,10 +179,17 @@ function _renderDevicesMain() {
   });
   el.innerHTML = `
     <div class="dev-page">
+      <div id="pcDeviceCard"></div>
       <div class="dev-sec"><span>Paired devices</span><span class="dev-sec-count">${_devicesData.length}</span></div>
       ${cards.join('')}
       <button class="dev-pair-btn" onclick="startPairingFromUI()">Pair another device</button>
     </div>`;
+  _mountPcCard();
+}
+
+// The PC's card (pc_device.js) on top of the paired devices, once it's in the page.
+function _mountPcCard() {
+  if (window.JCPcDevice) window.JCPcDevice.mount(document.getElementById('pcDeviceCard'));
 }
 
 function selectDevice(id) {
