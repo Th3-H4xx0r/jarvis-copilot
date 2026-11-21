@@ -310,19 +310,35 @@ def _handle_unpair(req, body, s):
 _DESIRED = {"on": None}
 
 
+def _power_payload() -> dict:
+    """What the PC needs to start its Sunshine-log watcher: the desired on/off, plus
+    (when on) the Sunshine connection and the log path to tail. Omits credentials when
+    off — the PC only needs to know to stop."""
+    on = bool(_DESIRED["on"])
+    data: dict = {"on": on}
+    if on:
+        data["sunshine"] = _sunshine_conn()
+        log_path = str(_settings().get("log_path") or "").strip()
+        if log_path:
+            data["log_path"] = log_path
+    return data
+
+
 def power_changed(on: bool) -> None:
     """The Power switch flipped: remember the desired state and push it to the PC
     (the PC's watcher subsystem starts/stops on it; re-pushed on every bridge resync)."""
     _DESIRED["on"] = bool(on)
     try:
-        _publish_to(_pc_id(), "game_stream_power", {"on": bool(on)})
+        _publish_to(_pc_id(), "game_stream_power", _power_payload())
     except Exception:  # noqa: BLE001
         pass
 
 
 def resync(did: str) -> None:
+    """A (re)connecting PC: re-push the desired power state (with the Sunshine conn +
+    log path) so its watcher is started or stopped to match."""
     if _DESIRED["on"] is not None:
-        _publish_to(did, "game_stream_power", {"on": _DESIRED["on"]})
+        _publish_to(did, "game_stream_power", _power_payload())
 
 
 def route(req) -> bool:

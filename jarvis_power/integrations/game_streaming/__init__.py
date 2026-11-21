@@ -31,6 +31,8 @@ class GameStreaming(PowerIntegration):
         Setting("wake_timeout", "Give up waking the PC after", "number", default=1200, unit="s", jarvis="never"),
         Setting("targets", "Target devices (JSON)", "text", default="[]",
                 help='Moonlight targets, e.g. [{"name":"Mac","kind":"mac","host":"gpc"}].', jarvis="never"),
+        Setting("log_path", "Sunshine log path", "text", default="",
+                help="Override where Sunshine writes its log; blank uses the per-OS default.", jarvis="never"),
     )
     actions = ("refresh",)
 
