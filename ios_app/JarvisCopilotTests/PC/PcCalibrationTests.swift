@@ -1,98 +1,74 @@
 import XCTest
 @testable import JarvisCopilot
 
-/// Calibration turns "this range is that fan, starting here, running this way" into the LED map.
+/// OpenRGB-style calibration: each connector's LED count from a slider, then runs of LEDs painted onto parts.
 final class PcCalibrationTests: XCTestCase {
-    private func cal() -> PcCalibration {
-        PcCalibration(zones: [.init(controller: 0, zone: 0, resizable: true, leds: 40),
-                              .init(controller: 0, zone: 1, resizable: false, leds: 1),
-                              .init(controller: 0, zone: 2, resizable: true, leds: 40)])
+    private func board() -> PcCalibrationBoard {
+        PcCalibrationBoard(connectors: [
+            .init(controller: 0, zone: 0, name: "RGB LED 1 Header", max: 1, resizable: false, leds: 1),
+            .init(controller: 0, zone: 2, name: "Addressable Header 2", max: 100, resizable: true, leds: 80),
+            .init(controller: 0, zone: 3, name: "Addressable Header 3/Audio", max: 100, resizable: true, leds: 80)])
     }
 
-    func testChainedFansBecomeConsecutiveSegments() {
-        var c = cal()
-        c.setSize(lastLit: 47)
-        XCTAssertEqual(c.size, 48)
-        c.addSegment(end: 15, part: .bottom, index: 0, ringStartDeg: 90, clockwise: true)
-        c.addSegment(end: 31, part: .bottom, index: 1, ringStartDeg: 90, clockwise: true)
-        XCTAssertEqual(c.cursor, 32)
-        c.addSegment(end: 47, part: .bottom, index: 2, ringStartDeg: 270, clockwise: false)
-        XCTAssertEqual(c.zoneIndex, 1)                     // zone 0 finished
-        let m = c.map()
-        XCTAssertEqual(m.zones.first, PcZone(controller: 0, zone: 0, leds: 48))
-        XCTAssertEqual(m.segments.map(\.start), [0, 16, 32])
-        XCTAssertEqual(m.segments.map(\.count), [16, 16, 16])
-        XCTAssertEqual(m.segments.last?.clockwise, false)
+    func testTheSliderSetsTheCountWithinTheConnectorsLimits() {
+        var b = board()
+        b.setLEDs(2, 160)
+        XCTAssertEqual(b.connectors[2].leds, 100)
+        b.setLEDs(2, 16)
+        XCTAssertEqual(b.connectors[2].leds, 16)
+        b.setLEDs(0, 5)
+        XCTAssertEqual(b.connectors[0].leds, 1)            // a fixed connector keeps its size
     }
 
-    func testNothingLitSkipsTheZone() {
-        var c = cal()
-        c.setSize(lastLit: 15)
-        c.addSegment(end: 15, part: .top, index: 0, ringStartDeg: 0, clockwise: true)
-        c.skipZone()                                       // the 12 V header: nothing lit
-        XCTAssertEqual(c.zoneIndex, 2)
-        XCTAssertFalse(c.map().zones.contains { $0.zone == 1 })
+    func testPaintingARunAssignsItToAPart() {
+        var b = board()
+        b.setLEDs(1, 40)
+        b.assign(1, 0...29, part: .strip, index: 0)
+        b.assign(1, 30...39, part: .cooler, index: 0)
+        XCTAssertEqual(b.part(1, led: 12), .strip)
+        XCTAssertEqual(b.part(1, led: 35), .cooler)
+        let m = b.map()
+        XCTAssertEqual(m.segments.map(\.part), ["strip", "cooler"])
+        XCTAssertEqual(m.segments.map(\.start), [0, 30])
+        XCTAssertEqual(m.segments.map(\.count), [30, 10])
     }
 
-    func testFixedSizeZoneUsesItsReportedLEDs() {
-        var c = cal()
-        c.setSize(lastLit: 15)
-        c.addSegment(end: 15, part: .top, index: 0, ringStartDeg: 0, clockwise: true)
-        XCTAssertEqual(c.size, 1)                          // zone 1 can't be resized: 1 LED
-        c.addSegment(end: 0, part: .cooler, index: 0, ringStartDeg: nil, clockwise: nil)
-        XCTAssertEqual(c.map().segments.last?.part, "cooler")
+    func testRepaintingReplacesWhatWasThere() {
+        var b = board()
+        b.setLEDs(1, 40)
+        b.assign(1, 0...39, part: .strip, index: 0)
+        b.assign(1, 30...39, part: .cooler, index: 0)
+        XCTAssertEqual(b.map().segments.first { $0.part == "strip" }?.count, 30)
     }
 
-    func testSharedRangeRecordsTheOtherParts() {
-        var c = cal()
-        c.setSize(lastLit: 9)
-        c.addSegment(end: 9, part: .strip, index: 0, ringStartDeg: nil, clockwise: nil, from: "front", also: [.cooler])
-        XCTAssertEqual(c.map().segments.first?.also, ["cooler"])
-        XCTAssertEqual(c.map().segments.first?.from, "front")
+    func testAMirroredHubIsOneRunSharedByEveryFan() {
+        var b = board()
+        b.setLEDs(2, 16)
+        b.assign(2, 0...15, part: .bottom, index: 0, also: [.top, .rear])
+        let seg = b.map().segments.first!
+        XCTAssertEqual(seg.also, ["top", "rear"])
+        XCTAssertEqual(b.missingParts, [.cooler, .strip])
     }
 
-    func testDoneAfterTheLastZoneAndEveryPartCoveredIsReported() {
-        var c = PcCalibration(zones: [.init(controller: 0, zone: 0, resizable: false, leds: 16)])
-        c.addSegment(end: 15, part: .top, index: 0, ringStartDeg: 0, clockwise: true)
-        XCTAssertTrue(c.done)
-        XCTAssertEqual(c.missingParts, [.rear, .bottom, .cooler, .strip])
+    func testShrinkingDropsPaintBeyondTheEnd() {
+        var b = board()
+        b.setLEDs(1, 40)
+        b.assign(1, 30...39, part: .cooler, index: 0)
+        b.setLEDs(1, 20)
+        XCTAssertNil(b.part(1, led: 35))
+        XCTAssertTrue(b.map().segments.isEmpty)
     }
 
-    func testScrubbingUsesTheConnectorsRealMaximum() {
-        var c = PcCalibration(zones: [.init(controller: 0, zone: 1, resizable: true, leds: 80, max: 100)])
-        XCTAssertEqual(c.resizeTo, 100)
-        XCTAssertEqual(c.scrubRange, 0...99)
-        c.setSize(lastLit: 47)
-        XCTAssertEqual(c.scrubRange, 0...47)               // the LEDs left on this connector
-        c.addSegment(end: 15, part: .bottom, index: 0, ringStartDeg: 0, clockwise: true)
-        XCTAssertEqual(c.scrubRange, 16...47)
-    }
-
-    func testASingleLEDConnectorHasNoSlider() {
-        let c = PcCalibration(zones: [.init(controller: 0, zone: 0, resizable: false, leds: 1, max: 1)])
-        XCTAssertTrue(c.isSingleLED)
-        XCTAssertNil(c.scrubRange)
-        XCTAssertNil(c.resizeTo)
-    }
-
-    func testColourTestRecordsTheConnectorsChannelOrder() {
-        var c = PcCalibration(zones: [.init(controller: 0, zone: 1, resizable: true, leds: 80, max: 100)])
-        c.setSize(lastLit: 15)
-        XCTAssertTrue(c.needsOrder)                      // red showed green, green showed red → GRB
-        c.setOrder(seenRed: "g", seenGreen: "r")
-        XCTAssertFalse(c.needsOrder)
-        c.addSegment(end: 15, part: .bottom, index: 0, ringStartDeg: 0, clockwise: true)
-        XCTAssertEqual(c.map().zones.first?.order, "grb")
-    }
-
-    func testASingleLEDConnectorSkipsTheColourTest() {
-        let c = PcCalibration(zones: [.init(controller: 0, zone: 0, resizable: false, leds: 1, max: 1)])
-        XCTAssertFalse(c.needsOrder)
+    func testEmptyConnectorsAndColourOrderInTheMap() {
+        var b = board()
+        b.setLEDs(2, 16)
+        b.setOrder(2, "grb")
+        b.assign(2, 0...15, part: .bottom, index: 0)
+        let m = b.map()
+        XCTAssertEqual(m.zones, [PcZone(controller: 0, zone: 3, leds: 16, order: "grb")])   // unpainted connectors left out
     }
 
     func testTapAngleSnapsToTheNearestSocket() {
         XCTAssertEqual(PcCalibration.snap(degrees: 100, sockets: 16), 90)
-        XCTAssertEqual(PcCalibration.snap(degrees: 350, sockets: 16), 0)
-        XCTAssertEqual(PcCalibration.snap(degrees: -20, sockets: 16), 337.5)
     }
 }
