@@ -73,6 +73,7 @@ class Engine:
         self._sizes_dirty = True
         self._direct = False
         self._unsent = False          # a report that didn't go (the link to the server was down)
+        self._gen = 0                 # bumps on every state/map change (a write outside the lock checks it)
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._load()
@@ -81,6 +82,9 @@ class Engine:
     def set_state(self, state: dict, rev: Optional[int] = None, address: Optional[str] = None,
                   enabled: bool = True) -> dict:
         with self._lock:
+            if rev is not None and self._rev is not None and rev < self._rev:
+                return self.status()          # an older change arriving late never undoes a newer one
+            self._gen += 1
             self._state = dict(state)
             self._rev = rev
             if address and address != self._address:
@@ -97,6 +101,7 @@ class Engine:
     def set_map(self, ledmap: dict) -> dict:
         with self._lock:
             self._map = dict(ledmap or {})
+            self._gen += 1
             self._probing = False
             self._sizes_dirty = True
             self._dirty = True
@@ -216,13 +221,20 @@ class Engine:
             if not self._dirty and (not animated or self._paused or now - self._last_write < FRAME_S - 1e-9):
                 return
             render = dict(st, frozen_at=self._frozen_at) if self._paused else st
-            try:
-                self._write(driver, self._ordered(effects.frame(render, self._map, now)))
-                self._last_write = now
-                self._dirty = False
-            except Exception as exc:  # noqa: BLE001
+            frames = self._ordered(effects.frame(render, self._map, now))
+            gen = self._gen
+            self._last_write = now
+        # The write happens outside the lock: his board's USB link is slow per full-board frame, and a
+        # colour change from the server must never wait behind it (those waits were the 15 s 502s).
+        try:
+            self._write(driver, frames)
+            with self._lock:
+                if gen == self._gen:
+                    self._dirty = False
+        except Exception as exc:  # noqa: BLE001
+            with self._lock:
                 self._fail(exc, now)
-                emit = True
+            emit = True
         if emit:
             self._emit()
 

@@ -70,6 +70,42 @@ def _spawn(fn: Callable, *args: Any) -> None:
     threading.Thread(target=fn, args=args, name="pc-lighting-push", daemon=True).start()
 
 
+_push_lock = threading.Lock()
+_draining: set = set()
+_pending: set = set()
+
+
+def queue_push(did: str) -> None:
+    """Send the PC the newest state soon, one sender per PC: quick taps answer at once and the PC gets
+    only the latest, in order (a slow push no longer holds the request until it 502s)."""
+    with _push_lock:
+        if did in _draining:
+            _pending.add(did)
+            return
+        _draining.add(did)
+    _spawn(_drain, did)
+
+
+def _drain(did: str) -> None:
+    while True:
+        with _push_lock:
+            _pending.discard(did)
+        ok, res = push_state(did)
+        s = store()
+        live = s.live(did)
+        if ok:
+            live.pop("push_error", None)
+        else:
+            live["push_error"] = res
+        live.pop("at", None)
+        s.set_live(did, live)
+        publish(did)
+        with _push_lock:
+            if did not in _pending:
+                _draining.discard(did)
+                return
+
+
 # ── helpers ──────────────────────────────────────────────────────────────────
 def pc_device_id(requested: str = "") -> str:
     if requested:
@@ -229,17 +265,15 @@ def route(req) -> bool:
                 st = s.update_state(did, dict(partial, part=host))
         except ValueError as exc:
             return req.reply(400, {"ok": False, "error": str(exc)})
-        ok, res = push_state(did)
-        publish(did)
-        return req.reply(200, {"ok": True, "state": st}) if ok else req.reply(502, {"ok": False, "error": res, "state": st})
+        queue_push(did)
+        return req.reply(200, {"ok": True, "state": st})
     if req.method == "POST" and parts == ["looks", "apply"]:
         try:
             st = s.apply_look(did, str(body.get("name") or ""))
         except KeyError:
             return req.reply(404, {"ok": False, "error": "No look with that name"})
-        ok, res = push_state(did)
-        publish(did)
-        return req.reply(200, {"ok": True, "state": st}) if ok else req.reply(502, {"ok": False, "error": res, "state": st})
+        queue_push(did)
+        return req.reply(200, {"ok": True, "state": st})
     if req.method == "POST" and parts == ["probe"]:
         args = {k: body[k] for k in PROBE_KEYS if k in body}
         ok, res = _result(_invoke(did, "lighting_probe", args))

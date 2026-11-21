@@ -120,6 +120,32 @@ def test_probes_send_raw_colours_for_the_colour_test(rig):
     assert rig.drivers[0].writes[-1][(0, 0)][0] == (255, 0, 0)
 
 
+def test_a_colour_change_never_waits_for_a_slow_write(tmp_path):
+    import threading, time as _t
+
+    class Slow(FakeDriver):
+        def write(self, frames):
+            _t.sleep(0.4)                       # his ASRock over USB takes a while per full-board frame
+            super().write(frames)
+
+    e = eng.Engine(lambda f: True, driver_factory=Slow, clock=_t.time,
+                   game_state=lambda: SimpleNamespace(on=False, reason="", anticheat=False), store_path=tmp_path / "s.json")
+    e.set_map(MAP)
+    e.set_state(_state("rainbow"), rev=1, address="127.0.0.1:6742")
+    th = threading.Thread(target=e.tick); th.start()
+    _t.sleep(0.05)                              # the tick is now inside its slow write
+    t0 = _t.time()
+    e.set_state(_state("static"), rev=2)
+    assert _t.time() - t0 < 0.1
+    th.join()
+
+
+def test_an_older_state_never_replaces_a_newer_one(rig):
+    rig.e.set_state(_state("rainbow"), rev=5, address="127.0.0.1:6742")
+    rig.e.set_state(_state("static"), rev=4)
+    assert rig.e.status()["state_rev"] == 5
+
+
 def test_nothing_is_written_without_a_map(rig):
     rig.e.set_state(_state(), rev=1, address="127.0.0.1:6742")
     rig.e.tick()

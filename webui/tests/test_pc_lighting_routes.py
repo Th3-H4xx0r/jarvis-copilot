@@ -92,10 +92,23 @@ def test_bad_state_is_400(env):
     assert status == 400 and "colour" in body["error"]
 
 
-def test_pc_refusing_the_change_is_502_with_its_reason(env):
+def test_pc_refusing_the_change_is_reported_without_holding_the_request(env):
     env.replies["lighting_state_set"] = {"ok": False, "error": "device has no skill named 'lighting_state_set'"}
     status, body = light("POST", "/api/pc-lighting/state", {"part": "top", "color": "#00ff00"})
-    assert status == 502 and "Update Jarvis on the PC" in body["error"]
+    assert status == 200
+    assert "Update Jarvis on the PC" in env.st.live("pc-1")["push_error"]
+
+
+def test_quick_changes_answer_at_once_and_send_the_pc_only_the_newest(env, monkeypatch):
+    later = []
+    monkeypatch.setattr(routes, "_spawn", lambda fn, *a: later.append((fn, a)))
+    light("POST", "/api/pc-lighting/state", {"part": "all", "color": "#ff0000"})
+    light("POST", "/api/pc-lighting/state", {"part": "all", "color": "#00ff00"})
+    assert len(later) == 1 and not _skills(env, "lighting_state_set")   # answered at once, one sender
+    fn, a = later[0]
+    fn(*a)
+    sent = _skills(env, "lighting_state_set")
+    assert len(sent) == 1 and sent[0][2]["rev"] == 2 and sent[0][2]["state"]["parts"]["top"]["color"] == "#00ff00"
 
 
 def test_a_shared_part_sets_its_host_too(env):
