@@ -263,6 +263,26 @@ def _handle_pair(req, body, s):
     return req.reply(200, {"ok": bool(res.get("ok", False)), "detail": res.get("detail")})
 
 
+def _create_job(**kw):
+    from cron.jobs import create_job
+    return create_job(**kw)
+
+
+def schedule_stream(when, target, game):
+    tname = target.get("name") if isinstance(target, dict) else str(target or "")
+    prompt = f"Stream {game} to {tname} now using the game_stream_start tool."
+    return _create_job(prompt=prompt, schedule=str(when or ""),
+                       name=f"Stream {game} \u2192 {tname}",
+                       integration="game-streaming",
+                       enabled_toolsets=["game_streaming"])
+
+
+def _handle_schedule(req, body):
+    job = schedule_stream(body.get("when"), body.get("target"),
+                          body.get("game") or body.get("app") or "")
+    return req.reply(200, {"ok": True, "job": job})
+
+
 def _handle_unpair(req, body, s):
     pc = _pc_id()
     if _online(pc):
@@ -303,6 +323,8 @@ def route(req) -> bool:
         return _handle_pair(req, body, s)
     if req.method == "POST" and parts == ["unpair"]:
         return _handle_unpair(req, body, s)
+    if req.method == "POST" and parts == ["schedule"]:
+        return _handle_schedule(req, body)
     if req.method == "POST" and parts == ["event"]:
         _on_event(_pc_id(), body)
         return req.reply(200, {"ok": True})
