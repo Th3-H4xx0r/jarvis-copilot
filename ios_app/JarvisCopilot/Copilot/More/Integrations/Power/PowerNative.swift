@@ -5,22 +5,17 @@ import SwiftUI
 /// add a `case` returning the view, and add the piece to `native` on the server.
 enum PowerNative {
     static func card(_ row: PowerRow) -> AnyView? {
-        // Game Streaming ships a native card; the iOS client owns that decision
-        // for this built-in, so it renders whether or not the server lists it in
-        // the manifest's `native`. Others gate on that list.
-        if row.id == "game-streaming" { return AnyView(GameStreamingCard()) }
         guard row.nativePieces["ios"]?.contains("card") == true else { return nil }
         switch row.id {
+        case "game-streaming": return AnyView(GameStreamingCard())
         default: return nil
         }
     }
 
     static func page(_ row: PowerRow) -> AnyView? {
-        // Game Streaming ships a native page (see `card` above for why it renders
-        // without the server's `native` flag).
-        if row.id == "game-streaming" { return AnyView(GameStreamingPage()) }
         guard row.nativePieces["ios"]?.contains("page") == true else { return nil }
         switch row.id {
+        case "game-streaming": return AnyView(GameStreamingPage())
         default: return nil
         }
     }

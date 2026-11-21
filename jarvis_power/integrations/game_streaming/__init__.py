@@ -35,6 +35,7 @@ class GameStreaming(PowerIntegration):
                 help="Override where Sunshine writes its log; blank uses the per-OS default.", jarvis="never"),
     )
     actions = ("refresh",)
+    native = {"ios": ("card", "page")}
 
     def start(self, process: str) -> None:
         try:
