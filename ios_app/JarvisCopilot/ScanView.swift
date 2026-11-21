@@ -184,6 +184,7 @@ struct ScanView: View {
     /// unlinked from the car).
     @ViewBuilder private var carCards: some View {
         // Power integrations: each card goes while its integration is switched off.
+        PcEntryCard(namespace: cardNamespace)   // shows itself once a PC is paired
         if PowerState.shared.isOn("car") { CarEntryCard(namespace: cardNamespace) }
         if PowerState.shared.isOn("door-alarm") { DoorAlarmEntryCard(namespace: cardNamespace) }
         ForEach(links.topLevel.filter { $0.kind != DashcamDevice.identityKey || PowerState.shared.isOn("dashcam") },
