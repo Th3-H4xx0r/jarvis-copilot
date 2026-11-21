@@ -75,6 +75,21 @@ final class PcCalibrationTests: XCTestCase {
         XCTAssertNil(c.resizeTo)
     }
 
+    func testColourTestRecordsTheConnectorsChannelOrder() {
+        var c = PcCalibration(zones: [.init(controller: 0, zone: 1, resizable: true, leds: 80, max: 100)])
+        c.setSize(lastLit: 15)
+        XCTAssertTrue(c.needsOrder)                      // red showed green, green showed red → GRB
+        c.setOrder(seenRed: "g", seenGreen: "r")
+        XCTAssertFalse(c.needsOrder)
+        c.addSegment(end: 15, part: .bottom, index: 0, ringStartDeg: 0, clockwise: true)
+        XCTAssertEqual(c.map().zones.first?.order, "grb")
+    }
+
+    func testASingleLEDConnectorSkipsTheColourTest() {
+        let c = PcCalibration(zones: [.init(controller: 0, zone: 0, resizable: false, leds: 1, max: 1)])
+        XCTAssertFalse(c.needsOrder)
+    }
+
     func testTapAngleSnapsToTheNearestSocket() {
         XCTAssertEqual(PcCalibration.snap(degrees: 100, sockets: 16), 90)
         XCTAssertEqual(PcCalibration.snap(degrees: 350, sockets: 16), 0)

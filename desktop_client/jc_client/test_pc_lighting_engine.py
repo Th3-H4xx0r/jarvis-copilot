@@ -101,6 +101,25 @@ def test_a_report_lost_while_offline_is_sent_again_on_the_next_tick(tmp_path):
     assert sent and sent[-1]["data"]["controllers"]
 
 
+def test_a_grb_connector_gets_its_channels_swapped(rig):
+    m = {"version": 1, "rev": 5, "zones": [{"controller": 0, "zone": 0, "leds": 20, "order": "grb"}],
+         "segments": [{"part": "top", "index": 0, "controller": 0, "zone": 0, "start": 0, "count": 20}]}
+    rig.e.set_map(m)
+    rig.e.set_state(_state(), rev=1, address="127.0.0.1:6742")   # static red
+    rig.e.tick()
+    assert rig.drivers[0].writes[-1][(0, 0)][0] == (0, 255, 0)  # the fan shows red
+
+
+def test_probes_send_raw_colours_for_the_colour_test(rig):
+    m = {"version": 1, "rev": 5, "zones": [{"controller": 0, "zone": 0, "leds": 20, "order": "grb"}],
+         "segments": [{"part": "top", "index": 0, "controller": 0, "zone": 0, "start": 0, "count": 20}]}
+    rig.e.set_map(m)
+    rig.e.set_state(_state(), rev=1, address="127.0.0.1:6742")
+    rig.e.tick()
+    rig.e.probe({"controller": 0, "zone": 0, "led": 0, "color": "#ff0000"})
+    assert rig.drivers[0].writes[-1][(0, 0)][0] == (255, 0, 0)
+
+
 def test_nothing_is_written_without_a_map(rig):
     rig.e.set_state(_state(), rev=1, address="127.0.0.1:6742")
     rig.e.tick()

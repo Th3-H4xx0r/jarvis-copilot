@@ -21,6 +21,8 @@ struct PcCalibration {
     private(set) var cursor = 0
     private(set) var segments: [PcSegment] = []
     private(set) var mapped: [PcZone] = []
+    /// This connector's colour order, from the colour test.
+    private(set) var order: String?
 
     init(zones: [ZoneJob]) {
         self.zones = zones
@@ -30,6 +32,15 @@ struct PcCalibration {
     var current: ZoneJob? { zoneIndex < zones.count ? zones[zoneIndex] : nil }
     var done: Bool { zoneIndex >= zones.count }
     var needsSize: Bool { current != nil && size == nil }
+    /// After measuring, before the first part: light red, then green, and ask what colour shows.
+    var needsOrder: Bool { current != nil && !needsSize && (size ?? 0) > 1 && cursor == 0 && order == nil }
+
+    /// What showed when red and then green were sent ("r", "g" or "b").
+    mutating func setOrder(seenRed: String, seenGreen: String) {
+        let rest = ["r", "g", "b"].first { $0 != seenRed && $0 != seenGreen } ?? "b"
+        order = seenRed == seenGreen ? "rgb" : seenRed + seenGreen + rest
+    }
+
     /// A one-LED connector (a 12 V header): nothing to slide, just "what lit up?".
     var isSingleLED: Bool { !needsSize && (size ?? 0) - cursor <= 1 && current != nil }
 
@@ -82,7 +93,8 @@ struct PcCalibration {
 
     private mutating func advance(keep: Bool) {
         if keep, let job = current, let size, segments.contains(where: { $0.controller == job.controller && $0.zone == job.zone }) {
-            mapped.append(PcZone(controller: job.controller, zone: job.zone, leds: size))
+            mapped.append(PcZone(controller: job.controller, zone: job.zone, leds: size,
+                                 order: order == "rgb" ? nil : order))
         }
         zoneIndex += 1
         prepare()
@@ -91,6 +103,7 @@ struct PcCalibration {
     private mutating func prepare() {
         cursor = 0
         size = nil
+        order = nil
         if let job = current, !job.resizable { size = max(1, job.leds) }
     }
 }

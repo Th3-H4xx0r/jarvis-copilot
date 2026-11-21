@@ -110,6 +110,15 @@ def test_validate_map_rejects_overlaps_unknown_parts_and_bad_ranges():
     assert validate_map(_map(_seg("top"), _seg("rear", start=10), _seg("strip", start=20, count=30))) == []
 
 
+def test_zone_colour_order_must_be_a_channel_order():
+    ok = _map(_seg("top"))
+    ok["zones"][0]["order"] = "grb"
+    assert validate_map(ok) == []
+    bad = _map(_seg("top"))
+    bad["zones"][0]["order"] = "rrg"
+    assert validate_map(bad)
+
+
 def test_coverage_own_shared_missing(st):
     st.set_map("pc-1", _map(_seg("top"), _seg("bottom", start=10, also=["rear"])))
     cov = st.coverage("pc-1")

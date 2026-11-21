@@ -41,6 +41,8 @@ def validate_map(m: dict) -> list[str]:
             continue
         if key in zones:
             errs.append(f"zone {key} listed twice")
+        if "order" in z and sorted(str(z.get("order") or "")) != ["b", "g", "r"]:
+            errs.append(f"zone {key}: colour order must be like rgb or grb")
         if not 1 <= leds <= 1000:
             errs.append(f"zone {key} must have 1–1000 LEDs")
         zones[key] = leds
@@ -208,7 +210,7 @@ class PcLightingStore:
         if errs:
             raise ValueError("; ".join(errs))
         with self._lock:
-            new = {"version": 1, "rev": int(self.map(did).get("rev", 0)) + 1,
+            new = {"version": 1, "rev": int(self.map(did).get("rev", 0)) + 1,  # zones keep their colour "order"
                    "zones": copy.deepcopy(m.get("zones") or []), "segments": copy.deepcopy(m.get("segments") or [])}
             self._doc(did)["map"] = new
             self._save(did)

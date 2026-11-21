@@ -7,6 +7,9 @@ struct PcCalibrationPage: View {
     @State private var cal: PcCalibration?
     @State private var led: Double = 0
     @State private var target: PcLedKey?
+    /// Other fans that lit at the same time (a hub that copies one connector to several fans).
+    @State private var extras: [PcLedKey] = []
+    @State private var seenRed: String?
     @State private var phase: Phase = .scrub
     @State private var startDeg: Double?
     @State private var error: String?
@@ -52,8 +55,20 @@ struct PcCalibrationPage: View {
                     .font(.subheadline).foregroundStyle(JcTheme.muted)
                 slider(range)
                 HStack {
-                    Button("Last LED") { mutate { $0.setSize(lastLit: Int(led)) }; led = 0; probe(0) }.buttonStyle(.jcGlass)
+                    Button("Last LED") {
+                        mutate { $0.setSize(lastLit: Int(led)) }; led = 0
+                        if self.cal?.needsOrder == true { probe(0, color: "#ff0000") } else { probe(0) }
+                    }.buttonStyle(.jcGlass)
                     Button("Nothing lights") { mutate { $0.skipZone() }; led = 0; probe(0) }.buttonStyle(.jcGlass)
+                }
+            } else if cal.needsOrder {
+                Text(seenRed == nil ? "The first light is now red on your PC. What colour do you see?"
+                                    : "Now it's green. What colour do you see?")
+                    .font(.subheadline).foregroundStyle(JcTheme.muted)
+                HStack {
+                    ForEach([("Red", "r"), ("Green", "g"), ("Blue", "b")], id: \.1) { label, ch in
+                        Button(label) { colourSeen(ch) }.buttonStyle(.jcGlass)
+                    }
                 }
             } else if cal.isSingleLED {
                 Text("This connector has one light. Did something light up? Tap it on the model.")
@@ -67,8 +82,11 @@ struct PcCalibrationPage: View {
                 Text("Slide until the light is on the last LED of one fan (or the strip, or the cooler's logo), then tap that part on the model.")
                     .font(.subheadline).foregroundStyle(JcTheme.muted)
                 slider(range)
-                Text(target.map { "\($0.part.label) \($0.part.count > 1 ? "\($0.index + 1)" : "")" } ?? "Tap the part on the model")
+                Text(target.map { ([$0] + extras).map(name).joined(separator: " · ") } ?? "Tap the part on the model")
                     .font(.headline)
+                if target != nil {
+                    Text("More than one lit up at once? Tap the others too.").font(.footnote).foregroundStyle(JcTheme.muted)
+                }
                 Button("It ends here") { phase = .start; probe(cal.cursor) }
                     .buttonStyle(.jcGlass).disabled(target == nil)
             } else if phase == .start, let t = target {
@@ -110,16 +128,36 @@ struct PcCalibrationPage: View {
         if jobs.isEmpty { error = "OpenRGB found no lights — run setup first" } else { probe(0) }
     }
 
-    private func probe(_ k: Int) {
+    private func name(_ k: PcLedKey) -> String { k.part.count > 1 ? "\(k.part.label) \(k.index + 1)" : k.part.label }
+
+    private func colourSeen(_ ch: String) {
+        if let red = seenRed {
+            mutate { $0.setOrder(seenRed: red, seenGreen: ch) }
+            seenRed = nil
+            probe(cal?.cursor ?? 0)
+        } else {
+            seenRed = ch
+            probe(cal?.cursor ?? 0, color: "#00ff00")
+        }
+    }
+
+    private func probe(_ k: Int, color: String? = nil) {
         guard let job = cal?.current else { return }
         var args: [String: Any] = ["controller": job.controller, "zone": job.zone, "led": k]
+        if let color { args["color"] = color }
         if let resize = cal?.resizeTo { args["resize"] = resize }
         Task { if let e = await store.probe(args) { error = e } }
     }
 
     private func tapped(_ key: PcLedKey) {
         switch phase {
-        case .scrub: target = PcLedKey(part: key.part, index: key.index, led: 0)
+        case .scrub:
+            let picked = PcLedKey(part: key.part, index: key.index, led: 0)
+            if let t = target, t != picked {
+                if let i = extras.firstIndex(of: picked) { extras.remove(at: i) } else { extras.append(picked) }
+            } else {
+                target = picked
+            }
             if cal?.isSingleLED == true { return }
         case .start:
             guard let t = target, key.part == t.part, key.index == t.index else { return }
@@ -134,8 +172,10 @@ struct PcCalibrationPage: View {
     private func finish(clockwise: Bool? = nil, from: String? = nil) {
         guard let t = target else { return }
         let end = cal?.isSingleLED == true ? (cal?.cursor ?? 0) : Int(led)
-        mutate { $0.addSegment(end: end, part: t.part, index: t.index, ringStartDeg: startDeg, clockwise: clockwise, from: from) }
-        target = nil; startDeg = nil; phase = .scrub
+        let also = Array(Set(extras.map(\.part)).subtracting([t.part])).sorted { $0.rawValue < $1.rawValue }
+        mutate { $0.addSegment(end: end, part: t.part, index: t.index, ringStartDeg: startDeg, clockwise: clockwise,
+                               from: from, also: also) }
+        target = nil; extras = []; startDeg = nil; phase = .scrub
         led = Double(cal?.cursor ?? 0)
         probe(Int(led))
     }

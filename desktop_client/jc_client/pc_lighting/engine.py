@@ -20,6 +20,7 @@ from jc_client.pc_lighting import effects
 log = logging.getLogger(__name__)
 
 FRAME_S = 1 / 30
+_CH = {"r": 0, "g": 1, "b": 2}
 RETRY_S = 10.0
 PROBE_S = 60.0
 REPORT_S = 60.0
@@ -216,7 +217,7 @@ class Engine:
                 return
             render = dict(st, frozen_at=self._frozen_at) if self._paused else st
             try:
-                self._write(driver, effects.frame(render, self._map, now))
+                self._write(driver, self._ordered(effects.frame(render, self._map, now)))
                 self._last_write = now
                 self._dirty = False
             except Exception as exc:  # noqa: BLE001
@@ -271,6 +272,19 @@ class Engine:
             self._fail(exc, now)
             self._emit()
             return None
+
+    def _ordered(self, frames: dict) -> dict:
+        """Each connector's colour order (its LEDs may be GRB: calibration's colour test sets it)."""
+        orders = {(z["controller"], z["zone"]): str(z.get("order") or "rgb") for z in self._map.get("zones", [])}
+        out = {}
+        for key, colours in frames.items():
+            order = orders.get(key, "rgb")
+            if order != "rgb" and sorted(order) == ["b", "g", "r"]:
+                a, b, c = (_CH[ch] for ch in order)
+                out[key] = [(col[a], col[b], col[c]) for col in colours]
+            else:
+                out[key] = colours
+        return out
 
     def _write(self, driver, frames: dict) -> None:
         if not self._direct:

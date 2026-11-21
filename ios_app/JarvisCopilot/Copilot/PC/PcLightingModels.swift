@@ -76,6 +76,8 @@ struct PcZone: Codable, Equatable {
     var controller: Int
     var zone: Int
     var leds: Int
+    /// The connector's colour order ("grb" when red shows green); nil = rgb.
+    var order: String? = nil
 }
 
 struct PcSegment: Codable, Equatable {
