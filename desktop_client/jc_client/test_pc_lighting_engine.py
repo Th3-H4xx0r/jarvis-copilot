@@ -14,6 +14,7 @@ class FakeDriver:
         self.resized = []
         self.fail = fail
         self.connected = 0
+        self.direct = 0
 
     def connect(self):
         self.connected += 1
@@ -26,7 +27,7 @@ class FakeDriver:
                            {"index": 1, "name": "ARGB 2", "leds": 10, "resizable": True}]}]
 
     def set_direct(self):
-        pass
+        self.direct += 1
 
     def write(self, frames):
         if self.fail:
@@ -74,6 +75,13 @@ def rig(tmp_path):
 
 def _events(rig):
     return [f["data"] for f in rig.sent if f.get("name") == "pc_lighting_state"]
+
+
+def test_connects_to_report_controllers_before_any_map_without_touching_the_lights(rig):
+    rig.e.tick()                                   # fresh start: no state, no map yet (calibration needs the zones)
+    assert rig.drivers and rig.drivers[0].connected == 1
+    assert rig.drivers[0].direct == 0 and rig.drivers[0].writes == []
+    assert _events(rig)[-1]["controllers"][0]["name"] == "ASRock Polychrome USB"
 
 
 def test_nothing_is_written_without_a_map(rig):

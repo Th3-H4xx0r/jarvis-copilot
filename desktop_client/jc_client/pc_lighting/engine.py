@@ -70,6 +70,7 @@ class Engine:
         self._probing = False
         self._probe_at = 0.0
         self._sizes_dirty = True
+        self._direct = False
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._load()
@@ -136,7 +137,7 @@ class Engine:
                 if 0 <= k < len(leds):
                     leds[k] = rgb   # type: ignore[assignment]
             try:
-                driver.write(frame)
+                self._write(driver, frame)
             except Exception as exc:  # noqa: BLE001
                 self._fail(exc, self._clock())
                 return {"ok": False, "error": self._error}
@@ -174,7 +175,7 @@ class Engine:
                 frames = effects.frame(rainbow, ledmap, time.time())
                 if driver is not None:
                     try:
-                        driver.write(frames)
+                        self._write(driver, frames)
                     except Exception:  # noqa: BLE001
                         driver = None
                 time.sleep(FRAME_S)
@@ -190,10 +191,11 @@ class Engine:
             if self._probing and now - self._probe_at > PROBE_S:
                 self._probing = False        # calibration was left mid-way: render again
                 self._dirty = True
-            if not self._enabled or self._probing or not self._state or not self._map.get("segments"):
+            if not self._enabled or self._probing:
                 return
+            # Connect even before there's a map: calibration needs the controllers and their zones.
             driver = self._ensure_driver(now)
-            if driver is None:
+            if driver is None or not self._state or not self._map.get("segments"):
                 return
             if self._sizes_dirty:
                 self._fit_zones(driver)
@@ -211,7 +213,7 @@ class Engine:
                 return
             render = dict(st, frozen_at=self._frozen_at) if self._paused else st
             try:
-                driver.write(effects.frame(render, self._map, now))
+                self._write(driver, effects.frame(render, self._map, now))
                 self._last_write = now
                 self._dirty = False
             except Exception as exc:  # noqa: BLE001
@@ -254,20 +256,24 @@ class Engine:
         try:
             d = self._factory(self._address)
             d.connect()
-            d.set_direct()
             self._controllers = d.controllers()
             self._driver = d
-            recovered = self._error is not None
+            self._direct = False          # Direct mode only right before the first write: connecting leaves the lights alone
             self._error = None
             self._dirty = True
             self._sizes_dirty = True
-            if recovered:
-                self._emit()
+            self._emit()                  # the server (and calibration) learn the controllers now
             return d
         except Exception as exc:  # noqa: BLE001
             self._fail(exc, now)
             self._emit()
             return None
+
+    def _write(self, driver, frames: dict) -> None:
+        if not self._direct:
+            driver.set_direct()
+            self._direct = True
+        driver.write(frames)
 
     def _fit_zones(self, driver) -> None:
         """Resizable zones take the calibrated LED count (calibration measured them at 300)."""
