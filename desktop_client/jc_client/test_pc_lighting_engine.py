@@ -84,6 +84,23 @@ def test_connects_to_report_controllers_before_any_map_without_touching_the_ligh
     assert _events(rig)[-1]["controllers"][0]["name"] == "ASRock Polychrome USB"
 
 
+def test_a_report_lost_while_offline_is_sent_again_on_the_next_tick(tmp_path):
+    sent, up = [], {"ok": False}
+
+    def send(frame):
+        if up["ok"]:
+            sent.append(frame)
+        return up["ok"]
+
+    e = eng.Engine(send, driver_factory=FakeDriver, clock=Clock(),
+                   game_state=lambda: SimpleNamespace(on=False, reason="", anticheat=False), store_path=tmp_path / "s.json")
+    e.tick()                                  # connects and reports, but the link to the server isn't up yet
+    assert sent == []
+    up["ok"] = True
+    e.tick()
+    assert sent and sent[-1]["data"]["controllers"]
+
+
 def test_nothing_is_written_without_a_map(rig):
     rig.e.set_state(_state(), rev=1, address="127.0.0.1:6742")
     rig.e.tick()

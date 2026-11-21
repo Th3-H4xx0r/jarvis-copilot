@@ -71,6 +71,7 @@ class Engine:
         self._probe_at = 0.0
         self._sizes_dirty = True
         self._direct = False
+        self._unsent = False          # a report that didn't go (the link to the server was down)
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._load()
@@ -186,6 +187,8 @@ class Engine:
     # ── the loop ─────────────────────────────────────────────────────────────
     def tick(self) -> None:
         emit = False
+        if self._unsent:
+            self._emit()
         with self._lock:
             now = self._clock()
             if self._probing and now - self._probe_at > PROBE_S:
@@ -311,9 +314,10 @@ class Engine:
 
     def _emit(self) -> None:
         try:
-            self._send_up({"type": "event", "name": "pc_lighting_state", "data": self.status()})
+            went = self._send_up({"type": "event", "name": "pc_lighting_state", "data": self.status()})
         except Exception:  # noqa: BLE001
-            pass
+            went = False
+        self._unsent = went is False   # send_up_ok says False while offline; try again next tick
 
     def _save(self) -> None:
         try:
