@@ -77,8 +77,13 @@
         ? api('/api/game-streaming/stop', { method: 'POST', body: JSON.stringify({}) })
         : api('/api/game-streaming/start', { method: 'POST',
             body: JSON.stringify({ target: primary.target, game: primary.game }) });
-      call.then(function () {
-        if (typeof showToast === 'function') showToast(act === 'stop' ? 'Stopped' : 'Starting…');
+      call.then(function (res) {
+        var failed = res && res.ok === false;
+        var detail = res && res.result && res.result.detail;
+        if (typeof showToast === 'function') {
+          showToast(failed ? (detail || 'Could not start the stream')
+                           : (act === 'stop' ? 'Stopped' : 'Starting…'));
+        }
         renderCard(host, { id: ID });
       }).catch(function (e) {
         btn.disabled = false;

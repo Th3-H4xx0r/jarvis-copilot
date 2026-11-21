@@ -29,6 +29,12 @@ struct GameStreamingClient: GameStreamingAPI {
         if res.status == 202 { return .pending }
         let body = (try? res.object()) ?? [:]
         if body["status"] as? String == "pending" { return .pending }
+        if body["ok"] as? Bool == false {
+            let r = body["result"] as? [String: Any] ?? [:]
+            let msg = (r["detail"] as? String) ?? (r["error"] as? String)
+                ?? (body["error"] as? String) ?? "Couldn't start the stream"
+            throw APIError.http(status: res.status, message: msg)
+        }
         return .started(note: (body["note"] as? String).flatMap { $0.isEmpty ? nil : $0 })
     }
 
@@ -45,7 +51,7 @@ struct GameStreamingClient: GameStreamingAPI {
             if body["ok"] as? Bool == true {
                 return .paired(detail: (body["detail"] as? String).flatMap { $0.isEmpty ? nil : $0 })
             }
-            return .failed(body["error"] as? String ?? "Pairing didn't go through")
+            return .failed((body["detail"] as? String) ?? (body["error"] as? String) ?? "Pairing didn't go through")
         } catch let APIError.http(status, message) where status == 409 {
             return .offline(message.isEmpty ? "The PC is asleep or offline" : message)
         }

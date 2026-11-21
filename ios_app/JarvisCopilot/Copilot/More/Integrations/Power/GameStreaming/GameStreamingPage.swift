@@ -67,7 +67,7 @@ struct GameStreamingPage: View {
 
     private var statusColor: Color {
         if status?.live.active == true { return JcTheme.text }
-        return (status?.reachable ?? false) ? JcTheme.success : JcTheme.muted
+        return (status?.reachable ?? false) ? JcTheme.text : JcTheme.muted
     }
 
     private var statusTitle: String {
