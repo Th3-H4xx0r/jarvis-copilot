@@ -43,6 +43,7 @@ struct PcPage: View {
             }
         }
         .onAppear { agents.watch("pc-page", true); store.watch(true) }
+        .task { if !store.specsLoaded { await store.loadSpecs() } }
         .onDisappear { agents.watch("pc-page", false); store.watch(false) }
         .sheet(item: $component) { PcComponentSheet(info: $0) }
     }
@@ -62,6 +63,25 @@ struct PcPageExtras: View {
         if PowerState.shared.isOn("pc-lighting") {
             PcLightingSection(selectedPart: $selectedPart)
         }
+        JcSectionLabel("Hardware")
+        JcCard(padding: 0) {
+            NavigationLink { PcSpecsPage() } label: {
+                JcRow(symbol: "cpu", title: "Specs", subtitle: specsLine, last: true)
+            }
+            .buttonStyle(.plain)
+        }
+        if PcBuiltFor.outOfDate(PcStore.shared.specs) == true {
+            Label("The model was built for a different setup — it may be out of date.", systemImage: "info.circle")
+                .font(.footnote).foregroundStyle(JcTheme.muted)
+        }
+    }
+
+    private var specsLine: String {
+        guard let s = PcStore.shared.specs else { return "What the Jarvis app on your PC reads" }
+        let cpu = s.cpu?.name?.replacingOccurrences(of: "Intel(R) Core(TM) ", with: "")
+        let gpu = s.gpus?.first?.name?.replacingOccurrences(of: "NVIDIA GeForce ", with: "")
+        let ram = s.memory?.totalMb.map { "\($0 / 1024) GB" }
+        return [cpu, gpu, ram].compactMap { $0 }.joined(separator: " · ")
     }
 }
 
