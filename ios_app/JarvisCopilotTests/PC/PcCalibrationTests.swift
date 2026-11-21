@@ -75,6 +75,28 @@ final class PcCalibrationTests: XCTestCase {
         XCTAssertEqual(b.map().segments.first?.line, [[0, 0.5, 1.4], [2, 0.5, 1.4]])
     }
 
+    func testPlacingOnTheModelPaintsTheFirstFanAndMirrorsTheRest() {
+        var b = board()
+        b.setLEDs(2, 16)
+        b.place(2, 0...15, fans: [PcLedKey(part: .bottom, index: 1, led: 0), PcLedKey(part: .top, index: 0, led: 3),
+                                 PcLedKey(part: .bottom, index: 0, led: 0)], line: nil)
+        let seg = b.map().segments.first
+        XCTAssertEqual(seg?.part, "bottom")
+        XCTAssertEqual(seg?.index, 1)
+        XCTAssertEqual(seg?.also, ["top"])
+    }
+
+    func testPlacingADrawnLineMakesTheStrip() {
+        var b = board()
+        b.setLEDs(1, 40)
+        b.place(1, 8...30, fans: [], line: [[0, 0.5, 1.4], [2, 0.5, 1.4]])
+        let seg = b.map().segments.first
+        XCTAssertEqual(seg?.part, "strip")
+        XCTAssertEqual(seg?.start, 8)
+        XCTAssertEqual(seg?.count, 23)
+        XCTAssertEqual(seg?.line, [[0, 0.5, 1.4], [2, 0.5, 1.4]])
+    }
+
     func testTapAngleSnapsToTheNearestSocket() {
         XCTAssertEqual(PcCalibration.snap(degrees: 100, sockets: 16), 90)
     }

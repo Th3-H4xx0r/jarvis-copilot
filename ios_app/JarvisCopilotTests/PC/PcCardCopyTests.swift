@@ -42,4 +42,12 @@ final class PcCardCopyTests: XCTestCase {
         let unknown = PcComponentInfo.make("psu", specs: nil, summary: nil)
         XCTAssertEqual(unknown.title, "Power supply")
     }
+
+    func testTappedPartCardShowsControlsOnlyWhenThePartCanTakeThem() {
+        XCTAssertEqual(PcPartCardContent.make(availability: .live, missing: false), .controls)
+        XCTAssertEqual(PcPartCardContent.make(availability: .live, missing: true), .notMapped)
+        XCTAssertEqual(PcPartCardContent.make(availability: .setUp, missing: true), .setUp)
+        XCTAssertEqual(PcPartCardContent.make(availability: .unavailable("The PC is asleep"), missing: false),
+                       .unavailable("The PC is asleep"))
+    }
 }

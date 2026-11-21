@@ -76,6 +76,11 @@ struct SceneCanvas: View {
     var onRender: ((TimeInterval) -> Void)? = nil
     /// What the model looks like, for its still: a change draws the still again (lit, armed …).
     var look: AnyHashable = 0
+    /// Free camera (the full-screen PC model): drag to turn, pinch to zoom, two fingers to move.
+    var cameraControl: SceneCameraControl.Mode = .off
+    var cameraTarget = SCNVector3(0, 0, 0)
+    /// Bump to put the camera back on `camera` (a view preset, reset).
+    var cameraReset = 0
 
     @Environment(\.sceneStills) private var stills
 
@@ -85,7 +90,8 @@ struct SceneCanvas: View {
         } else {
             LiveSceneCanvas(scene: scene, camera: camera, rendersContinuously: rendersContinuously,
                             preferredFramesPerSecond: preferredFramesPerSecond, onHorizontalPan: onHorizontalPan,
-                            onTap: onTap, onPan: onPan, onRender: onRender)
+                            onTap: onTap, onPan: onPan, onRender: onRender,
+                            cameraControl: cameraControl, cameraTarget: cameraTarget, cameraReset: cameraReset)
         }
     }
 }
@@ -205,6 +211,9 @@ private struct LiveSceneCanvas: UIViewRepresentable {
     var onTap: ((CGPoint, SCNView) -> Void)? = nil
     var onPan: ((UIPanGestureRecognizer) -> Void)? = nil
     var onRender: ((TimeInterval) -> Void)? = nil
+    var cameraControl: SceneCameraControl.Mode = .off
+    var cameraTarget = SCNVector3(0, 0, 0)
+    var cameraReset = 0
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -228,15 +237,27 @@ private struct LiveSceneCanvas: UIViewRepresentable {
             view.delegate = context.coordinator
         }
         if onPan != nil {
-            view.addGestureRecognizer(UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.freePanned(_:))))
+            let free = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.freePanned(_:)))
+            free.maximumNumberOfTouches = 1
+            view.addGestureRecognizer(free)
+            context.coordinator.freePan = free
         }
         if onTap != nil {
-            view.addGestureRecognizer(UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:))))
+            let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
+            view.addGestureRecognizer(tap)
+            context.coordinator.ours.append(tap)
         }
         if onHorizontalPan != nil {
             let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.panned(_:)))
             pan.delegate = context.coordinator
             view.addGestureRecognizer(pan)
+            context.coordinator.ours.append(pan)
+        }
+        context.coordinator.mode = cameraControl
+        context.coordinator.reset = cameraReset
+        if cameraControl != .off {
+            SceneCameraControl.apply(cameraControl, to: view, freePan: context.coordinator.freePan,
+                                     ours: context.coordinator.ours, target: cameraTarget)
         }
         return view
     }
@@ -247,6 +268,16 @@ private struct LiveSceneCanvas: UIViewRepresentable {
             view.pointOfView = camera
         }
         (view as? SceneCanvasView)?.wantsContinuous = rendersContinuously
+        let c = context.coordinator
+        if c.mode != cameraControl {
+            c.mode = cameraControl
+            SceneCameraControl.apply(cameraControl, to: view, freePan: c.freePan, ours: c.ours, target: cameraTarget)
+        }
+        if c.reset != cameraReset {
+            c.reset = cameraReset
+            view.pointOfView = camera      // the free camera may have taken over: back to the posed one
+            SceneCameraControl.reset(view, target: cameraTarget)
+        }
         context.coordinator.onPan = onHorizontalPan
         context.coordinator.onTap = onTap
         context.coordinator.onFreePan = onPan
@@ -256,6 +287,11 @@ private struct LiveSceneCanvas: UIViewRepresentable {
         var onPan: ((UIPanGestureRecognizer) -> Void)?
         var onTap: ((CGPoint, SCNView) -> Void)?
         var onFreePan: ((UIPanGestureRecognizer) -> Void)?
+        var freePan: UIGestureRecognizer?
+        /// Our own recognizers (tap, turntable): free-camera modes leave them alone.
+        var ours: [UIGestureRecognizer] = []
+        var mode: SceneCameraControl.Mode = .off
+        var reset = 0
         /// Set once when the view is made; called on SceneKit's render thread.
         var onRender: ((TimeInterval) -> Void)?
 
@@ -277,5 +313,38 @@ private struct LiveSceneCanvas: UIViewRepresentable {
             let velocity = pan.velocity(in: pan.view)
             return abs(velocity.x) > abs(velocity.y)
         }
+    }
+}
+
+/// SceneKit's own camera control, for a model you inspect closely: `.orbit` turns with a drag, zooms with a
+/// pinch and moves with two fingers; `.zoomOnly` keeps the pinch but gives one-finger drags to the free pan
+/// (drawing on the model).
+enum SceneCameraControl {
+    enum Mode: Equatable { case off, orbit, zoomOnly }
+
+    static func apply(_ mode: Mode, to view: SCNView, freePan: UIGestureRecognizer?,
+                      ours: [UIGestureRecognizer] = [], target: SCNVector3) {
+        let wasOn = view.allowsCameraControl
+        view.allowsCameraControl = mode != .off
+        if mode != .off {
+            if !wasOn {
+                let control = view.defaultCameraController
+                control.interactionMode = .orbitTurntable
+                control.inertiaEnabled = true
+                control.automaticTarget = false
+                control.target = target
+            }
+            for g in view.gestureRecognizers ?? [] where g !== freePan && !ours.contains(where: { $0 === g }) {
+                if g is UIPanGestureRecognizer { g.isEnabled = mode == .orbit }
+            }
+        }
+        freePan?.isEnabled = mode != .orbit
+    }
+
+    /// Stops any spin and centres the camera control on `target` again.
+    static func reset(_ view: SCNView, target: SCNVector3) {
+        guard view.allowsCameraControl else { return }
+        view.defaultCameraController.stopInertia()
+        view.defaultCameraController.target = target
     }
 }

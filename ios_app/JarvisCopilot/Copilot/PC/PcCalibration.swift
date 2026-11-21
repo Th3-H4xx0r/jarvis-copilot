@@ -93,6 +93,16 @@ struct PcCalibrationBoard {
         connectors[c].runs = kept.sorted { $0.range.lowerBound < $1.range.lowerBound }
     }
 
+    /// What the full-screen model gave back: a drawn line is the strip; otherwise the first fan tapped
+    /// gets the run and the other parts tapped mirror it (his hub sends one stream to every fan).
+    mutating func place(_ c: Int, _ range: ClosedRange<Int>, fans: [PcLedKey], line: [[Double]]?) {
+        if let line { assign(c, range, part: .strip, index: 0, line: line); return }
+        guard let first = fans.first else { return }
+        var also: [PcPart] = []
+        for k in fans.dropFirst() where k.part != first.part && !also.contains(k.part) { also.append(k.part) }
+        assign(c, range, part: first.part, index: first.index, also: also)
+    }
+
     func part(_ c: Int, led: Int) -> PcPart? {
         connectors.indices.contains(c) ? connectors[c].runs.first { $0.range.contains(led) }?.part : nil
     }

@@ -7,16 +7,10 @@ struct PcLightingSection: View {
     var awake: Bool = true
     @State private var error: String?
     @State private var brightness: Double = 100
-    @State private var speed: Double = 5
-    @State private var color: Color = .white
     @State private var naming = false
     @State private var lookName = ""
 
     private var store: PcStore { .shared }
-    private static let swatches = ["#ffffff", "#ff3b30", "#ff9f0a", "#ffd60a", "#30d158", "#22d3ee", "#0a84ff", "#bf5af2"]
-
-    private var current: PcPartLight? { store.state?.light(selectedPart ?? .top) }
-
     var body: some View {
         JcSectionLabel("Lighting")
         VStack(alignment: .leading, spacing: 12) { content }
@@ -72,21 +66,7 @@ struct PcLightingSection: View {
                     Text("\(Int(brightness))%").font(.subheadline.monospacedDigit()).foregroundStyle(JcTheme.muted)
                 }
                 partChips
-                if let part = selectedPart, let host = store.sharesWith(part) {
-                    Text("\(part.label) share lights with \(host.label.lowercased()) — changing one changes both.")
-                        .font(.footnote).foregroundStyle(JcTheme.muted)
-                }
-                swatchRow
-                effectGrid
-                if let effect = current.flatMap({ PcEffect(rawValue: $0.effect) }), effect.animated {
-                    HStack(spacing: 10) {
-                        Image(systemName: "tortoise").foregroundStyle(JcTheme.muted)
-                        Slider(value: $speed, in: 1...10, step: 1) { editing in
-                            if !editing { change { await store.set(part: selectedPart, speed: Int(speed)) } }
-                        }
-                        Image(systemName: "hare").foregroundStyle(JcTheme.muted)
-                    }
-                }
+                PcPartControls(part: selectedPart)
                 if store.pausedForGame {
                     Label("Effects are paused while you play", systemImage: "gamecontroller").font(.footnote).foregroundStyle(JcTheme.muted)
                 }
@@ -95,7 +75,7 @@ struct PcLightingSection: View {
                 }
             }
         }
-        .onAppear { brightness = Double(state.brightness); speed = Double(current?.speed ?? 5) }
+        .onAppear { brightness = Double(state.brightness) }
         .onChange(of: state.brightness) { brightness = Double(state.brightness) }
         looksCard
     }
@@ -123,6 +103,66 @@ struct PcLightingSection: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var looksCard: some View {
+        JcCard(padding: 0) {
+            ForEach(store.looks) { look in
+                JcRow(symbol: "paintpalette", title: look.name, subtitle: "\(look.brightness)%") {
+                    change { await store.applyLook(look.name) }
+                }
+                .contextMenu { Button("Delete", role: .destructive) { change { await store.deleteLook(look.name) } } }
+            }
+            JcRow(symbol: "plus", title: "Save this look…", last: true) { naming = true }
+        }
+        .alert("Name this look", isPresented: $naming) {
+            TextField("Gaming", text: $lookName)
+            Button("Save") { let n = lookName; lookName = ""; change { await store.saveLook(n) } }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    private func change(_ op: @escaping () async -> String?) {
+        Task { error = await op() }
+    }
+}
+
+/// One part's colour, effect and speed (nil: every part). The Lighting section and the card under the
+/// model (a tapped part) both use it.
+struct PcPartControls: View {
+    let part: PcPart?
+    @State private var speed: Double = 5
+    @State private var color: Color = .white
+    @State private var error: String?
+
+    private var store: PcStore { .shared }
+    private var selectedPart: PcPart? { part }
+    private var current: PcPartLight? { store.state?.light(part ?? .top) }
+    static let swatches = ["#ffffff", "#ff3b30", "#ff9f0a", "#ffd60a", "#30d158", "#22d3ee", "#0a84ff", "#bf5af2"]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if let part, let host = store.sharesWith(part) {
+                Text("\(part.label) share lights with \(host.label.lowercased()) — changing one changes both.")
+                    .font(.footnote).foregroundStyle(JcTheme.muted)
+            }
+            swatchRow
+            effectGrid
+            if let effect = current.flatMap({ PcEffect(rawValue: $0.effect) }), effect.animated {
+                HStack(spacing: 10) {
+                    Image(systemName: "tortoise").foregroundStyle(JcTheme.muted)
+                    Slider(value: $speed, in: 1...10, step: 1) { editing in
+                        if !editing { change { await store.set(part: selectedPart, speed: Int(speed)) } }
+                    }
+                    Image(systemName: "hare").foregroundStyle(JcTheme.muted)
+                }
+            }
+            if let error {
+                Label(error, systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(JcTheme.danger)
+            }
+        }
+        .onAppear { speed = Double(current?.speed ?? 5) }
+        .onChange(of: part) { speed = Double(current?.speed ?? 5); error = nil }
     }
 
     private var swatchRow: some View {
@@ -156,25 +196,58 @@ struct PcLightingSection: View {
         }
     }
 
-    private var looksCard: some View {
-        JcCard(padding: 0) {
-            ForEach(store.looks) { look in
-                JcRow(symbol: "paintpalette", title: look.name, subtitle: "\(look.brightness)%") {
-                    change { await store.applyLook(look.name) }
-                }
-                .contextMenu { Button("Delete", role: .destructive) { change { await store.deleteLook(look.name) } } }
-            }
-            JcRow(symbol: "plus", title: "Save this look…", last: true) { naming = true }
-        }
-        .alert("Name this look", isPresented: $naming) {
-            TextField("Gaming", text: $lookName)
-            Button("Save") { let n = lookName; lookName = ""; change { await store.saveLook(n) } }
-            Button("Cancel", role: .cancel) {}
-        }
-    }
-
     private func change(_ op: @escaping () async -> String?) {
         Task { error = await op() }
+    }
+}
+
+/// What the card under the model shows for a tapped part.
+enum PcPartCardContent: Equatable {
+    case controls, notMapped, setUp
+    case unavailable(String)
+
+    static func make(availability: PcLightingAvailability, missing: Bool) -> PcPartCardContent {
+        switch availability {
+        case .live: return missing ? .notMapped : .controls
+        case .setUp: return .setUp
+        case .unavailable(let why): return .unavailable(why)
+        }
+    }
+}
+
+/// The card that opens under the PC model when a part is tapped: that part's colour, effect and speed.
+struct PcPartCard: View {
+    let part: PcPart
+    var awake: Bool
+    let onClose: () -> Void
+
+    var body: some View {
+        JcCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text(part.label).font(.headline)
+                    Spacer()
+                    Button(action: onClose) {
+                        JcIcon("xmark").font(.system(size: 13, weight: .semibold)).foregroundStyle(JcTheme.muted)
+                            .frame(width: 30, height: 30).background(JcButton.fill, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close")
+                }
+                switch PcPartCardContent.make(availability: PcStore.shared.availability(awake: awake),
+                                              missing: PcStore.shared.isMissing(part)) {
+                case .controls:
+                    PcPartControls(part: part)
+                case .notMapped:
+                    Text("No lights are mapped to this part yet. Show Jarvis each part in Setup & calibration.")
+                        .font(.subheadline).foregroundStyle(JcTheme.muted)
+                case .setUp:
+                    Text("Set up lighting first, in Lighting below.").font(.subheadline).foregroundStyle(JcTheme.muted)
+                case .unavailable(let why):
+                    Label(why, systemImage: "moon.zzz").font(.subheadline).foregroundStyle(JcTheme.muted)
+                }
+            }
+        }
     }
 }
 

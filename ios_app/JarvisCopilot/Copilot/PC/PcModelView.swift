@@ -20,6 +20,13 @@ struct PcModelView: View {
     /// Drawing a strip: a drag on the model draws a line; called with its ends when the finger lifts.
     var drawing = false
     var onDraw: ((SCNVector3, SCNVector3) -> Void)? = nil
+    /// Bright, even light for finding parts.
+    var workLight = false
+    /// Free camera (full screen): drag to turn, pinch to zoom, two fingers to move.
+    var camera: SceneCameraControl.Mode = .off
+    /// A camera view, applied whenever `poseToken` changes.
+    var pose: PcModel.Pose = .hero
+    var poseToken = 0
     @State private var drawStart: SCNVector3?
     @State private var drawEnd: SCNVector3?
 
@@ -36,17 +43,19 @@ struct PcModelView: View {
     }
 
     private var lookKey: AnyHashable {
-        [AnyHashable(lit), AnyHashable(state), AnyHashable(map), AnyHashable(highlighted)]
+        [AnyHashable(lit), AnyHashable(state), AnyHashable(map), AnyHashable(highlighted), AnyHashable(workLight)]
     }
 
     var body: some View {
         SceneCanvas(scene: live.scene, camera: live.camera, rendersContinuously: animated,
-                    onHorizontalPan: onDraw == nil ? { pan in turn(pan) } : nil,
+                    onHorizontalPan: onDraw == nil && camera == .off ? { pan in turn(pan) } : nil,
                     onTap: { point, view in tap(point, view) },
                     onPan: onDraw == nil ? nil : { pan in draw(pan) },
                     onRender: { [glow, live] _ in glow.tick(live) },
-                    look: lookKey)
-            .onAppear { refresh() }
+                    look: lookKey,
+                    cameraControl: camera, cameraTarget: PcModel.target, cameraReset: poseToken)
+            .onAppear { if pose != .hero { PcModel.aim(live.camera, pose) }; refresh() }
+            .onChange(of: poseToken) { PcModel.aim(live.camera, pose) }
             .onChange(of: lookKey) { refresh() }
             .accessibilityLabel("3D model of your PC")
     }
@@ -55,6 +64,7 @@ struct PcModelView: View {
         glow.set(state: state, map: map, lit: lit)
         glow.apply(live)    // now, for the first frame and for a still
         PcModel.highlight(highlighted, in: live)
+        PcModel.workLight(workLight, in: live)
     }
 
     private func turn(_ pan: UIPanGestureRecognizer) {
@@ -67,7 +77,7 @@ struct PcModelView: View {
 
     /// Drawing mode: the drag draws a line on the surface; otherwise it turns the model.
     private func draw(_ pan: UIPanGestureRecognizer) {
-        guard drawing, let view = pan.view as? SCNView else { turn(pan); return }
+        guard drawing, let view = pan.view as? SCNView else { if camera == .off { turn(pan) }; return }
         let hits = view.hitTest(pan.location(in: view), options: [.searchMode: SCNHitTestSearchMode.all.rawValue])
         let p = PcModel.surfacePoint(hits, in: live)
         switch pan.state {

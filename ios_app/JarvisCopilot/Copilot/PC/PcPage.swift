@@ -8,6 +8,8 @@ struct PcPage: View {
     @State private var component: PcComponentInfo?
     @State private var selectedPart: PcPart?
     @State private var tapped: [String] = []
+    /// A part tapped on the model: its card opens under the model.
+    @State private var focused: PcPart?
 
     private var agents: AgentsStore { .shared }
     private var store: PcStore { .shared }
@@ -22,12 +24,20 @@ struct PcPage: View {
         ScrollView {
             JcPageColumn {
                 PcModelView(state: store.state, map: store.map, lit: lightsLive,
-                            onTapPart: { selectedPart = $0 },
-                            onTapComponent: { id in Task { await showComponent(id) } },
+                            onTapPart: { part in selectedPart = part; withAnimation(.snappy) { focused = part } },
+                            onTapComponent: { id in withAnimation(.snappy) { focused = nil }; Task { await showComponent(id) } },
                             onTapTarget: { t in tapped = t.name.map { [$0] } ?? [] },
                             highlighted: tapped)
                     .frame(height: 330)
                     .padding(.horizontal, -8)
+                if let part = focused, PowerState.shared.isOn("pc-lighting") {
+                    PcPartCard(part: part, awake: mac?.isAwake ?? false) {
+                        withAnimation(.snappy) { focused = nil }
+                        tapped = []
+                    }
+                    .padding(.bottom, 8)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
                 if let mac {
                     JcSectionLabel("Controls")
                     AgentsMacPowerCard(mac: mac, store: agents)

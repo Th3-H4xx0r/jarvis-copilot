@@ -127,6 +127,44 @@ final class PcModelRenderTests: XCTestCase {
         XCTAssertLessThan(w, 0.05)                        // the drawn line replaces the built-in strip
     }
 
+    func testWorkLightBrightensTheModelAndTurnsBackOff() {
+        let live = PcModel.build()
+        let ambient = live.scene.rootNode.childNode(withName: "ambient", recursively: true)!.light!
+        let normal = ambient.intensity
+        PcModel.workLight(true, in: live)
+        XCTAssertGreaterThan(ambient.intensity, normal * 4)
+        PcModel.workLight(false, in: live)
+        XCTAssertEqual(ambient.intensity, normal)
+    }
+
+    func testEveryViewLooksAtTheCase() {
+        let live = PcModel.build()
+        for pose in PcModel.Pose.allCases {
+            PcModel.aim(live.camera, pose)
+            let p = live.camera.simdWorldPosition
+            let toCase = simd_normalize(SIMD3<Float>(0, 2.35, 0) - p)
+            XCTAssertGreaterThan(simd_dot(live.camera.simdWorldFront, toCase), 0.999, "\(pose)")
+        }
+    }
+
+    func testDrawingKeepsPinchToZoomButNotTheTurningDrag() {
+        let view = SCNView(frame: CGRect(x: 0, y: 0, width: 300, height: 300))
+        let mine = UIPanGestureRecognizer()
+        view.addGestureRecognizer(mine)
+        SceneCameraControl.apply(.zoomOnly, to: view, freePan: mine, target: SCNVector3(0, 2, 0))
+        var on = (view.gestureRecognizers ?? []).filter(\.isEnabled)
+        XCTAssertTrue(on.contains { $0 is UIPinchGestureRecognizer })
+        XCTAssertFalse(on.contains { $0 is UIPanGestureRecognizer && $0 !== mine })
+        XCTAssertTrue(mine.isEnabled)
+        SceneCameraControl.apply(.orbit, to: view, freePan: mine, target: SCNVector3(0, 2, 0))
+        on = (view.gestureRecognizers ?? []).filter(\.isEnabled)
+        XCTAssertTrue(on.contains { $0 is UIPanGestureRecognizer && $0 !== mine })
+        XCTAssertFalse(mine.isEnabled)
+        SceneCameraControl.apply(.off, to: view, freePan: mine, target: SCNVector3(0, 2, 0))
+        XCTAssertFalse(view.allowsCameraControl)
+        XCTAssertTrue(mine.isEnabled)
+    }
+
     func testMakingTheViewDoesNotBuildTheScene() {
         let before = PcModel.buildCount
         _ = PcModelView(state: nil, map: nil)

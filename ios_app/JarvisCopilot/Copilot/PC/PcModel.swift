@@ -385,10 +385,10 @@ enum PcModel {
         }
 
         // Light: dark studio key + fill, and an interior light that takes the LEDs' average colour.
-        let ambient = SCNNode(); ambient.light = SCNLight(); ambient.light!.type = .ambient
+        let ambient = SCNNode(); ambient.name = "ambient"; ambient.light = SCNLight(); ambient.light!.type = .ambient
         ambient.light!.intensity = 90; ambient.light!.color = UIColor(white: 1, alpha: 1)
         scene.rootNode.addChildNode(ambient)
-        let key = SCNNode(); key.light = SCNLight(); key.light!.type = .directional; key.light!.intensity = 520
+        let key = SCNNode(); key.name = "key"; key.light = SCNLight(); key.light!.type = .directional; key.light!.intensity = 520
         key.eulerAngles = SCNVector3(-0.9, 0.6, 0)
         scene.rootNode.addChildNode(key)
         let inside = SCNNode(); inside.light = SCNLight(); inside.light!.type = .omni
@@ -417,7 +417,7 @@ enum PcModel {
         camera.camera!.bloomBlurRadius = 6
         camera.camera!.exposureOffset = -0.15
         camera.camera!.wantsExposureAdaptation = false
-        let target = SCNVector3(0, 2.35, 0)
+        let target = Self.target
         switch view {
         case .hero: camera.position = SCNVector3(9.2, 3.4, 11.6)
         case .side: camera.position = SCNVector3(1.2, 3.0, 15.5)
@@ -433,6 +433,54 @@ enum PcModel {
         }
         return Live(scene: scene, camera: camera, root: root, leds: leds, sockets: sockets,
                     interiorLight: inside.light!, floorGlow: glowMat)
+    }
+
+    /// The middle of the case: where every camera looks.
+    static let target = SCNVector3(0, 2.35, 0)
+
+    /// Camera views for the full-screen model.
+    enum Pose: String, CaseIterable, Identifiable {
+        case hero, front, glass, top, back
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .hero: return "Corner"
+            case .front: return "Front"
+            case .glass: return "Glass side"
+            case .top: return "Top"
+            case .back: return "Back"
+            }
+        }
+    }
+
+    static func aim(_ camera: SCNNode, _ pose: Pose) {
+        switch pose {
+        case .hero: camera.position = SCNVector3(9.2, 3.4, 11.6)
+        case .front: camera.position = SCNVector3(14.5, 3.2, 0.8)
+        case .glass: camera.position = SCNVector3(0.8, 3.0, 15.0)
+        case .top: camera.position = SCNVector3(3.5, 15.0, 2.5)
+        case .back: camera.position = SCNVector3(-14.5, 3.2, -0.8)
+        }
+        camera.camera?.fieldOfView = 30
+        camera.look(at: target)
+    }
+
+    /// Bright, even light and fainter glass, for finding parts (calibration); off puts the studio look back.
+    static func workLight(_ on: Bool, in live: Live) {
+        let top = live.scene.rootNode
+        top.childNode(withName: "ambient", recursively: false)?.light?.intensity = on ? 700 : 90
+        top.childNode(withName: "key", recursively: false)?.light?.intensity = on ? 1000 : 520
+        let fill = top.childNode(withName: "workFill", recursively: false)
+        if on, fill == nil {
+            let n = SCNNode(); n.name = "workFill"; n.light = SCNLight(); n.light!.type = .directional
+            n.light!.intensity = 600; n.eulerAngles = SCNVector3(-0.5, -2.3, 0)
+            top.addChildNode(n)
+        } else if !on {
+            fill?.removeFromParentNode()
+        }
+        live.camera.camera?.exposureOffset = on ? 0.4 : -0.15
+        live.camera.camera?.bloomIntensity = on ? 0.4 : 0.9
+        live.root.enumerateHierarchy { n, _ in if n.name == "glass" { n.opacity = on ? 0.4 : 1 } }
     }
 
     // MARK: Lookups

@@ -15,11 +15,11 @@ struct PcCalibrationPage: View {
     @State private var error: String?
     @State private var saving = false
     @State private var queue = PcProbeQueue { args in await PcStore.shared.probe(args) }
-    @State private var drawing = false
+    @State private var placing = false
     @State private var lastTap: [String] = []
 
     /// Painted parts glow white on the model as you go (drawn strips too).
-    private static let preview = PcLightingState(on: true, brightness: 70, t0: 0, frozenAt: 1, stillInGames: false, rev: 0,
+    static let preview = PcLightingState(on: true, brightness: 70, t0: 0, frozenAt: 1, stillInGames: false, rev: 0,
                                                  parts: Dictionary(uniqueKeysWithValues: PcPart.allCases.map {
                                                      ($0.rawValue, PcPartLight(effect: "static", color: "#ffffff", speed: 5)) }))
     private var highlights: [String] {
@@ -35,17 +35,11 @@ struct PcCalibrationPage: View {
               VStack(alignment: .leading, spacing: 14) {
                 PcModelView(state: Self.preview, map: board.map(), lit: true, onTapLED: { key in tapped(key) },
                             onTapTarget: { t in lastTap = t.name.map { [$0] } ?? [] },
-                            highlighted: highlights, drawing: drawing,
-                            onDraw: { a, b in drew(a, b) })
+                            highlighted: highlights, workLight: true)
                     .frame(height: 280)
-                    .overlay(alignment: .top) {
-                        if drawing {
-                            Text("Drag along the strip on the model").font(.footnote.weight(.semibold))
-                                .padding(.horizontal, 10).padding(.vertical, 6)
-                                .background(.black.opacity(0.7), in: Capsule())
-                        }
-                    }
-                Text("Drag a connector's slider until its LEDs on the PC stop lighting, paint a run of squares, then tap the fan or cooler on the model, or draw where the strip runs.")
+                    .background(LinearGradient(colors: [Color(white: 0.30), Color(white: 0.14)], startPoint: .top, endPoint: .bottom),
+                                in: RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
+                Text("Drag a connector's slider until its LEDs on the PC stop lighting, paint a run of squares, then tap Assign to find them on the model.")
                     .font(.subheadline).foregroundStyle(JcTheme.muted)
                 ForEach(Array(board.connectors.enumerated()), id: \.offset) { i, k in
                     connectorCard(i, k)
@@ -65,6 +59,16 @@ struct PcCalibrationPage: View {
             }
         }
         .jcPageChrome("Show Jarvis each part", header: .inline)
+        .fullScreenCover(isPresented: $placing) {
+            if let r = paint, board.connectors.indices.contains(active) {
+                PcPlaceView(connector: board.connectors[active].name, index: active, range: r, board: board, picked: picked,
+                            keepLit: { light(active, range: r) }) { fans, line in
+                    board.place(active, r, fans: fans, line: line)
+                    paint = nil; picked = []
+                    light(active)
+                }
+            }
+        }
         .task { start() }
         .onDisappear { Task { _ = await store.probe(["clear": true]) } }
     }
@@ -86,13 +90,10 @@ struct PcCalibrationPage: View {
                     }
                 }
                 if active == i, let r = paint {
-                    Text(picked.isEmpty ? "LEDs \(r.lowerBound + 1)–\(r.upperBound + 1) are lit on the PC. Tap the fan or cooler on the model, or draw the strip."
-                                        : picked.map(name).joined(separator: " · "))
-                        .font(.subheadline)
+                    Text("LEDs \(r.lowerBound + 1)–\(r.upperBound + 1) are lit on the PC.").font(.subheadline)
                     HStack(spacing: 10) {
-                        Button("Assign") { assign() }.buttonStyle(.jcGlass).disabled(picked.isEmpty)
-                        Button(drawing ? "Drawing…" : "Draw strip") { drawing.toggle(); picked = [] }.buttonStyle(.jcGlass)
-                        Button("Clear") { paint = nil; picked = []; drawing = false; light(i) }.buttonStyle(.jcGlass)
+                        Button { placing = true } label: { PcPrimaryLabel(text: "Assign") }.buttonStyle(.plain)
+                        Button("Clear") { paint = nil; picked = []; light(i) }.buttonStyle(.jcGlass)
                     }
                 }
                 if k.leds > 1 {
@@ -200,27 +201,146 @@ struct PcCalibrationPage: View {
         if let at = picked.firstIndex(of: fan) { picked.remove(at: at) } else { picked.append(fan) }
     }
 
-    private func assign() {
-        guard let r = paint, let first = picked.first else { return }
-        board.assign(active, r, part: first.part, index: first.index, also: Array(Set(picked.dropFirst().map(\.part))))
-        paint = nil; picked = []
-        light(active)
-    }
-
-    /// A strip drawn on the model for the painted run.
-    private func drew(_ a: SCNVector3, _ b: SCNVector3) {
-        guard let r = paint else { return }
-        board.assign(active, r, part: .strip, index: 0,
-                     line: [[Double(a.x), Double(a.y), Double(a.z)], [Double(b.x), Double(b.y), Double(b.z)]])
-        drawing = false; paint = nil; picked = []
-        light(active)
-    }
-
     private func save() async {
         saving = true
         defer { saving = false }
         if let e = await store.putMap(board.map()) { error = e; return }
         _ = await store.probe(["clear": true])
         dismiss()
+    }
+}
+
+/// Full screen, for finding the lit LEDs on the model: a lit backdrop and bright work light; drag to
+/// turn, pinch to zoom, two fingers to move, or pick a view. Tap the fan(s) that lit up, or draw where the
+/// strip runs, then Assign. The painted LEDs stay lit on the PC the whole time.
+struct PcPlaceView: View {
+    let connector: String
+    let index: Int
+    let range: ClosedRange<Int>
+    let board: PcCalibrationBoard
+    var picked: [PcLedKey] = []
+    var keepLit: () -> Void = {}
+    let onAssign: ([PcLedKey], [[Double]]?) -> Void
+
+    enum Tool: Hashable { case tap, draw }
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var fans: [PcLedKey] = []
+    @State private var line: [[Double]]?
+    @State private var tool: Tool = .tap
+    @State private var pose: PcModel.Pose = .hero
+    @State private var poseToken = 0
+    @State private var lastTap: [String] = []
+
+    /// The board with this choice applied: the run glows where it would go.
+    private var preview: PcLedMap {
+        var b = board
+        b.place(index, range, fans: fans, line: line)
+        return b.map()
+    }
+
+    private var highlights: [String] { fans.isEmpty ? (line == nil ? lastTap : []) : fans.map(Self.node) }
+
+    static func node(_ k: PcLedKey) -> String {
+        k.part == .cooler || k.part == .strip ? "part.\(k.part.rawValue)" : "fan.\(k.part.rawValue).\(k.index)"
+    }
+
+    private var chosen: String {
+        if line != nil { return "Strip, drawn" }
+        return fans.map { $0.part.count > 1 ? "\($0.part.label) \($0.index + 1)" : $0.part.label }.joined(separator: " · ")
+    }
+
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [Color(white: 0.46), Color(white: 0.22)], startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
+            PcModelView(state: PcCalibrationPage.preview, map: preview, lit: true,
+                        onTapLED: tool == .tap ? { k in toggle(k) } : nil,
+                        onTapTarget: { t in lastTap = t.name.map { [$0] } ?? [] },
+                        highlighted: highlights, drawing: tool == .draw,
+                        onDraw: { a, b in
+                            line = [[Double(a.x), Double(a.y), Double(a.z)], [Double(b.x), Double(b.y), Double(b.z)]]
+                            fans = []
+                        },
+                        workLight: true, camera: tool == .draw ? .zoomOnly : .orbit, pose: pose, poseToken: poseToken)
+                .ignoresSafeArea()
+            VStack(spacing: 0) {
+                topBar
+                Spacer()
+                panel
+            }
+        }
+        .preferredColorScheme(.dark)
+        .onAppear { fans = picked }
+        .task {
+            // A test lighting lapses after a minute on the PC: keep the run lit while it's being placed.
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(25))
+                if !Task.isCancelled { keepLit() }
+            }
+        }
+    }
+
+    private var topBar: some View {
+        HStack(spacing: 12) {
+            Button { dismiss() } label: { circle("xmark") }.accessibilityLabel("Close")
+            VStack(alignment: .leading, spacing: 2) {
+                Text(connector).font(.headline)
+                Text("LEDs \(range.lowerBound + 1)–\(range.upperBound + 1) are lit white on the PC")
+                    .font(.footnote).foregroundStyle(.white.opacity(0.8))
+            }
+            Spacer(minLength: 8)
+            Menu {
+                ForEach(PcModel.Pose.allCases) { p in Button(p.label) { pose = p; poseToken += 1 } }
+            } label: { circle("cube") }
+            .accessibilityLabel("Views")
+            Button { pose = .hero; poseToken += 1 } label: { circle("arrow.counterclockwise") }
+                .accessibilityLabel("Reset view")
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+    }
+
+    private var panel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Picker("Tool", selection: $tool) {
+                Text("Tap a part").tag(Tool.tap)
+                Text("Draw strip").tag(Tool.draw)
+            }
+            .pickerStyle(.segmented)
+            Text(tool == .tap ? "Drag to turn · pinch to zoom · two fingers to move. Tap every fan that lit up."
+                              : "Drag along where the strip runs · pinch to zoom.")
+                .font(.footnote).foregroundStyle(.white.opacity(0.8))
+            if !chosen.isEmpty { Text(chosen).font(.subheadline.weight(.semibold)) }
+            HStack(spacing: 10) {
+                Button("Undo") { if line != nil { line = nil } else if !fans.isEmpty { fans.removeLast() } }
+                    .buttonStyle(.jcGlass)
+                    .disabled(fans.isEmpty && line == nil)
+                Button { onAssign(fans, line); dismiss() } label: {
+                    PcPrimaryLabel(text: "Assign LEDs \(range.lowerBound + 1)–\(range.upperBound + 1)")
+                }
+                .buttonStyle(.plain)
+                .disabled(fans.isEmpty && line == nil)
+                .opacity(fans.isEmpty && line == nil ? 0.5 : 1)
+            }
+        }
+        .padding(16)
+        .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+    }
+
+    private func circle(_ symbol: String) -> some View {
+        JcIcon(symbol)
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 40, height: 40)
+            .background(.black.opacity(0.55), in: Circle())
+    }
+
+    private func toggle(_ key: PcLedKey) {
+        line = nil
+        let fan = PcLedKey(part: key.part, index: key.index, led: 0)
+        if let at = fans.firstIndex(of: fan) { fans.remove(at: at) } else { fans.append(fan) }
     }
 }
