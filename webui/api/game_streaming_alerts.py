@@ -5,6 +5,7 @@ been reachable at least once (so an unconfigured install doesn't spam). Best-eff
 from __future__ import annotations
 
 _SEEN_UNKNOWN: set = set()
+_SEEN_PAIRS: set = set()
 _REACHABLE = {"val": None}
 
 
@@ -34,6 +35,18 @@ def emit(ev: dict) -> None:
             _SEEN_UNKNOWN.add(client)
             _push("New device on your PC", f"{client} connected to Sunshine.",
                   {"type": "game_streaming", "event": "unknown_device", "client": client})
+        elif kind == "pair_request" and "unknown" in on:
+            # An unpaired device can't stream — it must ask to pair (with a PIN) first, so
+            # this is the real "new device" signal.
+            pid = str(ev.get("id") or ev.get("client") or "")
+            if pid in _SEEN_PAIRS:
+                return
+            _SEEN_PAIRS.add(pid)
+            client = ev.get("client") or "A device"
+            _push("New device wants to pair",
+                  f"{client} wants to pair with your PC — open Jarvis and enter the PIN it shows.",
+                  {"type": "game_streaming", "event": "pair_request", "client": client,
+                   "pairing_id": ev.get("id") or ""})
         elif kind == "stream_start" and "start_stop" in on:
             app = ev.get("app") or "a game"
             where = f" to {ev.get('client')}" if ev.get("client") else ""
@@ -56,4 +69,5 @@ def note_reachable(reachable: bool) -> None:
 
 def reset() -> None:
     _SEEN_UNKNOWN.clear()
+    _SEEN_PAIRS.clear()
     _REACHABLE["val"] = None

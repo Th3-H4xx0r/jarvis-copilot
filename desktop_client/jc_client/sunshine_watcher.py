@@ -15,10 +15,17 @@ import re
 import threading
 import time
 
+# The strings Sunshine really writes (LizardByte/Sunshine src/stream.cpp + src/process.cpp,
+# verified 2026-11-21). Connect/disconnect lines carry no names; the app appears as the
+# command Sunshine runs, so the watcher maps it to the app's name via apps.json.
 _PATTERNS = [
-    (re.compile(r"CLIENT CONNECTED\s*\[([^\]]+)\]", re.I), "device_connect"),
-    (re.compile(r"Launching\s*\[([^\]]+)\]", re.I), "stream_start"),
-    (re.compile(r"(CLIENT DISCONNECTED|Session (?:ended|terminated))", re.I), "stream_stop"),
+    (re.compile(r"CLIENT DISCONNECTED", re.I), "stream_stop"),
+    (re.compile(r"CLIENT CONNECTED(?:\s*\[([^\]]+)\])?", re.I), "stream_start"),
+    # "Executing [Desktop]" / "Executing: [cmd] in [dir]" / "Spawning [cmd] in [dir]".
+    # "Executing Do Cmd: [..]" / "Executing Undo Cmd: [..]" (prep commands) don't match.
+    (re.compile(r"(?:Executing|Spawning):?\s+\[([^\]]+)\]", re.I), "app_exec"),
+    (re.compile(r"Launching\s*\[([^\]]+)\]", re.I), "app_exec"),
+    (re.compile(r"Session (?:ended|terminated)", re.I), "stream_stop"),
 ]
 
 
@@ -31,9 +38,9 @@ def parse_log_line(line: str):
                 continue
             ev = {"kind": kind, "client": None, "app": None, "raw": line.strip()}
             grp = m.group(1) if m.groups() else None
-            if kind == "device_connect":
+            if kind == "stream_start":
                 ev["client"] = grp
-            elif kind == "stream_start":
+            elif kind == "app_exec":
                 ev["app"] = grp
             return ev
     except Exception:
@@ -42,8 +49,10 @@ def parse_log_line(line: str):
 
 
 class SunshineWatcher:
-    def __init__(self, client, known_certs, emit, log_path=None, interval=1.0):
+    def __init__(self, client, known_certs, emit, log_path=None, interval=1.0, app_names=None):
         self._client = client
+        self._app_names = dict(app_names or {})
+        self._last_app = None
         self._known = set(known_certs or ())
         self._emit = emit
         self._log_path = log_path
@@ -56,14 +65,20 @@ class SunshineWatcher:
         self._known = set(known_certs or ())
 
     def process_line(self, line: str):
+        """An event to send up for a stream start/stop, else None. App launches are
+        remembered (mapped command -> app name) and attached to the next stream start."""
         ev = parse_log_line(line)
         if ev is None:
             return None
-        if ev["kind"] == "device_connect":
-            ev["unknown"] = ev["client"] not in self._known
-        elif ev["kind"] == "stream_start":
+        if ev["kind"] == "app_exec":
+            cmd = ev.get("app") or ""
+            self._last_app = self._app_names.get(cmd, cmd) or None
+            return None
+        if ev["kind"] == "stream_start":
+            ev["app"] = self._last_app
             self._live = {"active": True, "client": ev.get("client"), "app": ev.get("app")}
         elif ev["kind"] == "stream_stop":
+            ev["app"] = self._live.get("app")
             self._live = {"active": False, "client": None, "app": None}
         return ev
 

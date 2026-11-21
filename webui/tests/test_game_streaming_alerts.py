@@ -39,3 +39,10 @@ def test_down_fires_only_after_first_reachable(pushes):
     A.note_reachable(False)      # up -> down -> alert
     assert len(pushes) == 1
     assert "down" in pushes[0][0].lower()
+
+
+def test_pair_request_alert_once_per_request(pushes):
+    A.emit({"kind": "pair_request", "client": "Roth", "id": "a" * 32})
+    A.emit({"kind": "pair_request", "client": "Roth", "id": "a" * 32})
+    assert len(pushes) == 1
+    assert "Roth" in pushes[0][1] and "pair" in pushes[0][0].lower()

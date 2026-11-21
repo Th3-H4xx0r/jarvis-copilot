@@ -1,6 +1,7 @@
 """Game-streaming power subsystem: power topic -> Sunshine-log watcher -> game_stream events."""
 from __future__ import annotations
 
+import json
 import sys
 
 from jc_client.game_stream_power import GameStreamPower, default_log_path
@@ -9,7 +10,8 @@ from jc_client.game_stream_power import GameStreamPower, default_log_path
 class FakeWatcher:
     instances = []
 
-    def __init__(self, client, known, emit, log_path=None):
+    def __init__(self, client, known, emit, log_path=None, app_names=None):
+        self.app_names = app_names or {}
         self.client = client
         self.known = set(known or ())
         self.emit = emit
@@ -36,7 +38,7 @@ class FakeClient:
 def _subsystem(sent):
     FakeWatcher.instances = []
     return GameStreamPower(lambda f: sent.append(f),
-                           client_factory=FakeClient, watcher_factory=FakeWatcher)
+                           client_factory=FakeClient, watcher_factory=FakeWatcher, poll_pairs=False)
 
 
 def test_power_on_starts_watcher_with_log_path_and_known_certs():
@@ -120,3 +122,54 @@ def test_seed_known_without_host_uses_localhost():
                      "sunshine": {"user": "root", "password": "pw", "scheme": "https"}})
     w = FakeWatcher.instances[-1]
     assert w.known == {"Mac", "Living Room TV"}
+
+
+class PairClient(FakeClient):
+    pending = [{"id": "a" * 32, "name": "Roth", "address": "192.168.1.69"}]
+
+    def pending_pairings(self):
+        return list(PairClient.pending)
+
+
+def _pair_events(sent):
+    return [f["data"] for f in sent if f.get("name") == "game_stream" and f["data"].get("kind") == "pair_request"]
+
+
+def test_pair_request_poll_emits_each_request_once():
+    sent = []
+    gs = GameStreamPower(lambda f: sent.append(f), client_factory=PairClient,
+                         watcher_factory=FakeWatcher, poll_pairs=False)
+    c = PairClient("127.0.0.1", 47990, "root", "pw")
+    PairClient.pending = [{"id": "a" * 32, "name": "Roth", "address": "192.168.1.69"}]
+    gs._poll_pairs_once(c)
+    gs._poll_pairs_once(c)
+    evs = _pair_events(sent)
+    assert len(evs) == 1
+    assert evs[0]["client"] == "Roth" and evs[0]["id"] == "a" * 32
+
+
+def test_pair_request_alerts_again_after_it_clears():
+    sent = []
+    gs = GameStreamPower(lambda f: sent.append(f), client_factory=PairClient,
+                         watcher_factory=FakeWatcher, poll_pairs=False)
+    c = PairClient("127.0.0.1", 47990, "root", "pw")
+    PairClient.pending = [{"id": "b" * 32, "name": "Tablet", "address": "x"}]
+    gs._poll_pairs_once(c)
+    PairClient.pending = []
+    gs._poll_pairs_once(c)
+    PairClient.pending = [{"id": "b" * 32, "name": "Tablet", "address": "x"}]
+    gs._poll_pairs_once(c)
+    assert len(_pair_events(sent)) == 2
+
+
+def test_sunshine_apps_maps_commands_to_names(tmp_path):
+    from jc_client.game_stream_power import sunshine_apps
+    (tmp_path / "apps.json").write_text(json.dumps({"apps": [
+        {"name": "Desktop"},
+        {"name": "Steam Big Picture", "cmd": "steam://open/bigpicture"},
+        {"name": "Thing", "detached": ["thing.exe --go"]},
+    ]}))
+    names = sunshine_apps(str(tmp_path / "sunshine.log"))
+    assert names["steam://open/bigpicture"] == "Steam Big Picture"
+    assert names["thing.exe --go"] == "Thing"
+    assert names["Desktop"] == "Desktop"
