@@ -34,6 +34,8 @@ final class AgentsStore {
     @ObservationIgnored let api: AgentsAPI
     @ObservationIgnored private let topics: BridgeTopics
     @ObservationIgnored private var visible = false
+    /// Who has the list on screen (the Agents tab, the PC page): pushed while any does.
+    @ObservationIgnored private var watchers: Set<String> = []
     @ObservationIgnored private var listening = false
     @ObservationIgnored private var fetchingRequests = false
 
@@ -104,15 +106,22 @@ final class AgentsStore {
 
     // MARK: visibility
 
-    func setVisible(_ on: Bool) {
-        guard on != visible else { return }
-        visible = on
+    func setVisible(_ on: Bool) { watch("agents-tab", on) }
+
+    /// `owner` (a screen showing the list or the Mac/PC cards) wants the list pushed, or lets go.
+    func watch(_ owner: String, _ on: Bool) {
+        if on {
+            guard watchers.insert(owner).inserted else { return }
+        } else {
+            guard watchers.remove(owner) != nil else { return }
+        }
+        visible = !watchers.isEmpty
         listen()
         if on {
-            topics.want(Self.topic, owner: "agents-tab", every: 1)
+            topics.want(Self.topic, owner: owner, every: 1)
             Task { await refresh() }
         } else {
-            topics.drop(Self.topic, owner: "agents-tab")
+            topics.drop(Self.topic, owner: owner)
         }
     }
 
