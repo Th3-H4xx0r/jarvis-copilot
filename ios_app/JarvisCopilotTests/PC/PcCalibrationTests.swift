@@ -68,6 +68,13 @@ final class PcCalibrationTests: XCTestCase {
         XCTAssertEqual(m.zones, [PcZone(controller: 0, zone: 3, leds: 16, order: "grb")])   // unpainted connectors left out
     }
 
+    func testADrawnLineGoesIntoTheMap() {
+        var b = board()
+        b.setLEDs(1, 40)
+        b.assign(1, 0...29, part: .strip, index: 0, line: [[0, 0.5, 1.4], [2, 0.5, 1.4]])
+        XCTAssertEqual(b.map().segments.first?.line, [[0, 0.5, 1.4], [2, 0.5, 1.4]])
+    }
+
     func testTapAngleSnapsToTheNearestSocket() {
         XCTAssertEqual(PcCalibration.snap(degrees: 100, sockets: 16), 90)
     }

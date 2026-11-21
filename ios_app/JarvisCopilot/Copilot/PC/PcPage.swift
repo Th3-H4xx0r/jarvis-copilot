@@ -7,6 +7,7 @@ struct PcPage: View {
 
     @State private var component: PcComponentInfo?
     @State private var selectedPart: PcPart?
+    @State private var tapped: [String] = []
 
     private var agents: AgentsStore { .shared }
     private var store: PcStore { .shared }
@@ -22,7 +23,9 @@ struct PcPage: View {
             JcPageColumn {
                 PcModelView(state: store.state, map: store.map, lit: lightsLive,
                             onTapPart: { selectedPart = $0 },
-                            onTapComponent: { id in Task { await showComponent(id) } })
+                            onTapComponent: { id in Task { await showComponent(id) } },
+                            onTapTarget: { t in tapped = t.name.map { [$0] } ?? [] },
+                            highlighted: tapped)
                     .frame(height: 330)
                     .padding(.horizontal, -8)
                 if let mac {

@@ -43,6 +43,8 @@ enum PcModel {
         let interiorLight: SCNLight
         let floorGlow: SCNMaterial
         private let byMaterial: [ObjectIdentifier: PcLedKey]
+        /// Strips drawn on the model, by segment: their LED materials.
+        var drawn: [String: [SCNMaterial]] = [:]
 
         init(scene: SCNScene, camera: SCNNode, root: SCNNode, leds: [PcLedKey: SCNMaterial], sockets: [PcLedKey: SCNNode],
              interiorLight: SCNLight, floorGlow: SCNMaterial) {
@@ -206,12 +208,12 @@ enum PcModel {
     }
 
     /// A braided tube through `points` (cylinders between them).
-    private static func tube(_ parent: SCNNode, _ points: [SCNVector3], radius: CGFloat) {
+    private static func tube(_ parent: SCNNode, _ points: [SCNVector3], radius: CGFloat, material: SCNMaterial? = nil) {
         for (a, b) in zip(points, points.dropFirst()) {
             let d = SCNVector3(b.x - a.x, b.y - a.y, b.z - a.z)
             let len = CGFloat(sqrt(d.x * d.x + d.y * d.y + d.z * d.z))
             let c = SCNCylinder(radius: radius, height: len + radius)
-            c.materials = [rubber]
+            c.materials = [material ?? rubber]
             let n = SCNNode(geometry: c)
             n.position = SCNVector3((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2)
             n.look(at: b, up: SCNVector3(0, 1, 0), localFront: SCNVector3(0, 1, 0))
@@ -468,6 +470,8 @@ enum PcModel {
         var key: PcLedKey?
         var part: PcPart?
         var component: String?
+        /// The node to outline (fan.<part>.<i>, part.cooler, part.strip, comp.<name>).
+        var name: String?
     }
 
     /// Where an LED socket is, in world space (its shape's centre: a fan's sectors all sit at the fan's origin).
@@ -478,13 +482,13 @@ enum PcModel {
     }
 
     /// The fan/ring/strip a node belongs to, with its number.
-    private static func litOwner(of node: SCNNode) -> (PcPart, Int)? {
+    private static func litOwner(of node: SCNNode) -> (PcPart, Int, String)? {
         var n: SCNNode? = node
         while let cur = n {
             if let name = cur.name {
                 let bits = name.split(separator: ".").map(String.init)
-                if bits.first == "fan", bits.count == 3, let p = PcPart(rawValue: bits[1]), let i = Int(bits[2]) { return (p, i) }
-                if bits.first == "part", bits.count >= 2, let p = PcPart(rawValue: bits[1]), p == .cooler || p == .strip { return (p, 0) }
+                if bits.first == "fan", bits.count == 3, let p = PcPart(rawValue: bits[1]), let i = Int(bits[2]) { return (p, i, name) }
+                if bits.first == "part", bits.count == 2, let p = PcPart(rawValue: bits[1]), p == .cooler || p == .strip { return (p, 0, name) }
             }
             n = cur.parent
         }
@@ -497,16 +501,70 @@ enum PcModel {
         for hit in hits {
             let node = hit.node
             if node.name == "glass" { continue }
-            if let (part, index) = litOwner(of: node) {
+            if let (part, index, name) = litOwner(of: node) {
                 let point = hit.worldCoordinates
                 let nearest = live.sockets.keys.filter { $0.part == part && $0.index == index }.min { a, b in
                     dist(socketPoint(a, in: live), point) < dist(socketPoint(b, in: live), point)
                 }
-                return Tap(key: nearest, part: part, component: nil)
+                return Tap(key: nearest, part: part, component: nil, name: name)
             }
-            if let comp = component(of: node) { return Tap(key: nil, part: nil, component: comp) }
+            if let comp = component(of: node) { return Tap(key: nil, part: nil, component: comp, name: "comp." + comp) }
         }
         return Tap()
+    }
+
+    /// Where a finger is on the model's surface (glass looked through), in model space — for drawing strips.
+    static func surfacePoint(_ hits: [SCNHitTestResult], in live: Live) -> SCNVector3? {
+        for hit in hits where hit.node.name != "glass" && hit.node.name != "draft" && hit.node.parent?.name != "drawn" {
+            let p = live.root.convertPosition(hit.worldCoordinates, from: nil)
+            let n = live.root.convertVector(hit.worldNormal, from: nil)
+            return SCNVector3(p.x + n.x * 0.02, p.y + n.y * 0.02, p.z + n.z * 0.02)
+        }
+        return nil
+    }
+
+    /// White outlines round the named nodes (what was tapped); [] clears them.
+    static func highlight(_ names: [String], in live: Live) {
+        live.root.childNodes.filter { $0.name == "highlight" }.forEach { $0.removeFromParentNode() }
+        for name in names {
+            guard let node = live.root.childNode(withName: name, recursively: true) else { continue }
+            let (lo, hi) = node.boundingBox
+            var mn = SCNVector3(Float.greatestFiniteMagnitude, .greatestFiniteMagnitude, .greatestFiniteMagnitude)
+            var mx = SCNVector3(-Float.greatestFiniteMagnitude, -.greatestFiniteMagnitude, -.greatestFiniteMagnitude)
+            for x in [lo.x, hi.x] { for y in [lo.y, hi.y] { for z in [lo.z, hi.z] {
+                let p = live.root.convertPosition(SCNVector3(x, y, z), from: node)
+                mn = SCNVector3(min(mn.x, p.x), min(mn.y, p.y), min(mn.z, p.z))
+                mx = SCNVector3(max(mx.x, p.x), max(mx.y, p.y), max(mx.z, p.z))
+            } } }
+            let pad: Float = 0.04
+            mn = SCNVector3(mn.x - pad, mn.y - pad, mn.z - pad); mx = SCNVector3(mx.x + pad, mx.y + pad, mx.z + pad)
+            let outline = SCNNode(); outline.name = "highlight"
+            let m = SCNMaterial(); m.lightingModel = .constant; m.diffuse.contents = UIColor.white; m.emission.contents = UIColor.white
+            let t: CGFloat = 0.018
+            let xs = [mn.x, mx.x], ys = [mn.y, mx.y], zs = [mn.z, mx.z]
+            func edge(_ a: SCNVector3, _ b: SCNVector3) {
+                let g = SCNBox(width: max(t, CGFloat(abs(b.x - a.x))), height: max(t, CGFloat(abs(b.y - a.y))),
+                               length: max(t, CGFloat(abs(b.z - a.z))), chamferRadius: 0)
+                g.materials = [m]
+                let e = SCNNode(geometry: g)
+                e.position = SCNVector3((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2)
+                outline.addChildNode(e)
+            }
+            for y in ys { for z in zs { edge(SCNVector3(xs[0], y, z), SCNVector3(xs[1], y, z)) } }
+            for x in xs { for z in zs { edge(SCNVector3(x, ys[0], z), SCNVector3(x, ys[1], z)) } }
+            for x in xs { for y in ys { edge(SCNVector3(x, y, zs[0]), SCNVector3(x, y, zs[1])) } }
+            live.root.addChildNode(outline)
+        }
+    }
+
+    /// The line being drawn (nil clears it).
+    static func showDraft(from a: SCNVector3?, to b: SCNVector3?, in live: Live) {
+        live.root.childNodes.filter { $0.name == "draft" }.forEach { $0.removeFromParentNode() }
+        guard let a, let b else { return }
+        let n = SCNNode(); n.name = "draft"
+        let m = SCNMaterial(); m.lightingModel = .constant; m.emission.contents = UIColor.white; m.diffuse.contents = UIColor.white
+        tube(n, [a, b], radius: 0.03, material: m)
+        live.root.addChildNode(n)
     }
 
     private static func dist(_ a: SCNVector3?, _ b: SCNVector3) -> Float {
@@ -528,8 +586,9 @@ enum PcModel {
     /// Lights the sockets with each segment's colours (PcEffects.ledColours, map order). A part with
     /// no LEDs stays dark; a part sharing another's LEDs ("also") shows that part's colours.
     static func apply(colours: [[SIMD3<Float>]], map: PcLedMap, to live: Live) {
+        applyDrawn(colours: colours, map: map, to: live)
         var bySlot: [String: (PcSegment, [SIMD3<Float>])] = [:]
-        for (seg, cols) in zip(map.segments, colours) {
+        for (seg, cols) in zip(map.segments, colours) where seg.line == nil {
             bySlot["\(seg.part).\(seg.index ?? 0)"] = (seg, cols)
             for extra in seg.also ?? [] where bySlot["\(extra).\(seg.index ?? 0)"] == nil {
                 bySlot["\(extra).\(seg.index ?? 0)"] = (seg, cols)
@@ -562,6 +621,41 @@ enum PcModel {
         live.interiorLight.color = avgColor
         live.interiorLight.intensity = CGFloat(min(1, (avg.x + avg.y + avg.z) / 1.2)) * 620
         live.floorGlow.multiply.contents = avgColor
+    }
+
+    /// Strips drawn on the model: an LED every few centimetres along each line, coloured LED by LED.
+    private static func applyDrawn(colours: [[SIMD3<Float>]], map: PcLedMap, to live: Live) {
+        var keep = Set<String>()
+        for (seg, cols) in zip(map.segments, colours) {
+            guard let line = seg.line, line.count == 2, line.allSatisfy({ $0.count == 3 }), !cols.isEmpty else { continue }
+            let key = "\(seg.controller).\(seg.zone).\(seg.start).\(line)"
+            keep.insert(key)
+            if live.drawn[key] == nil {
+                let group = SCNNode(); group.name = "drawn"; group.setValue(key, forKey: "drawnKey")
+                let a = SIMD3<Float>(Float(line[0][0]), Float(line[0][1]), Float(line[0][2]))
+                let b = SIMD3<Float>(Float(line[1][0]), Float(line[1][1]), Float(line[1][2]))
+                let n = min(cols.count, 120)
+                var mats: [SCNMaterial] = []
+                for i in 0..<n {
+                    let p = a + (b - a) * (Float(i) + 0.5) / Float(n)
+                    let g = SCNBox(width: 0.05, height: 0.05, length: 0.05, chamferRadius: 0.02)
+                    let m = led(); g.materials = [m]; mats.append(m)
+                    let node = SCNNode(geometry: g); node.position = SCNVector3(p.x, p.y, p.z)
+                    group.addChildNode(node)
+                }
+                live.root.addChildNode(group)
+                live.drawn[key] = mats
+            }
+            let mats = live.drawn[key] ?? []
+            for (i, m) in mats.enumerated() {
+                let c = cols[min(cols.count - 1, i * cols.count / max(1, mats.count))]
+                m.emission.contents = UIColor(red: CGFloat(c.x), green: CGFloat(c.y), blue: CGFloat(c.z), alpha: 1)
+            }
+        }
+        for gone in live.drawn.keys where !keep.contains(gone) {
+            live.root.childNodes.filter { ($0.value(forKey: "drawnKey") as? String) == gone }.forEach { $0.removeFromParentNode() }
+            live.drawn[gone] = nil
+        }
     }
 
     /// All LEDs dark (lighting off, the PC asleep, or not set up).

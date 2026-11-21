@@ -36,6 +36,7 @@ struct PcCalibrationBoard {
         var part: PcPart
         var index: Int
         var also: [PcPart]
+        var line: [[Double]]? = nil
     }
 
     struct Connector: Equatable {
@@ -71,7 +72,8 @@ struct PcCalibrationBoard {
 
     /// Paints `range` of connector `c` onto a part: what was painted there before gives way, and the same
     /// fan painted elsewhere moves here (the map allows each fan once).
-    mutating func assign(_ c: Int, _ range: ClosedRange<Int>, part: PcPart, index: Int, also: [PcPart] = []) {
+    mutating func assign(_ c: Int, _ range: ClosedRange<Int>, part: PcPart, index: Int, also: [PcPart] = [],
+                         line: [[Double]]? = nil) {
         guard connectors.indices.contains(c), connectors[c].leds > 0 else { return }
         let r = Swift.max(0, range.lowerBound)...Swift.min(range.upperBound, connectors[c].leds - 1)
         guard r.lowerBound <= r.upperBound else { return }
@@ -87,7 +89,7 @@ struct PcCalibrationBoard {
                 var right = run; right.range = (r.upperBound + 1)...run.range.upperBound; kept.append(right)
             }
         }
-        kept.append(Run(range: r, part: part, index: index, also: also.filter { $0 != part }))
+        kept.append(Run(range: r, part: part, index: index, also: also.filter { $0 != part }, line: line))
         connectors[c].runs = kept.sorted { $0.range.lowerBound < $1.range.lowerBound }
     }
 
@@ -104,7 +106,7 @@ struct PcCalibrationBoard {
                 segments.append(PcSegment(part: run.part.rawValue, index: run.index, controller: k.controller, zone: k.zone,
                                           start: run.range.lowerBound, count: run.range.count, ringStartDeg: 0, clockwise: true,
                                           from: run.part == .strip ? "back" : nil,
-                                          also: run.also.isEmpty ? nil : run.also.map(\.rawValue)))
+                                          also: run.also.isEmpty ? nil : run.also.map(\.rawValue), line: run.line))
             }
         }
         return PcLedMap(version: 1, rev: nil, zones: zones, segments: segments)

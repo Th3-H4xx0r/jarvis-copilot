@@ -19,6 +19,10 @@ struct PcLightingSection: View {
 
     var body: some View {
         JcSectionLabel("Lighting")
+        VStack(alignment: .leading, spacing: 12) { content }
+    }
+
+    @ViewBuilder private var content: some View {
         switch store.availability(awake: awake) {
         case .unavailable(let why):
             JcCard { unavailable(why) }
@@ -100,6 +104,7 @@ struct PcLightingSection: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 chip("All", selected: selectedPart == nil) { selectedPart = nil }
+                    .padding(.leading, 1)
                 ForEach(PcPart.allCases) { part in
                     chip(part.label, selected: selectedPart == part, dimmed: store.isMissing(part)) { selectedPart = part }
                         .disabled(store.isMissing(part))
@@ -211,6 +216,7 @@ struct PcLightingSetupPage: View {
     var body: some View {
         ScrollView {
             JcPageColumn {
+              VStack(alignment: .leading, spacing: 16) {
                 Text("Jarvis sets the PC up for you. Installing asks for Face ID here and Windows' OK on the PC; nothing runs while you're in a game.")
                     .font(.subheadline).foregroundStyle(JcTheme.muted)
                 JcCard(padding: 0) {
@@ -234,6 +240,7 @@ struct PcLightingSetupPage: View {
                 Button { runAll() } label: { PcPrimaryLabel(text: running == nil ? "Run setup" : "Working…") }
                     .buttonStyle(.plain)
                     .disabled(running != nil)
+              }
             }
         }
         .jcPageChrome("Set up lighting")

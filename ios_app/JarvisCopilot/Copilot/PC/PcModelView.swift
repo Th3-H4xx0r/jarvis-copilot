@@ -13,6 +13,15 @@ struct PcModelView: View {
     var onTapComponent: ((String) -> Void)? = nil
     /// Calibration: the exact LED socket tapped (a fan's sector, a strip or logo segment).
     var onTapLED: ((PcLedKey) -> Void)? = nil
+    /// Every tap, resolved (for highlighting what was tapped).
+    var onTapTarget: ((PcModel.Tap) -> Void)? = nil
+    /// Node names outlined in white (fan.bottom.1, part.strip, comp.gpu …).
+    var highlighted: [String] = []
+    /// Drawing a strip: a drag on the model draws a line; called with its ends when the finger lifts.
+    var drawing = false
+    var onDraw: ((SCNVector3, SCNVector3) -> Void)? = nil
+    @State private var drawStart: SCNVector3?
+    @State private var drawEnd: SCNVector3?
 
     /// Built the first time it's drawn, then kept: a SwiftUI @State initial value is evaluated on every
     /// view init, and a scene build per parent refresh was jank and battery.
@@ -27,13 +36,14 @@ struct PcModelView: View {
     }
 
     private var lookKey: AnyHashable {
-        [AnyHashable(lit), AnyHashable(state), AnyHashable(map?.rev ?? -1)]
+        [AnyHashable(lit), AnyHashable(state), AnyHashable(map), AnyHashable(highlighted)]
     }
 
     var body: some View {
         SceneCanvas(scene: live.scene, camera: live.camera, rendersContinuously: animated,
-                    onHorizontalPan: { pan in turn(pan) },
+                    onHorizontalPan: onDraw == nil ? { pan in turn(pan) } : nil,
                     onTap: { point, view in tap(point, view) },
+                    onPan: onDraw == nil ? nil : { pan in draw(pan) },
                     onRender: { [glow, live] _ in glow.tick(live) },
                     look: lookKey)
             .onAppear { refresh() }
@@ -44,6 +54,7 @@ struct PcModelView: View {
     private func refresh() {
         glow.set(state: state, map: map, lit: lit)
         glow.apply(live)    // now, for the first frame and for a still
+        PcModel.highlight(highlighted, in: live)
     }
 
     private func turn(_ pan: UIPanGestureRecognizer) {
@@ -54,9 +65,25 @@ struct PcModelView: View {
         }
     }
 
+    /// Drawing mode: the drag draws a line on the surface; otherwise it turns the model.
+    private func draw(_ pan: UIPanGestureRecognizer) {
+        guard drawing, let view = pan.view as? SCNView else { turn(pan); return }
+        let hits = view.hitTest(pan.location(in: view), options: [.searchMode: SCNHitTestSearchMode.all.rawValue])
+        let p = PcModel.surfacePoint(hits, in: live)
+        switch pan.state {
+        case .began: drawStart = p; drawEnd = p
+        case .changed: if p != nil { drawEnd = p }; PcModel.showDraft(from: drawStart, to: drawEnd, in: live)
+        case .ended:
+            if let a = drawStart, let b = drawEnd, simd_distance(SIMD3(a.x, a.y, a.z), SIMD3(b.x, b.y, b.z)) > 0.1 { onDraw?(a, b) }
+            fallthrough
+        default: drawStart = nil; drawEnd = nil; PcModel.showDraft(from: nil, to: nil, in: live)
+        }
+    }
+
     private func tap(_ point: CGPoint, _ view: SCNView) {
         // Every hit, closest first: the case's glass sits in front of everything and is looked through.
         let tap = PcModel.resolve(view.hitTest(point, options: [.searchMode: SCNHitTestSearchMode.all.rawValue]), in: live)
+        onTapTarget?(tap)
         if let onTapLED, let key = tap.key { onTapLED(key); return }
         if let part = tap.part { onTapPart?(part) }
         else if let comp = tap.component, comp != "case" || onTapPart == nil { onTapComponent?(comp) }

@@ -72,7 +72,7 @@ struct PcLightingState: Codable, Hashable {
     func light(_ part: PcPart) -> PcPartLight { parts[part.rawValue] ?? .white }
 }
 
-struct PcZone: Codable, Equatable {
+struct PcZone: Codable, Hashable {
     var controller: Int
     var zone: Int
     var leds: Int
@@ -80,7 +80,7 @@ struct PcZone: Codable, Equatable {
     var order: String? = nil
 }
 
-struct PcSegment: Codable, Equatable {
+struct PcSegment: Codable, Hashable {
     var part: String
     var index: Int?
     var controller: Int
@@ -91,9 +91,11 @@ struct PcSegment: Codable, Equatable {
     var clockwise: Bool?
     var from: String?
     var also: [String]?
+    /// A strip drawn on the model (start and end, model space): its LEDs glow along this line.
+    var line: [[Double]]?
 }
 
-struct PcLedMap: Codable, Equatable {
+struct PcLedMap: Codable, Hashable {
     var version: Int = 1
     var rev: Int?
     var zones: [PcZone] = []

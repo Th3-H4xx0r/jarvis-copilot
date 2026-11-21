@@ -96,6 +96,37 @@ final class PcModelRenderTests: XCTestCase {
         }
     }
 
+    func testHighlightOutlinesWhatWasTappedAndMoves() {
+        let live = PcModel.build()
+        PcModel.highlight(["fan.bottom.1"], in: live)
+        XCTAssertEqual(live.root.childNodes.filter { $0.name == "highlight" }.count, 1)
+        PcModel.highlight(["fan.top.0", "comp.gpu"], in: live)
+        XCTAssertEqual(live.root.childNodes.filter { $0.name == "highlight" }.count, 2)
+        PcModel.highlight([], in: live)
+        XCTAssertTrue(live.root.childNodes.filter { $0.name == "highlight" }.isEmpty)
+    }
+
+    func testADrawnStripLightsItsLEDsAlongTheLine() {
+        let live = PcModel.build()
+        var seg = PcSegment(part: "strip", index: 0, controller: 0, zone: 2, start: 0, count: 30)
+        seg.line = [[-2.0, 0.6, 1.4], [2.0, 0.6, 1.4]]
+        let map = PcLedMap(version: 1, rev: 1, zones: [PcZone(controller: 0, zone: 2, leds: 30)], segments: [seg])
+        var s = PcLightingState(on: true, brightness: 100, t0: 0, frozenAt: 1, stillInGames: false, rev: 1,
+                                parts: Dictionary(uniqueKeysWithValues: PcPart.allCases.map {
+                                    ($0.rawValue, PcPartLight(effect: "static", color: "#ff0000", speed: 5)) }))
+        s.parts["strip"] = PcPartLight(effect: "static", color: "#0000ff", speed: 5)
+        PcModel.apply(colours: PcEffects.ledColours(state: s, map: map, now: Date()), map: map, to: live)
+        let drawn = live.root.childNodes.filter { $0.name == "drawn" }.flatMap(\.childNodes)
+        XCTAssertEqual(drawn.count, 30)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        (drawn[0].geometry?.firstMaterial?.emission.contents as? UIColor)?.getRed(&r, green: &g, blue: &b, alpha: &a)
+        XCTAssertGreaterThan(b, 0.9)
+        let builtIn = live.leds[PcLedKey(part: .strip, index: 0, led: 3)]!.emission.contents as! UIColor
+        var w: CGFloat = 0
+        builtIn.getWhite(&w, alpha: &a)
+        XCTAssertLessThan(w, 0.05)                        // the drawn line replaces the built-in strip
+    }
+
     func testMakingTheViewDoesNotBuildTheScene() {
         let before = PcModel.buildCount
         _ = PcModelView(state: nil, map: nil)

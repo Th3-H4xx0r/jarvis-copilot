@@ -1,3 +1,4 @@
+import SceneKit
 import SwiftUI
 
 /// Show Jarvis each part, the OpenRGB way: every connector as a row of LED squares. Drag its slider to the
@@ -14,15 +15,37 @@ struct PcCalibrationPage: View {
     @State private var error: String?
     @State private var saving = false
     @State private var queue = PcProbeQueue { args in await PcStore.shared.probe(args) }
+    @State private var drawing = false
+    @State private var lastTap: [String] = []
+
+    /// Painted parts glow white on the model as you go (drawn strips too).
+    private static let preview = PcLightingState(on: true, brightness: 70, t0: 0, frozenAt: 1, stillInGames: false, rev: 0,
+                                                 parts: Dictionary(uniqueKeysWithValues: PcPart.allCases.map {
+                                                     ($0.rawValue, PcPartLight(effect: "static", color: "#ffffff", speed: 5)) }))
+    private var highlights: [String] {
+        let fans = picked.map { k in k.part == .cooler || k.part == .strip ? "part.\(k.part.rawValue)" : "fan.\(k.part.rawValue).\(k.index)" }
+        return fans.isEmpty ? lastTap : fans
+    }
 
     private var store: PcStore { .shared }
 
     var body: some View {
         ScrollView {
             JcPageColumn {
-                PcModelView(state: store.state, map: nil, lit: false, onTapLED: { key in tapped(key) })
-                    .frame(height: 260)
-                Text("Drag a connector's slider until its LEDs on the PC stop lighting, paint a run of squares, then tap the part on the model it belongs to.")
+              VStack(alignment: .leading, spacing: 14) {
+                PcModelView(state: Self.preview, map: board.map(), lit: true, onTapLED: { key in tapped(key) },
+                            onTapTarget: { t in lastTap = t.name.map { [$0] } ?? [] },
+                            highlighted: highlights, drawing: drawing,
+                            onDraw: { a, b in drew(a, b) })
+                    .frame(height: 280)
+                    .overlay(alignment: .top) {
+                        if drawing {
+                            Text("Drag along the strip on the model").font(.footnote.weight(.semibold))
+                                .padding(.horizontal, 10).padding(.vertical, 6)
+                                .background(.black.opacity(0.7), in: Capsule())
+                        }
+                    }
+                Text("Drag a connector's slider until its LEDs on the PC stop lighting, paint a run of squares, then tap the fan or cooler on the model, or draw where the strip runs.")
                     .font(.subheadline).foregroundStyle(JcTheme.muted)
                 ForEach(Array(board.connectors.enumerated()), id: \.offset) { i, k in
                     connectorCard(i, k)
@@ -38,6 +61,7 @@ struct PcCalibrationPage: View {
                 if let error {
                     Label(error, systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(JcTheme.danger)
                 }
+              }
             }
         }
         .jcPageChrome("Show Jarvis each part", header: .inline)
@@ -48,7 +72,8 @@ struct PcCalibrationPage: View {
     // MARK: one connector
 
     @ViewBuilder private func connectorCard(_ i: Int, _ k: PcCalibrationBoard.Connector) -> some View {
-        JcSectionLabel(k.name)
+        VStack(alignment: .leading, spacing: 8) {
+        Text(k.name.uppercased()).font(.system(size: 12, weight: .medium)).foregroundStyle(JcTheme.muted)
         JcCard {
             VStack(alignment: .leading, spacing: 12) {
                 squares(i, k)
@@ -61,12 +86,13 @@ struct PcCalibrationPage: View {
                     }
                 }
                 if active == i, let r = paint {
-                    Text(picked.isEmpty ? "LEDs \(r.lowerBound + 1)–\(r.upperBound + 1) are lit on the PC. Tap the part on the model."
+                    Text(picked.isEmpty ? "LEDs \(r.lowerBound + 1)–\(r.upperBound + 1) are lit on the PC. Tap the fan or cooler on the model, or draw the strip."
                                         : picked.map(name).joined(separator: " · "))
                         .font(.subheadline)
-                    HStack {
+                    HStack(spacing: 10) {
                         Button("Assign") { assign() }.buttonStyle(.jcGlass).disabled(picked.isEmpty)
-                        Button("Clear") { paint = nil; picked = []; light(i) }.buttonStyle(.jcGlass)
+                        Button(drawing ? "Drawing…" : "Draw strip") { drawing.toggle(); picked = [] }.buttonStyle(.jcGlass)
+                        Button("Clear") { paint = nil; picked = []; drawing = false; light(i) }.buttonStyle(.jcGlass)
                     }
                 }
                 if k.leds > 1 {
@@ -81,6 +107,7 @@ struct PcCalibrationPage: View {
                     }
                 }
             }
+        }
         }
     }
 
@@ -177,6 +204,15 @@ struct PcCalibrationPage: View {
         guard let r = paint, let first = picked.first else { return }
         board.assign(active, r, part: first.part, index: first.index, also: Array(Set(picked.dropFirst().map(\.part))))
         paint = nil; picked = []
+        light(active)
+    }
+
+    /// A strip drawn on the model for the painted run.
+    private func drew(_ a: SCNVector3, _ b: SCNVector3) {
+        guard let r = paint else { return }
+        board.assign(active, r, part: .strip, index: 0,
+                     line: [[Double(a.x), Double(a.y), Double(a.z)], [Double(b.x), Double(b.y), Double(b.z)]])
+        drawing = false; paint = nil; picked = []
         light(active)
     }
 
