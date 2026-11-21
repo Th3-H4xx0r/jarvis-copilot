@@ -25,7 +25,10 @@ def store():
 
 def _invoke(did: str, skill: str, args: dict, timeout: float = 20.0) -> dict:
     from api import device_bridge
-    return device_bridge.invoke_skill(did, skill, args, timeout=timeout)
+    # device_bridge wraps the skill's return as {"ok": <transport>, "result": <skill return>};
+    # unwrap to the skill's own dict (a transport failure / missing result degrades to {}).
+    env = device_bridge.invoke_skill(did, skill, args, timeout=timeout) or {}
+    return env.get("result") or {}
 
 
 def _connected() -> list:
@@ -71,7 +74,13 @@ def _enabled() -> bool:
 
 
 def _targets() -> list:
-    return list(_settings().get("targets") or [])
+    raw = _settings().get("targets") or []
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:  # noqa: BLE001
+            return []
+    return list(raw) if isinstance(raw, list) else []
 
 
 def _sunshine_conn() -> dict:
@@ -127,6 +136,7 @@ def _device_for_kind(kind: str) -> str:
         for did in _connected():
             if did != pc and _device_os(did) == "darwin":
                 return did
+        return ""   # the Mac isn't connected
     return pc
 
 
@@ -152,15 +162,21 @@ def _dispatch_connect(pc: str, target: dict, app: str, srs: bool) -> dict:
                     {"host": target.get("host"), "app": app})
         return {"ok": True, "status": "tap", "push": True}
     did = _device_for_kind(kind)
+    if not did:
+        label = "the Mac" if kind == "mac" else f"the {kind}"
+        return {"ok": False, "detail": f"{label} is offline"}
     return _invoke(did, "game_stream_connect",
                    {"target": target, "app": app, "stream_running_session": srs}) or {"ok": False}
 
 
 def complete_pending(pc: str) -> None:
-    pending = [p for p in _PENDING if p.get("pc") == pc]
-    for p in pending:
+    """Finish pending connects for a now-awake PC; silently drop any past their deadline
+    so a stale 'stream X' never fires hours later."""
+    now = _clock()
+    for p in [p for p in _PENDING if p.get("pc") == pc]:
         try:
-            _dispatch_connect(pc, p["target"], p["app"], p.get("srs", False))
+            if p.get("deadline", 0) > now:
+                _dispatch_connect(pc, p["target"], p["app"], p.get("srs", False))
         finally:
             if p in _PENDING:
                 _PENDING.remove(p)

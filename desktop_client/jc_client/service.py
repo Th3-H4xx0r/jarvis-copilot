@@ -1349,7 +1349,8 @@ def _platform_summary() -> dict:
 def _truncate(obj: object, limit: int = 200) -> str:
     """Short repr of an arg dict, suitable for logging without bloat."""
     try:
-        s = json.dumps(obj, default=str)
+        from jc_client._log_redact import redact
+        s = json.dumps(redact(obj), default=str)
     except Exception:
         s = repr(obj)
     if len(s) <= limit:
