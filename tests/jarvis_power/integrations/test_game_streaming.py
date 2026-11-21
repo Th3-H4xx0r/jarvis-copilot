@@ -35,3 +35,20 @@ def test_start_and_stop_follow_the_switch(reg, monkeypatch):
     p.start("webui")
     p.stop("webui")
     assert seen == [True, False]
+
+
+def test_form_is_slimmed_to_the_login_only(reg):
+    discovery.reset()
+    p = discovery.get("game-streaming")
+    keys = {s.key for s in p.settings}
+    assert keys == {"user", "password", "log_path"}       # no host/port/targets JSON on the form
+    assert "targets" not in keys and "host" not in keys and "port" not in keys
+
+
+def test_native_setup_replaces_the_generic_form(reg):
+    discovery.reset()
+    p = discovery.get("game-streaming")
+    assert discovery.validate(p) == []
+    assert "settings" in p.native.get("ios", ())          # native "one smart page" setup
+    assert "settings" in p.native.get("web", ())
+

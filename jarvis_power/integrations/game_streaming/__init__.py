@@ -22,20 +22,22 @@ class GameStreaming(PowerIntegration):
     toolsets = ("game_streaming",)
     route_prefixes = ("/api/game-streaming",)
     surfaces = ("ios.game_streaming", "web.game_streaming", "windows.game_streaming")
+    # Only the two things nobody can auto-detect: the Sunshine login the user set in
+    # Sunshine itself. The PC's address, the Sunshine port and the device list are
+    # discovered (jc-client runs on the PC), so they are not fields on the form. The
+    # native "Set up" page (PowerNative.settings) owns the whole flow; the advanced
+    # log-path override lives there too. Internal values (host, wake_timeout) still
+    # read from the stored document for back-compat but are no longer form fields.
     settings = (
-        Setting("host", "Sunshine PC address", "text", default="",
-                help="Your gaming PC's address (Tailscale name or IP) where Sunshine answers.", jarvis="never"),
-        Setting("port", "Sunshine web port", "number", default=47990, jarvis="never"),
-        Setting("user", "Sunshine username", "text", default="", jarvis="never"),
-        Setting("password", "Sunshine password", "secret", jarvis="never"),
-        Setting("wake_timeout", "Give up waking the PC after", "number", default=1200, unit="s", jarvis="never"),
-        Setting("targets", "Target devices (JSON)", "text", default="[]",
-                help='Moonlight targets, e.g. [{"name":"Mac","kind":"mac","host":"gpc"}].', jarvis="never"),
-        Setting("log_path", "Sunshine log path", "text", default="",
-                help="Override where Sunshine writes its log; blank uses the per-OS default.", jarvis="never"),
+        Setting("user", "Sunshine username", "text", default="", jarvis="never",
+                help="The login you set in Sunshine's own web UI."),
+        Setting("password", "Sunshine password", "secret", jarvis="never",
+                help="The password you set in Sunshine's own web UI."),
+        Setting("log_path", "Sunshine log path", "text", default="", jarvis="never",
+                help="Advanced: override where Sunshine writes its log; blank uses the per-OS default."),
     )
     actions = ("refresh",)
-    native = {"ios": ("card", "page")}
+    native = {"ios": ("card", "page", "settings"), "web": ("settings",)}
 
     def start(self, process: str) -> None:
         try:
