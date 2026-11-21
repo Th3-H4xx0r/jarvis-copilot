@@ -102,7 +102,8 @@ def test_detect_running_and_logged_in(store, settings, monkeypatch):
     monkeypatch.setattr(R, "_invoke", lambda did, skill, args, timeout=20.0:
                         {"ok": True, "data": {"running": True, "needs_login": False}})
     _, (status, data) = _route("GET", "/detect")
-    assert data == {"ok": True, "online": True, "running": True, "needs_login": False}
+    assert data == {"ok": True, "online": True, "running": True, "needs_login": False,
+                    "username": ""}
 
 
 def test_detect_running_but_needs_login(store, settings, monkeypatch):

@@ -16,6 +16,9 @@ from typing import Any
 
 _PENDING: list[dict] = []
 _clock = time.time
+# Reads (status / detect / pending pairings) are local Sunshine calls on the PC: answer
+# well inside the app's request timeout so a stuck PC never leaves a spinner running.
+_READ_TIMEOUT = 10.0
 
 
 # ── seams (tests replace these) ──────────────────────────────────────────────
@@ -27,9 +30,16 @@ def store():
 def _invoke(did: str, skill: str, args: dict, timeout: float = 20.0) -> dict:
     from api import device_bridge
     # device_bridge wraps the skill's return as {"ok": <transport>, "result": <skill return>};
-    # unwrap to the skill's own dict (a transport failure / missing result degrades to {}).
+    # unwrap to the skill's own dict. A transport failure ({"ok": False, "error": ...}, e.g.
+    # the device is offline or its jc-client predates the skill) comes back as the skill
+    # shape {"ok": False, "detail": <error>}; a missing result degrades to {}.
     env = device_bridge.invoke_skill(did, skill, args, timeout=timeout) or {}
-    return env.get("result") or {}
+    result = env.get("result")
+    if result:
+        return result
+    if env.get("ok") is False and env.get("error"):
+        return {"ok": False, "detail": str(env["error"])}
+    return {}
 
 
 def _connected() -> list:
@@ -276,7 +286,8 @@ def _handle_status(req, s):
         return req.reply(200, {"ok": True, "reachable": False, "needs_login": False,
                                "live": s.get_live(), "paired": s.get_paired(),
                                "apps": [], "targets": _targets()})
-    res = _invoke(pc, "game_stream_status", {"sunshine": _sunshine_conn()}) or {}
+    res = _invoke(pc, "game_stream_status", {"sunshine": _sunshine_conn()},
+                  timeout=_READ_TIMEOUT) or {}
     data = res.get("data") or {}
     try:
         from api import game_streaming_alerts
@@ -301,7 +312,8 @@ def _handle_detect(req):
                                "needs_login": False, "username": ""})
     log_path = str(_settings().get("log_path") or "").strip()
     res = _invoke(pc, "game_stream_detect",
-                  {"sunshine": _sunshine_conn(), "log_path": log_path}) or {}
+                  {"sunshine": _sunshine_conn(), "log_path": log_path},
+                  timeout=_READ_TIMEOUT) or {}
     data = res.get("data") or {}
     return req.reply(200, {"ok": True, "online": True,
                            "running": bool(data.get("running", False)),
@@ -361,13 +373,51 @@ def _handle_stop(req, body, s):
     return req.reply(200, {"ok": True})
 
 
+_OFFLINE = {"ok": False, "error": "The PC is asleep or offline", "offline": True}
+_OUTDATED = "Your PC's Jarvis client is out of date — update it to pair from here"
+
+
+def _friendly_detail(detail) -> str | None:
+    """A PC transport error, in words: a jc-client without the skill means "update it"."""
+    if not detail:
+        return None
+    text = str(detail)
+    return _OUTDATED if "no skill named" in text else text
+
+
+def _handle_pairings(req):
+    """The Moonlight devices waiting to pair (Sunshine's GET /api/pin, via the PC). The
+    pair sheet polls this every 2 s while open. 409 while the PC is asleep/offline."""
+    pc = _pc_id()
+    if not _online(pc):
+        return req.reply(409, dict(_OFFLINE, pairings=[]))
+    res = _invoke(pc, "game_stream_pending", {"sunshine": _sunshine_conn()},
+                  timeout=_READ_TIMEOUT) or {}
+    data = res.get("data") or {}
+    out = {"ok": bool(res.get("ok", False)),
+           "pairings": [p for p in (data.get("pairings") or []) if isinstance(p, dict)],
+           "needs_login": bool(data.get("needs_login", False)),
+           "reachable": bool(data.get("reachable", res.get("ok", False)))}
+    detail = _friendly_detail(res.get("detail"))
+    if detail:
+        out["detail"] = detail
+    return req.reply(200, out)
+
+
 def _handle_pair(req, body, s):
     pc = _pc_id()
     if not _online(pc):
-        return req.reply(409, {"ok": False, "error": "The PC is asleep or offline", "offline": True})
-    res = _invoke(pc, "game_stream_pair", {"sunshine": _sunshine_conn(),
-                  "device": body.get("device"), "pin": body.get("pin")}) or {}
-    return req.reply(200, {"ok": bool(res.get("ok", False)), "detail": res.get("detail")})
+        return req.reply(409, dict(_OFFLINE))
+    args = {"sunshine": _sunshine_conn(), "device": body.get("device"), "pin": body.get("pin")}
+    if body.get("pairing_id"):
+        args["pairing_id"] = str(body["pairing_id"])
+    res = _invoke(pc, "game_stream_pair", args) or {}
+    out = {"ok": bool(res.get("ok", False)),
+           "detail": _friendly_detail(res.get("detail"))
+           or (None if res.get("ok") else "The PC didn't answer — try again")}
+    if isinstance(res.get("pairings"), list):
+        out["pairings"] = res["pairings"]
+    return req.reply(200, out)
 
 
 def _create_job(**kw):
@@ -440,6 +490,8 @@ def route(req) -> bool:
         return _handle_status(req, s)
     if req.method == "GET" and parts == ["detect"]:
         return _handle_detect(req)
+    if req.method == "GET" and parts == ["pairings"]:
+        return _handle_pairings(req)
     if req.method == "POST" and parts == ["targets"]:
         return _handle_set_targets(req, body, s)
     if req.method == "POST" and parts == ["start"]:

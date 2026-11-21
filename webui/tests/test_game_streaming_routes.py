@@ -178,3 +178,102 @@ def test_pair_surfaces_auth_detail(wired):
     R.route(req := Req("POST", "/pair", {"device": "TV", "pin": "1234"}))
     assert req.replied[1]["ok"] is False
     assert "password" in req.replied[1]["detail"].lower()
+
+
+# ── pairing through Sunshine's real API: pending requests + pairing_id ──────
+PID = "13270f21e5f70861ecdfd7ae0a10ff4f"
+PENDING = [{"id": PID, "name": "roth", "address": "192.168.1.69"}]
+
+
+def test_pairings_offline_is_409(wired):
+    st, calls, mp = wired
+    _online(mp, [])
+    R.route(req := Req("GET", "/pairings"))
+    assert req.replied[0] == 409
+    assert req.replied[1]["ok"] is False and req.replied[1]["offline"] is True
+
+
+def test_pairings_lists_pending_requests_from_the_pc(wired):
+    st, calls, mp = wired
+    _online(mp, ["pc"])
+    seen = {}
+
+    def fake(did, skill, args, timeout=20):
+        seen.update(did=did, skill=skill, args=args)
+        return {"ok": True, "data": {"pairings": PENDING, "needs_login": False, "reachable": True}}
+
+    mp.setattr(R, "_invoke", fake)
+    R.route(req := Req("GET", "/pairings"))
+    assert req.replied[0] == 200
+    body = req.replied[1]
+    assert body["ok"] is True
+    assert body["pairings"] == PENDING
+    assert body["needs_login"] is False and body["reachable"] is True
+    assert seen["did"] == "pc" and seen["skill"] == "game_stream_pending"
+    assert seen["args"]["sunshine"]["user"] == "a"
+
+
+def test_pairings_passes_needs_login(wired):
+    st, calls, mp = wired
+    _online(mp, ["pc"])
+    mp.setattr(R, "_invoke", lambda *a, **k: {"ok": True, "data": {
+        "pairings": [], "needs_login": True, "reachable": True}})
+    R.route(req := Req("GET", "/pairings"))
+    assert req.replied[1]["needs_login"] is True
+    assert req.replied[1]["pairings"] == []
+
+
+def test_pairings_old_pc_client_says_update(wired, monkeypatch):
+    # The real device_bridge envelope when the PC's jc-client predates game_stream_pending.
+    from api import device_bridge
+    st, calls, mp = wired
+    _online(mp, ["pc"])
+    monkeypatch.undo()   # drop the wired fake _invoke; use the real one over a faked bridge
+    monkeypatch.setattr(R, "store", lambda: st)
+    monkeypatch.setattr(R, "_pc_id", lambda: "pc")
+    monkeypatch.setattr(R, "_connected", lambda: ["pc"])
+    monkeypatch.setattr(R, "_sunshine_conn", lambda: {"user": "a", "password": "b"})
+    monkeypatch.setattr(device_bridge, "invoke_skill", lambda did, skill, args, timeout=20: {
+        "ok": False, "error": "device has no skill named 'game_stream_pending'"})
+    R.route(req := Req("GET", "/pairings"))
+    body = req.replied[1]
+    assert body["ok"] is False
+    assert body["pairings"] == []
+    assert "update" in body["detail"].lower()
+
+
+def test_pair_forwards_pairing_id_device_and_pin(wired):
+    st, calls, mp = wired
+    _online(mp, ["pc"])
+    R.route(Req("POST", "/pair", {"device": "Roth", "pin": "1234", "pairing_id": PID}))
+    pair = [c for c in calls if len(c) == 3 and c[1] == "game_stream_pair"][0]
+    assert pair[2]["pairing_id"] == PID
+    assert pair[2]["device"] == "Roth"
+    assert pair[2]["pin"] == "1234"
+
+
+def test_pair_passes_detail_and_pairings_through(wired):
+    st, calls, mp = wired
+    _online(mp, ["pc"])
+    two = PENDING + [{"id": "0" * 32, "name": "Shield", "address": "b"}]
+    mp.setattr(R, "_invoke", lambda *a, **k: {
+        "ok": False, "detail": "Several devices are waiting — pick one", "pairings": two})
+    R.route(req := Req("POST", "/pair", {"pin": "1234"}))
+    body = req.replied[1]
+    assert body["ok"] is False
+    assert body["detail"] == "Several devices are waiting — pick one"
+    assert body["pairings"] == two
+
+
+def test_invoke_turns_a_transport_failure_into_a_detail(monkeypatch):
+    from api import device_bridge
+    monkeypatch.setattr(device_bridge, "invoke_skill",
+                        lambda did, skill, args, timeout=20: {"ok": False, "error": "device offline"})
+    assert R._invoke("pc", "game_stream_pair", {}) == {"ok": False, "detail": "device offline"}
+
+
+def test_invoke_unwraps_the_real_envelope_for_pair(monkeypatch):
+    from api import device_bridge
+    monkeypatch.setattr(device_bridge, "invoke_skill", lambda did, skill, args, timeout=20: {
+        "ok": True, "result": {"ok": True, "detail": "Paired roth"}})
+    assert R._invoke("pc", "game_stream_pair", {}) == {"ok": True, "detail": "Paired roth"}
