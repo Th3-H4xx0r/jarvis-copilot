@@ -38,13 +38,15 @@ enum PcModel {
         let camera: SCNNode
         let root: SCNNode
         let leds: [PcLedKey: SCNMaterial]
+        /// Each LED socket's node (for taps: the nearest LED to where a finger landed).
+        let sockets: [PcLedKey: SCNNode]
         let interiorLight: SCNLight
         let floorGlow: SCNMaterial
         private let byMaterial: [ObjectIdentifier: PcLedKey]
 
-        init(scene: SCNScene, camera: SCNNode, root: SCNNode, leds: [PcLedKey: SCNMaterial],
+        init(scene: SCNScene, camera: SCNNode, root: SCNNode, leds: [PcLedKey: SCNMaterial], sockets: [PcLedKey: SCNNode],
              interiorLight: SCNLight, floorGlow: SCNMaterial) {
-            self.scene = scene; self.camera = camera; self.root = root; self.leds = leds
+            self.scene = scene; self.camera = camera; self.root = root; self.leds = leds; self.sockets = sockets
             self.interiorLight = interiorLight; self.floorGlow = floorGlow
             byMaterial = Dictionary(uniqueKeysWithValues: leds.map { (ObjectIdentifier($0.value), $0.key) })
         }
@@ -186,6 +188,7 @@ enum PcModel {
             w.position.z = Float(fanThickness / 2 - 0.02)
             node.addChildNode(w)
             leds[PcLedKey(part: part, index: index, led: s)] = m
+            w.name = "led"
         }
         let hub = SCNCylinder(radius: 0.18, height: 0.06)
         hub.materials = [rubber]
@@ -240,12 +243,12 @@ enum PcModel {
         // Case shell.
         let shell = SCNNode(); shell.name = "comp.case"; root.addChildNode(shell)
         box(shell, x: -hx...hx, y: 0...plinth, z: -hz...hz, frame, chamfer: 0.02)
-        box(shell, x: -hx...hx, y: (height - 0.06)...height, z: -hz...hz, glass)          // smoked top
+        box(shell, "glass", x: -hx...hx, y: (height - 0.06)...height, z: -hz...hz, glass)          // smoked top
         box(shell, x: -hx...hx, y: (height - 0.1)...(height - 0.06), z: (-hz)...(-hz + 0.08), frame)
         box(shell, x: -hx...hx, y: plinth...(height - 0.06), z: (-hz)...(-hz + 0.04), frame)  // right panel
         box(shell, x: (-hx)...(-hx + 0.05), y: plinth...(height - 0.06), z: -hz...hz, frame)   // rear wall
-        box(shell, x: (hx - 0.01)...hx, y: plinth...(height - 0.06), z: -hz...hz, glass)       // front glass
-        box(shell, x: -hx...hx, y: plinth...(height - 0.06), z: (hz - 0.01)...hz, glass)       // side glass
+        box(shell, "glass", x: (hx - 0.01)...hx, y: plinth...(height - 0.06), z: -hz...hz, glass)       // front glass
+        box(shell, "glass", x: -hx...hx, y: plinth...(height - 0.06), z: (hz - 0.01)...hz, glass)       // side glass
         box(shell, x: (hx - 0.03)...hx, y: plinth...height, z: (hz - 0.03)...hz, frame)        // corner seam
         box(shell, x: (-hx)...(-hx + 0.04), y: (height - 0.1)...height, z: -hz...hz, frame)
 
@@ -293,7 +296,7 @@ enum PcModel {
         let pc = SCNVector3(-0.95, Float(by0 + 1.45), Float(trayZ + 0.03))
         box(pump, x: (CGFloat(pc.x) - 0.36)...(CGFloat(pc.x) + 0.36), y: (CGFloat(pc.y) - 0.36)...(CGFloat(pc.y) + 0.36),
             z: CGFloat(pc.z)...(CGFloat(pc.z) + 0.34), frame, chamfer: 0.05)
-        box(pump, x: (CGFloat(pc.x) - 0.3)...(CGFloat(pc.x) + 0.3), y: (CGFloat(pc.y) - 0.3)...(CGFloat(pc.y) + 0.3),
+        box(pump, "glass", x: (CGFloat(pc.x) - 0.3)...(CGFloat(pc.x) + 0.3), y: (CGFloat(pc.y) - 0.3)...(CGFloat(pc.y) + 0.3),
             z: (CGFloat(pc.z) + 0.34)...(CGFloat(pc.z) + 0.35), glass)
         let logoR: CGFloat = 0.2
         for k in 0..<logoSockets {
@@ -310,6 +313,7 @@ enum PcModel {
             let n = SCNNode(geometry: seg)
             n.position = SCNVector3(pc.x + Float((q0.x + q1.x) / 2), pc.y + Float((q0.y + q1.y) / 2), pc.z + 0.355)
             n.eulerAngles.z = Float(atan2(q1.y - q0.y, q1.x - q0.x))
+            n.name = "led"
             pump.addChildNode(n)
             leds[PcLedKey(part: .cooler, index: 0, led: k)] = m
         }
@@ -373,6 +377,7 @@ enum PcModel {
                 g.materials = [m]; n = SCNNode(geometry: g)
                 n.position = SCNVector3(Float(hx - 0.012), Float(plinth + 0.018), Float(hz - (along - depth)))
             }
+            n.name = "led"
             strip.addChildNode(n)
             leds[PcLedKey(part: .strip, index: 0, led: s)] = m
         }
@@ -419,7 +424,13 @@ enum PcModel {
         camera.look(at: target)
         scene.rootNode.addChildNode(camera)
 
-        return Live(scene: scene, camera: camera, root: root, leds: leds, interiorLight: inside.light!, floorGlow: glowMat)
+        var sockets: [PcLedKey: SCNNode] = [:]
+        let byMat = Dictionary(uniqueKeysWithValues: leds.map { (ObjectIdentifier($0.value), $0.key) })
+        root.enumerateHierarchy { node, _ in
+            if node.name == "led", let m = node.geometry?.firstMaterial, let key = byMat[ObjectIdentifier(m)] { sockets[key] = node }
+        }
+        return Live(scene: scene, camera: camera, root: root, leds: leds, sockets: sockets,
+                    interiorLight: inside.light!, floorGlow: glowMat)
     }
 
     // MARK: Lookups
@@ -449,6 +460,59 @@ enum PcModel {
             n = cur.parent
         }
         return nil
+    }
+
+    // MARK: Taps
+
+    struct Tap: Equatable {
+        var key: PcLedKey?
+        var part: PcPart?
+        var component: String?
+    }
+
+    /// Where an LED socket is, in world space (its shape's centre: a fan's sectors all sit at the fan's origin).
+    static func socketPoint(_ key: PcLedKey, in live: Live) -> SCNVector3? {
+        guard let node = live.sockets[key] else { return nil }
+        let (lo, hi) = node.boundingBox
+        return node.convertPosition(SCNVector3((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, (lo.z + hi.z) / 2), to: nil)
+    }
+
+    /// The fan/ring/strip a node belongs to, with its number.
+    private static func litOwner(of node: SCNNode) -> (PcPart, Int)? {
+        var n: SCNNode? = node
+        while let cur = n {
+            if let name = cur.name {
+                let bits = name.split(separator: ".").map(String.init)
+                if bits.first == "fan", bits.count == 3, let p = PcPart(rawValue: bits[1]), let i = Int(bits[2]) { return (p, i) }
+                if bits.first == "part", bits.count >= 2, let p = PcPart(rawValue: bits[1]), p == .cooler || p == .strip { return (p, 0) }
+            }
+            n = cur.parent
+        }
+        return nil
+    }
+
+    /// What a tap meant, from all the hits under the finger (closest first): the glass is looked
+    /// through; a fan, the logo or the strip gives its nearest LED; anything else its component.
+    static func resolve(_ hits: [SCNHitTestResult], in live: Live) -> Tap {
+        for hit in hits {
+            let node = hit.node
+            if node.name == "glass" { continue }
+            if let (part, index) = litOwner(of: node) {
+                let point = hit.worldCoordinates
+                let nearest = live.sockets.keys.filter { $0.part == part && $0.index == index }.min { a, b in
+                    dist(socketPoint(a, in: live), point) < dist(socketPoint(b, in: live), point)
+                }
+                return Tap(key: nearest, part: part, component: nil)
+            }
+            if let comp = component(of: node) { return Tap(key: nil, part: nil, component: comp) }
+        }
+        return Tap()
+    }
+
+    private static func dist(_ a: SCNVector3?, _ b: SCNVector3) -> Float {
+        guard let a else { return .greatestFiniteMagnitude }
+        let d = SCNVector3(a.x - b.x, a.y - b.y, a.z - b.z)
+        return d.x * d.x + d.y * d.y + d.z * d.z
     }
 
     // MARK: LED colours

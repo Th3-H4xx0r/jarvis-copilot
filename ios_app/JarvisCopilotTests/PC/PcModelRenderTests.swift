@@ -72,6 +72,30 @@ final class PcModelRenderTests: XCTestCase {
         XCTAssertEqual(PcModel.ringLED(socket: 0, sockets: 16, leds: 8, startDeg: 0, clockwise: false), 0)
     }
 
+    /// A tap goes through the case's glass to the fan behind it and picks its nearest LED.
+    func testTapThroughTheGlassFindsTheFanAndItsNearestLED() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("no Metal device") }
+        let live = PcModel.build()
+        let renderer = SCNRenderer(device: device, options: nil)
+        renderer.scene = live.scene
+        renderer.pointOfView = live.camera
+        _ = renderer.snapshot(atTime: 0, with: CGSize(width: 900, height: 900), antialiasingMode: .none)
+        for key in [PcLedKey(part: .bottom, index: 1, led: 4), PcLedKey(part: .rear, index: 0, led: 12),
+                    PcLedKey(part: .cooler, index: 0, led: 3)] {
+            let world = try XCTUnwrap(PcModel.socketPoint(key, in: live))
+            let p = renderer.projectPoint(world)
+            let hits = renderer.hitTest(CGPoint(x: CGFloat(p.x), y: CGFloat(p.y)),
+                                        options: [.searchMode: SCNHitTestSearchMode.all.rawValue])
+            XCTAssertTrue(hits.contains { $0.node.name == "glass" } || key.part == .cooler, "the glass is in front")
+            let tap = PcModel.resolve(hits, in: live)
+            XCTAssertEqual(tap.key?.part, key.part, "\(key)")
+            XCTAssertEqual(tap.key?.index, key.index, "\(key)")
+            let sockets = key.part == .cooler ? PcModel.logoSockets : PcModel.ringSockets
+            let off = abs((tap.key?.led ?? -99) - key.led)
+            XCTAssertLessThanOrEqual(min(off, sockets - off), 1, "\(key) → \(String(describing: tap.key))")
+        }
+    }
+
     func testMakingTheViewDoesNotBuildTheScene() {
         let before = PcModel.buildCount
         _ = PcModelView(state: nil, map: nil)

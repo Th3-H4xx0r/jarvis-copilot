@@ -55,11 +55,11 @@ struct PcModelView: View {
     }
 
     private func tap(_ point: CGPoint, _ view: SCNView) {
-        guard let node = view.hitTest(point, options: [.searchMode: SCNHitTestSearchMode.closest.rawValue]).first?.node
-        else { return }
-        if let onTapLED, let key = live.socket(of: node) { onTapLED(key); return }
-        if let part = PcModel.part(of: node) { onTapPart?(part) }
-        else if let comp = PcModel.component(of: node) { onTapComponent?(comp) }
+        // Every hit, closest first: the case's glass sits in front of everything and is looked through.
+        let tap = PcModel.resolve(view.hitTest(point, options: [.searchMode: SCNHitTestSearchMode.all.rawValue]), in: live)
+        if let onTapLED, let key = tap.key { onTapLED(key); return }
+        if let part = tap.part { onTapPart?(part) }
+        else if let comp = tap.component, comp != "case" || onTapPart == nil { onTapComponent?(comp) }
     }
 }
 
