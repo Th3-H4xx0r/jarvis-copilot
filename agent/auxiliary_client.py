@@ -4196,6 +4196,10 @@ def _resolve_task_provider_model(
     resolved_model = model or cfg_model
     resolved_api_mode = cfg_api_mode
 
+    if base_url and provider == "openai-codex" and base_url.rstrip("/") == _CODEX_AUX_BASE_URL:
+        # The Codex backend only speaks the Responses API: as a "custom" chat-completions endpoint it answers
+        # 404 (live 2026-11-18: iMessage memory stored nothing for three days). Its own client knows the address.
+        return provider, resolved_model, None, api_key, resolved_api_mode
     if base_url:
         return "custom", resolved_model, base_url, api_key, resolved_api_mode
     if provider:
