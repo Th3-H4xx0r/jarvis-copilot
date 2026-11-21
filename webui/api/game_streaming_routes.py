@@ -74,20 +74,67 @@ def _enabled() -> bool:
         return True
 
 
-def _targets() -> list:
-    raw = _settings().get("targets") or []
+def _moonlight_host() -> str:
+    """The address a Moonlight client (Mac / iPhone / Android TV) uses to reach the
+    gaming PC. Auto-filled from the PC's known address (kept internally from PC setup);
+    the user never types it on the setup page. Blank is fine on a LAN where Moonlight
+    discovers the host itself; an Android TV carries its own adb address instead."""
+    return str(_settings().get("host") or "").strip()
+
+
+def _migrate_legacy_targets(raw) -> list:
+    """Turn the old raw `targets` JSON setting into structured rows (lossless: keeps
+    each target's host + tv_addr). Returns [] when there's nothing to migrate."""
     if isinstance(raw, str):
         try:
             raw = json.loads(raw)
         except Exception:  # noqa: BLE001
             return []
-    return list(raw) if isinstance(raw, list) else []
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for t in raw:
+        if not isinstance(t, dict):
+            continue
+        name = str(t.get("name") or "").strip()
+        if not name:
+            continue
+        row = {"name": name, "kind": str(t.get("kind") or "")}
+        if t.get("host"):
+            row["host"] = str(t["host"])
+        if t.get("tv_addr"):
+            row["tv_addr"] = str(t["tv_addr"])
+        out.append(row)
+    return out
+
+
+def _targets() -> list:
+    """Target devices as the UI, tools and connect-dispatch see them: structured rows
+    from the store, with the Moonlight host auto-filled. Migrates any legacy JSON
+    `targets` setting into the store once, the first time the store is empty."""
+    s = store()
+    rows = s.get_targets()
+    if not rows:
+        migrated = _migrate_legacy_targets(_settings().get("targets"))
+        if migrated:
+            s.set_targets(migrated)
+            rows = s.get_targets()
+    host = _moonlight_host()
+    out = []
+    for t in rows:
+        d = {"name": t.get("name"), "kind": t.get("kind") or ""}
+        d["host"] = t.get("host") or host
+        if t.get("tv_addr"):
+            d["tv_addr"] = t["tv_addr"]
+        out.append(d)
+    return out
 
 
 def _sunshine_conn() -> dict:
+    # jc-client reaches Sunshine on the PC itself, so host/port are always localhost
+    # (the PC skill defaults them). The user only sets the Sunshine username + password.
     s = _settings()
-    return {"host": s.get("host", ""), "port": int(s.get("port", 47990) or 47990),
-            "user": s.get("user", ""), "password": s.get("password", ""),
+    return {"user": s.get("user", ""), "password": s.get("password", ""),
             "scheme": s.get("scheme", "https")}
 
 
@@ -242,6 +289,43 @@ def _handle_status(req, s):
                            "apps": data.get("apps", []), "targets": _targets()})
 
 
+def _handle_detect(req):
+    """Front the PC's Sunshine detect probe for the setup page. When the PC is offline
+    we can't probe, so we say so; otherwise {running, needs_login} distinguishes
+    "not running" from "running but the login is missing/wrong"."""
+    pc = _pc_id()
+    if not _online(pc):
+        return req.reply(200, {"ok": True, "online": False, "running": False, "needs_login": False})
+    res = _invoke(pc, "game_stream_detect", {"sunshine": _sunshine_conn()}) or {}
+    data = res.get("data") or {}
+    return req.reply(200, {"ok": True, "online": True,
+                           "running": bool(data.get("running", False)),
+                           "needs_login": bool(data.get("needs_login", False))})
+
+
+def _handle_set_targets(req, body, s):
+    """Write the structured target list the setup page builds (device name + kind, plus
+    an Android TV's adb address). No JSON, no per-device host — the Moonlight host is
+    auto-filled server-side. Rows without a name are dropped."""
+    raw = body.get("targets")
+    if not isinstance(raw, list):
+        return req.reply(400, {"ok": False, "error": "targets must be a list"})
+    clean = []
+    for t in raw:
+        if not isinstance(t, dict):
+            continue
+        name = str(t.get("name") or "").strip()
+        if not name:
+            continue
+        row = {"name": name, "kind": str(t.get("kind") or "")}
+        addr = str(t.get("tv_addr") or "").strip()
+        if addr:
+            row["tv_addr"] = addr
+        clean.append(row)
+    s.set_targets(clean)
+    return req.reply(200, {"ok": True, "targets": _targets()})
+
+
 def _handle_start(req, body, s):
     pc = _pc_id()
     target = _resolve_target(body.get("target"))
@@ -348,6 +432,10 @@ def route(req) -> bool:
     s = store()
     if req.method == "GET" and parts == ["status"]:
         return _handle_status(req, s)
+    if req.method == "GET" and parts == ["detect"]:
+        return _handle_detect(req)
+    if req.method == "POST" and parts == ["targets"]:
+        return _handle_set_targets(req, body, s)
     if req.method == "POST" and parts == ["start"]:
         return _handle_start(req, body, s)
     if req.method == "POST" and parts == ["stop"]:

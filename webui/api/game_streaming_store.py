@@ -22,6 +22,7 @@ class GameStreamingStore:
                 "CREATE TABLE IF NOT EXISTS paired (uuid TEXT PRIMARY KEY, name TEXT, data TEXT);"
                 "CREATE TABLE IF NOT EXISTS live (id INTEGER PRIMARY KEY CHECK (id=1), data TEXT);"
                 "CREATE TABLE IF NOT EXISTS sessions (t REAL, kind TEXT, client TEXT, app TEXT, data TEXT);"
+                "CREATE TABLE IF NOT EXISTS targets (name TEXT PRIMARY KEY, kind TEXT, host TEXT, tv_addr TEXT, pos INTEGER);"
             )
 
     def _conn(self):
@@ -69,6 +70,40 @@ class GameStreamingStore:
             rows = db.execute(
                 "SELECT t, data FROM sessions ORDER BY t DESC, rowid DESC LIMIT ?", (limit,)).fetchall()
         return [dict(json.loads(r["data"]), t=r["t"]) for r in rows]
+
+    # ── target devices (structured; replaces the old raw JSON setting) ────────
+    def set_targets(self, targets):
+        """Replace the whole target list. Each row: {name, kind, host?, tv_addr?}.
+        host is an optional per-device override — blank means the server fills the PC's
+        known Moonlight address at read time. Rows without a name are dropped."""
+        with self._lock, closing(self._conn()) as db, db:
+            db.execute("DELETE FROM targets")
+            for i, t in enumerate(targets or []):
+                name = str((t or {}).get("name") or "").strip()
+                if not name:
+                    continue
+                db.execute(
+                    "INSERT OR REPLACE INTO targets (name, kind, host, tv_addr, pos) VALUES (?, ?, ?, ?, ?)",
+                    (name, str(t.get("kind") or ""), str(t.get("host") or ""),
+                     str(t.get("tv_addr") or ""), i))
+
+    def get_targets(self):
+        """The stored rows, in order. host/tv_addr are present only when set."""
+        with closing(self._conn()) as db:
+            rows = db.execute("SELECT name, kind, host, tv_addr FROM targets ORDER BY pos, name").fetchall()
+        out = []
+        for r in rows:
+            t = {"name": r["name"], "kind": r["kind"] or ""}
+            if r["host"]:
+                t["host"] = r["host"]
+            if r["tv_addr"]:
+                t["tv_addr"] = r["tv_addr"]
+            out.append(t)
+        return out
+
+    def has_targets(self):
+        with closing(self._conn()) as db:
+            return db.execute("SELECT COUNT(*) AS c FROM targets").fetchone()["c"] > 0
 
 
 _STORE = None
