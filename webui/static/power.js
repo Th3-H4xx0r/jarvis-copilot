@@ -107,6 +107,14 @@
       sw.onclick = function (ev) { ev.stopPropagation(); };
       sw.onchange = function () { _powerFlip(r, sw.checked, sw); };
       el.onclick = function () { root.openPowerIntegration(r.id); };
+      // An integration can ship a native card (JCPower.native[id].card) drawn under
+      // the header while it's on — e.g. Game Streaming's live line + Stream button.
+      var native = JCPower.native[r.id];
+      if (native && native.card && r.enabled !== false) {
+        var cardHost = document.createElement('div');
+        el.appendChild(cardHost);
+        try { native.card(cardHost, r); } catch (e) { /* a card never breaks the list */ }
+      }
       box.appendChild(el);
     });
     box.insertAdjacentHTML('beforeend', '<div class="intg-group-label">Integrations</div>');
