@@ -218,6 +218,15 @@ def load_all(allow_shell: bool = False) -> None:
         except Exception as exc:
             log.warning("Failed to load ui skills: %s", exc)
 
+    # Game streaming (Sunshine + Moonlight): connect driver everywhere, host control on the PC.
+    try:
+        from jc_client.skills import game_stream
+        game_stream.register()
+        if sys.platform == "win32":
+            game_stream.register_host()
+    except Exception as exc:
+        log.warning("Failed to load game streaming skills: %s", exc)
+
     # The island (the Jarvis app's, Mac or PC) and VS Code's terminal bridge.
     if sys.platform in ("darwin", "win32"):
         try:
