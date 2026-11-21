@@ -1,6 +1,7 @@
 """game_stream skill: per-device connect drivers + dispatch + registration."""
 from __future__ import annotations
 
+import json
 import types
 
 import pytest
@@ -94,9 +95,11 @@ class FakeClientRec:
 def test_detect_defaults_to_localhost(monkeypatch):
     FakeClientRec.made = []
     monkeypatch.setattr(game_stream, "SunshineClient", FakeClientRec)
+    monkeypatch.setattr(game_stream, "sunshine_username", lambda *a, **k: "")
     res = game_stream._host_detect({"sunshine": {"user": "a", "password": "b"}})
     assert res["ok"] is True
-    assert res["data"] == {"running": True, "needs_login": False}
+    assert res["data"]["running"] is True and res["data"]["needs_login"] is False
+    assert res["data"]["username"] == ""   # no state file reachable in the test env
     host, port, user, password, scheme = FakeClientRec.made[0]
     assert host == "127.0.0.1" and port == 47990 and user == "a" and password == "b"
 
@@ -118,3 +121,106 @@ def test_detect_registered_as_host_skill():
     names = {s["name"] for s in skills_registry.all_manifest()}
     assert "game_stream_detect" in names
 
+
+
+# ── host status: reachable vs needs-login vs offline ────────────────
+class _StatusClient:
+    def __init__(self, clients_exc=None, apps_exc=None):
+        self.clients_exc = clients_exc
+        self.apps_exc = apps_exc
+
+    def get_clients(self):
+        if self.clients_exc:
+            raise self.clients_exc
+        return [{"name": "Mac", "uuid": "u1"}]
+
+    def get_apps(self):
+        if self.apps_exc:
+            raise self.apps_exc
+        return [{"name": "Halo"}]
+
+
+def _status_data(monkeypatch, client):
+    monkeypatch.setattr(game_stream, "_client_from", lambda args: client)
+    return game_stream._host_status({})["data"]
+
+
+def test_status_reachable_when_login_works(monkeypatch):
+    data = _status_data(monkeypatch, _StatusClient())
+    assert data["reachable"] is True
+    assert data["needs_login"] is False
+    assert data["paired"] == [{"name": "Mac", "uuid": "u1"}]
+    assert data["apps"] == [{"name": "Halo"}]
+
+
+def test_status_auth_error_is_needs_login_not_offline(monkeypatch):
+    from jc_client.sunshine import SunshineAuthError
+    data = _status_data(monkeypatch, _StatusClient(clients_exc=SunshineAuthError("auth failed (401)")))
+    assert data["reachable"] is False
+    assert data["needs_login"] is True        # running, just the wrong login
+    assert data["paired"] == [] and data["apps"] == []
+
+
+def test_status_other_unavailable_is_offline(monkeypatch):
+    from jc_client.sunshine import SunshineUnavailable
+    data = _status_data(monkeypatch, _StatusClient(clients_exc=SunshineUnavailable("connection refused")))
+    assert data["reachable"] is False
+    assert data["needs_login"] is False       # genuinely down, not a login problem
+    assert data["paired"] == [] and data["apps"] == []
+
+
+# ── pairing: auth failure says "check your password", not "unavailable" ─────
+def test_pair_auth_error_has_distinct_password_message(monkeypatch):
+    from jc_client.sunshine import SunshineAuthError
+
+    class C:
+        def submit_pin(self, pin, name=None):
+            raise SunshineAuthError("auth failed (401)")
+
+    monkeypatch.setattr(game_stream, "_client_from", lambda args: C())
+    res = game_stream._host_pair({"pin": "1234", "device": "TV"})
+    assert res["ok"] is False
+    assert "password" in res["detail"].lower()
+    assert "unavailable" not in res["detail"].lower()
+
+
+def test_pair_offline_message_distinct_from_auth(monkeypatch):
+    from jc_client.sunshine import SunshineUnavailable
+
+    class C:
+        def submit_pin(self, pin, name=None):
+            raise SunshineUnavailable("connection refused")
+
+    monkeypatch.setattr(game_stream, "_client_from", lambda args: C())
+    res = game_stream._host_pair({"pin": "1234"})
+    assert res["ok"] is False
+    assert "unavailable" in res["detail"].lower()
+
+
+# ── username from the Sunshine state file ────────────────────
+def test_sunshine_username_reads_state_next_to_log(tmp_path):
+    (tmp_path / "sunshine_state.json").write_text(json.dumps({"username": "pranav"}))
+    assert game_stream.sunshine_username(str(tmp_path / "sunshine.log")) == "pranav"
+
+
+def test_sunshine_username_missing_file_is_blank(tmp_path):
+    assert game_stream.sunshine_username(str(tmp_path / "gone" / "sunshine.log")) == ""
+
+
+def test_sunshine_username_tolerates_nested_root(tmp_path):
+    (tmp_path / "sunshine_state.json").write_text(json.dumps({"root": {"username": "neo"}}))
+    assert game_stream.sunshine_username(str(tmp_path / "sunshine.log")) == "neo"
+
+
+def test_sunshine_username_bad_json_is_blank(tmp_path):
+    (tmp_path / "sunshine_state.json").write_text("not json at all")
+    assert game_stream.sunshine_username(str(tmp_path / "sunshine.log")) == ""
+
+
+def test_detect_includes_username(monkeypatch, tmp_path):
+    (tmp_path / "sunshine_state.json").write_text(json.dumps({"username": "admin"}))
+    monkeypatch.setattr(game_stream, "SunshineClient", FakeClientRec)
+    res = game_stream._host_detect({"sunshine": {"user": "", "password": ""},
+                                    "log_path": str(tmp_path / "sunshine.log")})
+    assert res["data"]["running"] is True
+    assert res["data"]["username"] == "admin"

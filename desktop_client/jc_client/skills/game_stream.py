@@ -16,7 +16,11 @@ apps and adjust.
 """
 from __future__ import annotations
 
+import json
+import os
 import subprocess
+import sys
+from pathlib import Path
 
 from jc_client.skills import skill
 from jc_client.sunshine import SunshineAuthError, SunshineClient, SunshineUnavailable  # noqa: F401
@@ -92,21 +96,73 @@ def _host_status(args):
     c = _client_from(args)
     try:
         paired = c.get_clients()
+    except SunshineAuthError:
+        # Running, but the login is wrong/missing (HTTP 401/403) — not "offline". The
+        # status page must say "needs sign-in", never "host unreachable".
+        return {"ok": True, "data": {"reachable": False, "needs_login": True,
+                                     "paired": [], "apps": []}}
     except SunshineUnavailable:
-        return {"ok": True, "data": {"reachable": False, "paired": [], "apps": []}}
+        return {"ok": True, "data": {"reachable": False, "needs_login": False,
+                                     "paired": [], "apps": []}}
     try:
         apps = c.get_apps()
     except SunshineUnavailable:
         apps = []
-    return {"ok": True, "data": {"reachable": True, "paired": paired, "apps": apps}}
+    return {"ok": True, "data": {"reachable": True, "needs_login": False,
+                                 "paired": paired, "apps": apps}}
+
+
+_STATE_FILE = "sunshine_state.json"
+
+
+def _state_file_candidates(log_path=""):
+    """Where Sunshine's state file might live. The state file sits in Sunshine's config
+    dir next to its log, so when we know the log path we look right beside it; otherwise
+    we fall back to the per-OS default config dir."""
+    cands = []
+    lp = str(log_path or "").strip()
+    if lp:
+        cands.append(Path(lp).expanduser().parent / _STATE_FILE)
+    if os.name == "nt" or sys.platform.startswith("win"):
+        cands.append(Path(r"C:\Program Files\Sunshine\config") / _STATE_FILE)
+    else:
+        cands.append(Path.home() / ".config" / "sunshine" / _STATE_FILE)
+        if sys.platform == "darwin":
+            cands.append(Path("/opt/homebrew/etc/sunshine") / _STATE_FILE)
+        cands.append(Path("/etc/sunshine") / _STATE_FILE)
+    return cands
+
+
+def sunshine_username(log_path=""):
+    """The Sunshine web-UI username from sunshine_state.json (found next to the
+    configured/default log path). Sunshine writes a flat {"username": ...} there;
+    some builds nest it under "root", so we check both. Returns "" when the file is
+    missing or unreadable — setup then just leaves the field as the user typed it."""
+    for path in _state_file_candidates(log_path):
+        try:
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        name = data.get("username")
+        if not name and isinstance(data.get("root"), dict):
+            name = data["root"].get("username")
+        name = str(name or "").strip()
+        if name:
+            return name
+    return ""
 
 
 def _host_detect(args):
-    """Setup probe: is Sunshine running on this PC, and does the login work?
-    Returns {running, needs_login} so the setup page can say "Found Sunshine" or
-    "running but the login is missing/wrong" instead of a bare reachable flag."""
+    """Setup probe: is Sunshine running on this PC, does the login work, and what is the
+    configured username? Returns {running, needs_login, username} so the setup page can
+    auto-fill the username and say "Found Sunshine" or "running but the login is
+    missing/wrong" instead of a bare reachable flag."""
     c = _client_from(args)
-    return {"ok": True, "data": c.probe()}
+    data = c.probe()
+    data["username"] = sunshine_username(str((args or {}).get("log_path") or ""))
+    return {"ok": True, "data": data}
 
 
 def _host_ready(args):
@@ -118,6 +174,9 @@ def _host_pair(args):
     c = _client_from(args)
     try:
         ok = c.submit_pin(str((args or {}).get("pin", "")), (args or {}).get("device"))
+    except SunshineAuthError:
+        return {"ok": False,
+                "detail": "Sunshine rejected the login — check your Sunshine password"}
     except SunshineUnavailable as e:
         return {"ok": False, "detail": f"Sunshine unavailable: {e}"}
     return {"ok": bool(ok), "detail": "paired" if ok else "pairing rejected"}
