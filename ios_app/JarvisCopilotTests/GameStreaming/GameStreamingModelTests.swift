@@ -82,4 +82,33 @@ final class GameStreamingModelTests: XCTestCase {
         XCTAssertNil(GameStreamingCardModel.primary(noTargets, recent: nil))
         XCTAssertEqual(GameStreamingCardModel.primaryTitle(nil), "Open Game Streaming")
     }
+
+    func testDecodesNeedsLogin() throws {
+        let s = try status(["ok": true, "reachable": false, "needs_login": true])
+        XCTAssertFalse(s.reachable)
+        XCTAssertTrue(s.needsLogin)
+        // default false when the key is absent
+        XCTAssertFalse(try status(["reachable": true]).needsLogin)
+    }
+
+    func testStatusTitleTellsNeedsLoginFromUnreachable() throws {
+        // genuinely offline: "Host unreachable", and the queue-a-stream hint
+        let offline = try status(["reachable": false])
+        XCTAssertEqual(GameStreamingCardModel.statusTitle(offline), "Host unreachable")
+        XCTAssertEqual(GameStreamingCardModel.statusDetail(offline),
+                       "Waking or offline — start still queues a stream")
+        // running but the login is wrong: a sign-in prompt, not "unreachable"
+        let needsLogin = try status(["reachable": false, "needs_login": true])
+        XCTAssertEqual(GameStreamingCardModel.statusTitle(needsLogin),
+                       "Sunshine needs sign-in — check your password")
+        XCTAssertEqual(GameStreamingCardModel.statusDetail(needsLogin),
+                       "Open Set up and re-enter your Sunshine password")
+        // idle
+        XCTAssertEqual(GameStreamingCardModel.statusTitle(try status(["reachable": true])), "Idle")
+        // a live stream wins over everything
+        let live = try status(["reachable": true,
+                               "live": ["active": true, "app": "Hades", "client": "Mac"]])
+        XCTAssertEqual(GameStreamingCardModel.statusTitle(live), "Streaming Hades")
+        XCTAssertEqual(GameStreamingCardModel.statusDetail(live), "On Mac")
+    }
 }

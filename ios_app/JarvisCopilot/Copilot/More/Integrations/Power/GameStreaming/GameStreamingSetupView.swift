@@ -9,7 +9,9 @@ import SwiftUI
 /// with a red label. No JSON anywhere.
 struct GameStreamingSetupView: View {
     let row: PowerRow
-    @State private var store = GameStreamingSetupStore()
+    @State private var store = GameStreamingSetupStore(afterSave: {
+        await GameStreamingStore.shared.refresh(fresh: true)
+    })
     @State private var power: PowerState
     @State private var pairing = false
     @State private var feedback: GameActionResult?
@@ -30,11 +32,15 @@ struct GameStreamingSetupView: View {
                 .padding(.top, 16)
         }
         .onAppear { store.seed(from: row) }
-        .task { if store.detect == nil { await store.refresh() } }
+        // Fresh on appear and while on screen (5 s until Sunshine is found, then 15 s).
+        .task { await store.keepFresh() }
+        .onReceive(NotificationCenter.default.publisher(for: .gameStreamingRefresh)) { _ in
+            Task { await store.refresh(fresh: true) }
+        }
         .sheet(isPresented: $pairing) {
             GameStreamingPinSheet(store: .shared) { message in
                 feedback = .ok(message)
-                Task { await store.refresh() }
+                Task { await store.refresh(fresh: true) }     // the new device joins the list
             }
         }
     }
@@ -65,7 +71,7 @@ struct GameStreamingSetupView: View {
             .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
             .accessibilityHidden(true)       // decorative; the headline carries the meaning
             VStack(alignment: .leading, spacing: 3) {
-                Text(store.detect?.headline ?? "Checking your gaming PC…")
+                Text(store.detectHeadline)
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(JcTheme.text)
                     .fixedSize(horizontal: false, vertical: true)
@@ -132,7 +138,7 @@ struct GameStreamingSetupView: View {
         JcCard(padding: 0) {
             if store.devices.isEmpty {
                 JcRow(symbol: "display", title: "No devices yet",
-                      subtitle: store.loading ? "Reading Sunshine…" : "Pair one below to add it",
+                      subtitle: store.detect == nil ? "Reading Sunshine…" : "Pair one below to add it",
                       last: false) { EmptyView() }
             } else {
                 ForEach(store.devices) { device in

@@ -54,6 +54,7 @@
 		08B5E2CA057B33670250410F /* InsightsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36C19E8EDFF135D15FE24B54 /* InsightsModels.swift */; };
 		08CDE5862BA51DF2434D77F0 /* QuotaCardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99238B6A3CE53FEC44B720 /* QuotaCardUITests.swift */; };
 		08F7324686B8ED7DA78382B5 /* TrainingRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC0D894E7B96060BB3A7DA90 /* TrainingRenderTests.swift */; };
+		091151CB22C737ED4E0D1BE5 /* GameStreamingPairTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EC9B0A7A07874BF69556164 /* GameStreamingPairTests.swift */; };
 		097F977E75E46D35A5F59766 /* PowerGates.swift in Sources */ = {isa = PBXBuildFile; fileRef = E241E4FD8B331BB3B1FA85BE /* PowerGates.swift */; };
 		09996E37D49CF4B4B0A3802B /* VoiceSessionResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 302C99DE91260B3A74792393 /* VoiceSessionResolver.swift */; };
 		09C3818B4B9F5EBF930987B2 /* WidgetRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87A0FD28CE2FA6E7FEDE3A1 /* WidgetRendererTests.swift */; };
@@ -1907,6 +1908,7 @@
 		4E70EEA6EB71D3A3B67DF810 /* PcCalibrationPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PcCalibrationPage.swift; sourceTree = "<group>"; };
 		4E8AC9A01B043EA1D328F5CE /* GlassesTranslator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesTranslator.swift; sourceTree = "<group>"; };
 		4EA5E5761C4DA35F367FAD51 /* IntegrationPlanCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationPlanCard.swift; sourceTree = "<group>"; };
+		4EC9B0A7A07874BF69556164 /* GameStreamingPairTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GameStreamingPairTests.swift; sourceTree = "<group>"; };
 		4EFB64F0F30061B8E32B5218 /* SpotifyRemoteTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpotifyRemoteTests.swift; sourceTree = "<group>"; };
 		4EFDB0B847063A1CBE9BCB80 /* AgentsModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentsModels.swift; sourceTree = "<group>"; };
 		4F8762B90BF3DAFD1DB92442 /* RouteFollowerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteFollowerTests.swift; sourceTree = "<group>"; };
@@ -5326,6 +5328,7 @@
 				74EC7AD641145433BA5CD8AB /* GameStreamingModelTests.swift */,
 				D2E0C8B7178296CDC9D8EDAE /* GameStreamingPageTests.swift */,
 				39A2108FFFD9FE72F10FD156 /* GameStreamingSetupTests.swift */,
+				4EC9B0A7A07874BF69556164 /* GameStreamingPairTests.swift */,
 			);
 			name = GameStreaming;
 			path = GameStreaming;
@@ -6146,6 +6149,7 @@
 				B21F8F029F2E127CF9082DFF /* GameStreamingModelTests.swift in Sources */,
 				A297002B5ECB11DD9F192B51 /* GameStreamingPageTests.swift in Sources */,
 				6E7F9AC46EC7BA2E6DF58FC7 /* GameStreamingSetupTests.swift in Sources */,
+				091151CB22C737ED4E0D1BE5 /* GameStreamingPairTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

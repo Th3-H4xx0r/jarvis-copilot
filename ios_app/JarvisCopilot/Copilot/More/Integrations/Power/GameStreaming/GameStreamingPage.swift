@@ -30,7 +30,8 @@ struct GameStreamingPage: View {
             pairedSection
             recentSection
         }
-        .task { if store.status == nil { await store.refresh() } }
+        // Fresh on appear, then every 5 s while the page is on screen (stops on leave).
+        .task { await store.keepFresh() }
         .sheet(isPresented: $pairing) {
             GameStreamingPinSheet(store: store) { banner = $0 }
         }
@@ -71,14 +72,15 @@ struct GameStreamingPage: View {
     }
 
     private var statusTitle: String {
-        if let live = GameStreamingCardModel.liveLabel(status) { return live }
-        return (status?.reachable ?? false) ? "Idle" : "Host unreachable"
+        if status == nil {
+            return store.error == nil ? "Checking your gaming PC…" : "Couldn't load the status"
+        }
+        return GameStreamingCardModel.statusTitle(status)
     }
 
     private var statusDetail: String {
-        if let client = status?.live.client, status?.live.active == true { return "On \(client)" }
-        if status?.reachable ?? false { return "Sunshine is up and ready" }
-        return "Waking or offline — start still queues a stream"
+        if status == nil { return store.error ?? "One moment" }
+        return GameStreamingCardModel.statusDetail(status)
     }
 
     // MARK: game picker
@@ -90,7 +92,7 @@ struct GameStreamingPage: View {
         JcCard(padding: 0) {
             if apps.isEmpty {
                 JcRow(symbol: "gamecontroller", title: "No games found",
-                      subtitle: store.loading ? "Reading the host…" : "They appear once Sunshine lists them",
+                      subtitle: gamesHint,
                       last: true) { EmptyView() }
             } else {
                 JcRow(symbol: "gamecontroller", title: "Game", last: true) {
@@ -146,6 +148,12 @@ struct GameStreamingPage: View {
                 }
             }
         }
+    }
+
+    private var gamesHint: String {
+        guard let status else { return "Reading the host…" }
+        if status.needsLogin { return "They appear once Sunshine accepts your login" }
+        return "They appear once Sunshine lists them"
     }
 
     private var chosenGame: String {

@@ -131,6 +131,91 @@ final class GameStreamingSetupTests: XCTestCase {
         XCTAssertTrue(captured.sends.isEmpty)
         XCTAssertEqual(fake.savedTargets.map(\.name).sorted(), ["MacBook", "Shield"])
     }
+
+    func testDetectDecodesUsername() {
+        let d = GameDetect(json: ["online": true, "running": true, "needs_login": true, "username": "admin"])
+        XCTAssertEqual(d.username, "admin")
+        XCTAssertEqual(GameDetect(json: ["online": true]).username, "")
+    }
+
+    func testHeadlineRejectsStoredLoginWhenPasswordSet() {
+        let d = GameDetect(online: true, running: true, needsLogin: true)
+        XCTAssertEqual(d.headline(passwordSet: true),
+                       "That login was rejected — check your Sunshine password")
+        XCTAssertEqual(d.headline(passwordSet: false),
+                       "Sunshine is running — add your Sunshine login below")
+        XCTAssertEqual(GameDetect(online: true, running: true, needsLogin: false).headline(passwordSet: true),
+                       "Found Sunshine on your gaming PC")
+    }
+
+    func testRefreshAutofillsUsernameWhenEmpty() async {
+        let fake = FakeSetupAPI(status: sampleStatus())
+        fake.detectValue = GameDetect(online: true, running: true, needsLogin: false, username: "detected")
+        let store = GameStreamingSetupStore(client: fake)
+        await store.refresh()
+        XCTAssertEqual(store.user, "detected")
+    }
+
+    func testRefreshKeepsTypedUsernameOverDetected() async {
+        let fake = FakeSetupAPI(status: sampleStatus())
+        fake.detectValue = GameDetect(online: true, running: true, needsLogin: false, username: "detected")
+        let store = GameStreamingSetupStore(client: fake)
+        store.user = "mine"
+        await store.refresh()
+        XCTAssertEqual(store.user, "mine")
+    }
+
+    // MARK: after Save, everything re-checks (no stale status / endless spinner)
+
+    func testSaveReRunsDetectAndRefreshesTheOperationalPage() async {
+        let fake = FakeSetupAPI(status: sampleStatus())
+        let defaults = UserDefaults(suiteName: "gs-setup-\(UUID().uuidString)")!
+        let power = PowerState(
+            fetch: { ["integrations": [["id": "game-streaming", "name": "Game Streaming", "enabled": true]]] },
+            send: { _, _ in ["ok": true] },
+            defaults: defaults, showApprovals: {})
+        var operationalRefreshes = 0
+        let store = GameStreamingSetupStore(client: fake, afterSave: { operationalRefreshes += 1 })
+        store.seed(from: powerRow())
+        await store.refresh()
+        let before = fake.detectCalls
+        store.password = "the-right-one"
+        let result = await store.save(row: powerRow(), power: power)
+        XCTAssertEqual(result, .ok("Saved"))
+        XCTAssertEqual(fake.detectCalls, before + 1)       // re-checked with the new login
+        XCTAssertEqual(operationalRefreshes, 1)            // the status page refreshed too
+        XCTAssertFalse(store.loading)
+    }
+
+    func testBackgroundRefreshKeepsUnsavedEditsAndAddsNewDevices() async {
+        let fake = FakeSetupAPI(status: sampleStatus())
+        let store = GameStreamingSetupStore(client: fake)
+        await store.refresh()
+        store.setKind("androidtv", for: "MacBook")          // unsaved edit
+        fake.statusValue.paired.append(GamePaired(name: "iPad", uuid: "u3"))
+        await store.refresh()                               // the 5 s poll
+        XCTAssertEqual(store.devices.first { $0.name == "MacBook" }?.kind, "androidtv")
+        XCTAssertEqual(store.devices.map(\.name), ["MacBook", "Shield", "iPad"])
+    }
+
+    func testStoreHeadlineRejectsStoredLoginWhenRejected() async {
+        let fake = FakeSetupAPI(status: sampleStatus())
+        fake.detectValue = GameDetect(online: true, running: true, needsLogin: true)
+        let row = PowerRow(json: [
+            "id": "game-streaming", "name": "Game Streaming", "enabled": true,
+            "settings_schema": [
+                ["key": "user", "label": "Sunshine username", "kind": "text"],
+                ["key": "password", "label": "Sunshine password", "kind": "secret"],
+                ["key": "log_path", "label": "Sunshine log path", "kind": "text"],
+            ],
+            "settings": ["user": "", "password": ["set": true], "log_path": ""],
+            "native": ["ios": ["settings"]],
+        ])!
+        let store = GameStreamingSetupStore(client: fake)
+        store.seed(from: row)
+        await store.refresh()
+        XCTAssertEqual(store.detectHeadline, "That login was rejected — check your Sunshine password")
+    }
 }
 
 /// A setup-capable fake: records the targets it was asked to write.
@@ -138,15 +223,16 @@ final class FakeSetupAPI: GameStreamingAPI {
     var detectValue = GameDetect(online: true, running: true, needsLogin: false)
     var statusValue: GameStreamingStatus
     private(set) var savedTargets: [GameTargetEdit] = []
+    private(set) var detectCalls = 0
 
     init(status: GameStreamingStatus) { statusValue = status }
 
     func status() async throws -> GameStreamingStatus { statusValue }
     func start(target: String, game: String) async throws -> GameStartOutcome { .started(note: nil) }
     func stop(target: String?) async throws {}
-    func pair(device: String, pin: String) async throws -> GamePairOutcome { .paired(detail: nil) }
+    func pair(device: String, pin: String, pairingID: String?) async throws -> GamePairOutcome { .paired(detail: nil) }
     func unpair(device: String) async throws {}
-    func detect() async throws -> GameDetect { detectValue }
+    func detect() async throws -> GameDetect { detectCalls += 1; return detectValue }
     func setTargets(_ targets: [GameTargetEdit]) async throws { savedTargets = targets }
 }
 

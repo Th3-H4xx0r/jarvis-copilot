@@ -46,7 +46,7 @@ struct GameStreamingCard: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: toast)
-        .task { if store.status == nil { await store.refresh() } }
+        .task { await store.refresh() }
     }
 
     private func act(_ work: @escaping () async -> GameActionResult) {

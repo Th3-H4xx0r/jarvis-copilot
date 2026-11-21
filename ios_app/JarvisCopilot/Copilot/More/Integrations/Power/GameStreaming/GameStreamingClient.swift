@@ -11,7 +11,8 @@ protocol GameStreamingAPI {
     func status() async throws -> GameStreamingStatus
     func start(target: String, game: String) async throws -> GameStartOutcome
     func stop(target: String?) async throws
-    func pair(device: String, pin: String) async throws -> GamePairOutcome
+    func pair(device: String, pin: String, pairingID: String?) async throws -> GamePairOutcome
+    func pairings() async throws -> GamePairingsReply
     func unpair(device: String) async throws
     func detect() async throws -> GameDetect
     func setTargets(_ targets: [GameTargetEdit]) async throws
@@ -21,6 +22,7 @@ protocol GameStreamingAPI {
 extension GameStreamingAPI {
     func detect() async throws -> GameDetect { GameDetect() }
     func setTargets(_ targets: [GameTargetEdit]) async throws {}
+    func pairings() async throws -> GamePairingsReply { GamePairingsReply() }
 }
 
 struct GameStreamingClient: GameStreamingAPI {
@@ -29,7 +31,7 @@ struct GameStreamingClient: GameStreamingAPI {
     init(api: JarvisAPI = .shared) { self.api = api }
 
     func status() async throws -> GameStreamingStatus {
-        GameStreamingStatus(json: try await api.get("/api/game-streaming/status", timeout: 20).object())
+        GameStreamingStatus(json: try await api.get("/api/game-streaming/status", timeout: 15).object())
     }
 
     func start(target: String, game: String) async throws -> GameStartOutcome {
@@ -52,10 +54,11 @@ struct GameStreamingClient: GameStreamingAPI {
         _ = try await api.post("/api/game-streaming/stop", json: body)
     }
 
-    func pair(device: String, pin: String) async throws -> GamePairOutcome {
+    func pair(device: String, pin: String, pairingID: String?) async throws -> GamePairOutcome {
+        var payload: [String: Any] = ["device": device, "pin": pin]
+        if let pairingID, !pairingID.isEmpty { payload["pairing_id"] = pairingID }
         do {
-            let body = try await api.post("/api/game-streaming/pair",
-                                          json: ["device": device, "pin": pin]).object()
+            let body = try await api.post("/api/game-streaming/pair", json: payload, timeout: 30).object()
             if body["ok"] as? Bool == true {
                 return .paired(detail: (body["detail"] as? String).flatMap { $0.isEmpty ? nil : $0 })
             }
@@ -65,12 +68,23 @@ struct GameStreamingClient: GameStreamingAPI {
         }
     }
 
+    /// The devices waiting to pair. A 409 (PC asleep/offline) is an answer, not an error.
+    func pairings() async throws -> GamePairingsReply {
+        do {
+            return GamePairingsReply(json: try await api.get("/api/game-streaming/pairings",
+                                                             timeout: 15).object())
+        } catch let APIError.http(status, message) where status == 409 {
+            return GamePairingsReply(reachable: false, offline: true,
+                                     detail: message.isEmpty ? nil : message)
+        }
+    }
+
     func unpair(device: String) async throws {
         _ = try await api.post("/api/game-streaming/unpair", json: ["device": device])
     }
 
     func detect() async throws -> GameDetect {
-        GameDetect(json: try await api.get("/api/game-streaming/detect", timeout: 20).object())
+        GameDetect(json: try await api.get("/api/game-streaming/detect", timeout: 15).object())
     }
 
     func setTargets(_ targets: [GameTargetEdit]) async throws {

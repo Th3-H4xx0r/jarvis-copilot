@@ -6,21 +6,33 @@ final class FakeGameStreamingAPI: GameStreamingAPI {
     var statusValue: GameStreamingStatus
     var startOutcome: GameStartOutcome = .started(note: nil)
     var pairOutcome: GamePairOutcome = .paired(detail: nil)
+    var pairingsValue = GamePairingsReply()
+    /// Status behaviour for the refresh tests: throw, or answer only after a delay.
+    var statusError: Error?
+    var statusDelay: Double = 0
+    private(set) var statusCalls = 0
     private(set) var startCalls: [(target: String, game: String)] = []
-    private(set) var pairCalls: [(device: String, pin: String)] = []
+    private(set) var pairCalls: [(device: String, pin: String, pairingID: String?)] = []
     private(set) var unpairCalls: [String] = []
     private(set) var stopCalls = 0
 
     init(status: GameStreamingStatus) { statusValue = status }
 
-    func status() async throws -> GameStreamingStatus { statusValue }
+    func status() async throws -> GameStreamingStatus {
+        statusCalls += 1
+        let value = statusValue                 // what the host said when asked
+        if statusDelay > 0 { try await Task.sleep(nanoseconds: UInt64(statusDelay * 1_000_000_000)) }
+        if let statusError { throw statusError }
+        return value
+    }
     func start(target: String, game: String) async throws -> GameStartOutcome {
         startCalls.append((target, game)); return startOutcome
     }
     func stop(target: String?) async throws { stopCalls += 1 }
-    func pair(device: String, pin: String) async throws -> GamePairOutcome {
-        pairCalls.append((device, pin)); return pairOutcome
+    func pair(device: String, pin: String, pairingID: String?) async throws -> GamePairOutcome {
+        pairCalls.append((device, pin, pairingID)); return pairOutcome
     }
+    func pairings() async throws -> GamePairingsReply { pairingsValue }
     func unpair(device: String) async throws { unpairCalls.append(device) }
 }
 

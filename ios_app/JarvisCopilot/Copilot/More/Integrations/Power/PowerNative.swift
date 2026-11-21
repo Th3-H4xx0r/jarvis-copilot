@@ -20,6 +20,18 @@ enum PowerNative {
         }
     }
 
+    /// Pull-to-refresh on a Power page also reloads its native views' own data.
+    @MainActor
+    static func refresh(_ id: String) async {
+        switch id {
+        case "game-streaming":
+            NotificationCenter.default.post(name: .gameStreamingRefresh, object: nil)
+            await GameStreamingStore.shared.refresh(fresh: true)
+        default:
+            break
+        }
+    }
+
     static func settings(_ row: PowerRow) -> AnyView? {
         guard row.nativePieces["ios"]?.contains("settings") == true else { return nil }
         switch row.id {

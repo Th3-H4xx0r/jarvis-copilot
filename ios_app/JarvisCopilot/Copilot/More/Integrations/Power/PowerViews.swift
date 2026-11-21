@@ -149,6 +149,7 @@ struct PowerPage: View {
         .refreshable {
             await power.refresh()
             await ui?.load()
+            await PowerNative.refresh(id)
         }
         .jcPageChrome(row?.name ?? "Power")
         .moreToast($toast)
