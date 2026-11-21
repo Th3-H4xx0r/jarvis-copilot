@@ -5,9 +5,12 @@ and a CSRF token for state-changing calls. stdlib only (urllib + ssl) to keep
 jc-client light. Connection/auth failures raise SunshineUnavailable so callers
 surface a clean "Sunshine down" instead of crashing.
 
-NOTE (verify live): the pairing payload shape ({"pin","name"}) and the CSRF
-header name ("X-CSRF-Token") follow Sunshine's API docs; confirm against the
-running build and adjust if it rejects them.
+Pairing (verified live against Sunshine's own web UI, 2026-11-21): a Moonlight
+client that starts pairing shows a 4-digit PIN and appears in GET /api/pin as
+{"pairings": [{"id": <32 hex>, "name", "address"}]}; POST /api/pin with
+{"pairing_id", "pin", "name"} answers 200 {"status": true|false} (false = wrong
+PIN or unknown id). GET /api/csrf-token answers {"csrf_token": "..."}, sent back
+as the X-CSRF-Token header.
 """
 from __future__ import annotations
 
@@ -27,6 +30,32 @@ class SunshineAuthError(SunshineUnavailable):
     """Sunshine answered but rejected our credentials (401/403): it is running, it
     just needs a valid login. A subclass so existing except-SunshineUnavailable
     callers keep treating it as down."""
+
+
+class SunshineError(RuntimeError):
+    """Sunshine answered but refused the request (e.g. HTTP 400 with {"error": ...}).
+    It is running, so this is deliberately NOT a SunshineUnavailable."""
+
+    def __init__(self, status, message):
+        super().__init__(message)
+        self.status = status
+        self.message = message
+
+
+class SunshineCsrfError(SunshineError):
+    """Sunshine refused a state change over its CSRF token (missing/invalid/expired)."""
+
+
+_CSRF_ERRORS = {"Missing CSRF token", "Invalid CSRF token", "CSRF token expired"}
+
+
+def _http_error_message(e):
+    try:
+        body = json.loads(e.read().decode() or "{}")
+    except Exception:  # noqa: BLE001
+        body = {}
+    msg = body.get("error") if isinstance(body, dict) else None
+    return str(msg or f"HTTP {e.code}")
 
 
 class SunshineClient:
@@ -55,7 +84,10 @@ class SunshineClient:
         except urllib.error.HTTPError as e:
             if e.code in (401, 403):
                 raise SunshineAuthError(f"auth failed ({e.code})") from e
-            raise
+            msg = _http_error_message(e)
+            if msg in _CSRF_ERRORS:
+                raise SunshineCsrfError(e.code, msg) from e
+            raise SunshineError(e.code, msg) from e
         except (urllib.error.URLError, OSError, socket.timeout) as e:
             raise SunshineUnavailable(str(e)) from e
 
@@ -65,7 +97,7 @@ class SunshineClient:
         return self._open(req)
 
     def _csrf(self):
-        return self._get("/api/csrf-token").get("token", "")
+        return self._get("/api/csrf-token").get("csrf_token", "")
 
     def _post(self, path, body):
         token = self._csrf()
@@ -105,10 +137,20 @@ class SunshineClient:
     def get_config(self):
         return self._get("/api/config")
 
+    def pending_pairings(self):
+        """Pair requests waiting for a PIN: [{"id", "name", "address"}] (Sunshine's own
+        web UI polls this every 2 s)."""
+        raw = self._get("/api/pin").get("pairings") or []
+        return [p for p in raw if isinstance(p, dict) and p.get("id")]
+
     # ── state changes (CSRF-guarded) ─────────────────────────────────────
-    def submit_pin(self, pin, name=None):
-        resp = self._post("/api/pin", {"pin": pin, "name": name or ""})
-        return bool(resp.get("status", True))
+    def submit_pin(self, pin, name=None, pairing_id=None):
+        """Answer one pending pair request. True when Sunshine accepted the PIN; False
+        for a wrong PIN or an id that is no longer pending (Sunshine answers 200 with
+        status false for both)."""
+        resp = self._post("/api/pin", {"pairing_id": pairing_id or "", "pin": pin,
+                                       "name": name or ""})
+        return resp.get("status") is True
 
     def unpair(self, uuid):
         self._post("/api/clients/unpair", {"uuid": uuid})

@@ -9,6 +9,9 @@ import pytest
 from jc_client.skills import game_stream
 from jc_client import skills as skills_registry
 
+PID = "13270f21e5f70861ecdfd7ae0a10ff4f"
+PID2 = "0123456789abcdef0123456789abcdef"
+
 
 class FakeRun:
     def __init__(self, returncode=0, stderr="", raise_exc=None):
@@ -174,11 +177,11 @@ def test_pair_auth_error_has_distinct_password_message(monkeypatch):
     from jc_client.sunshine import SunshineAuthError
 
     class C:
-        def submit_pin(self, pin, name=None):
+        def submit_pin(self, pin, name=None, pairing_id=None):
             raise SunshineAuthError("auth failed (401)")
 
     monkeypatch.setattr(game_stream, "_client_from", lambda args: C())
-    res = game_stream._host_pair({"pin": "1234", "device": "TV"})
+    res = game_stream._host_pair({"pin": "1234", "device": "TV", "pairing_id": PID})
     assert res["ok"] is False
     assert "password" in res["detail"].lower()
     assert "unavailable" not in res["detail"].lower()
@@ -188,11 +191,11 @@ def test_pair_offline_message_distinct_from_auth(monkeypatch):
     from jc_client.sunshine import SunshineUnavailable
 
     class C:
-        def submit_pin(self, pin, name=None):
+        def submit_pin(self, pin, name=None, pairing_id=None):
             raise SunshineUnavailable("connection refused")
 
     monkeypatch.setattr(game_stream, "_client_from", lambda args: C())
-    res = game_stream._host_pair({"pin": "1234"})
+    res = game_stream._host_pair({"pin": "1234", "pairing_id": PID})
     assert res["ok"] is False
     assert "unavailable" in res["detail"].lower()
 
@@ -224,3 +227,130 @@ def test_detect_includes_username(monkeypatch, tmp_path):
                                     "log_path": str(tmp_path / "sunshine.log")})
     assert res["data"]["running"] is True
     assert res["data"]["username"] == "admin"
+
+
+# ── pairing against Sunshine's real API: pending requests + pairing_id ──────
+class _PairClient:
+    def __init__(self, pending=None, accept=True, pending_exc=None, submit_exc=None):
+        self.pending = pending if pending is not None else []
+        self.accept = accept
+        self.pending_exc = pending_exc
+        self.submit_exc = submit_exc
+        self.submitted = []
+
+    def pending_pairings(self):
+        if self.pending_exc:
+            raise self.pending_exc
+        return self.pending
+
+    def submit_pin(self, pin, name=None, pairing_id=None):
+        if self.submit_exc:
+            raise self.submit_exc
+        self.submitted.append((pin, name, pairing_id))
+        return self.accept
+
+
+def _pair(monkeypatch, client, args):
+    monkeypatch.setattr(game_stream, "_client_from", lambda a: client)
+    return game_stream._host_pair(args)
+
+
+def test_pending_skill_lists_pairings(monkeypatch):
+    c = _PairClient(pending=[{"id": PID, "name": "roth", "address": "192.168.1.69"}])
+    monkeypatch.setattr(game_stream, "_client_from", lambda a: c)
+    res = game_stream._host_pending({})
+    assert res["ok"] is True
+    assert res["data"]["pairings"] == [{"id": PID, "name": "roth", "address": "192.168.1.69"}]
+    assert res["data"]["needs_login"] is False
+
+
+def test_pending_skill_auth_error_is_needs_login(monkeypatch):
+    from jc_client.sunshine import SunshineAuthError
+    c = _PairClient(pending_exc=SunshineAuthError("auth failed (401)"))
+    monkeypatch.setattr(game_stream, "_client_from", lambda a: c)
+    res = game_stream._host_pending({})
+    assert res["data"]["needs_login"] is True
+    assert res["data"]["pairings"] == []
+
+
+def test_pending_skill_offline_is_not_needs_login(monkeypatch):
+    from jc_client.sunshine import SunshineUnavailable
+    c = _PairClient(pending_exc=SunshineUnavailable("connection refused"))
+    monkeypatch.setattr(game_stream, "_client_from", lambda a: c)
+    res = game_stream._host_pending({})
+    assert res["data"]["needs_login"] is False
+    assert res["data"]["reachable"] is False
+    assert res["data"]["pairings"] == []
+
+
+def test_pair_with_pairing_id_submits_it(monkeypatch):
+    c = _PairClient()
+    res = _pair(monkeypatch, c, {"pin": "1234", "device": "Roth", "pairing_id": PID})
+    assert res["ok"] is True
+    assert c.submitted == [("1234", "Roth", PID)]
+
+
+def test_pair_without_pending_says_open_moonlight(monkeypatch):
+    c = _PairClient(pending=[])
+    res = _pair(monkeypatch, c, {"pin": "1234"})
+    assert res["ok"] is False
+    assert res["detail"] == ("No device is waiting to pair. Open Moonlight on the device and tap "
+                             "your PC — it shows a 4-digit PIN — then enter it here.")
+    assert c.submitted == []
+
+
+def test_pair_one_pending_is_used_and_names_the_device(monkeypatch):
+    c = _PairClient(pending=[{"id": PID, "name": "roth", "address": "192.168.1.69"}])
+    res = _pair(monkeypatch, c, {"pin": "1234"})
+    assert res["ok"] is True
+    assert c.submitted == [("1234", "roth", PID)]
+
+
+def test_pair_several_pending_matches_device_name(monkeypatch):
+    c = _PairClient(pending=[{"id": PID, "name": "roth", "address": "a"},
+                             {"id": PID2, "name": "Shield", "address": "b"}])
+    res = _pair(monkeypatch, c, {"pin": "1234", "device": "shield"})
+    assert res["ok"] is True
+    assert c.submitted == [("1234", "shield", PID2)]
+
+
+def test_pair_several_pending_without_match_asks_to_pick(monkeypatch):
+    pend = [{"id": PID, "name": "roth", "address": "a"},
+            {"id": PID2, "name": "Shield", "address": "b"}]
+    c = _PairClient(pending=pend)
+    res = _pair(monkeypatch, c, {"pin": "1234", "device": "Living Room"})
+    assert res["ok"] is False
+    assert res["detail"] == "Several devices are waiting — pick one"
+    assert res["pairings"] == pend
+    assert c.submitted == []
+
+
+def test_pair_wrong_pin_has_clear_message(monkeypatch):
+    c = _PairClient(accept=False)
+    res = _pair(monkeypatch, c, {"pin": "9999", "pairing_id": PID})
+    assert res["ok"] is False
+    assert res["detail"] == ("Sunshine didn't accept that PIN — check the PIN shown on the "
+                             "device and try again")
+
+
+def test_pair_csrf_rejection_has_its_own_message(monkeypatch):
+    from jc_client.sunshine import SunshineCsrfError
+    c = _PairClient(submit_exc=SunshineCsrfError(400, "CSRF token expired"))
+    res = _pair(monkeypatch, c, {"pin": "1234", "pairing_id": PID})
+    assert res["ok"] is False
+    assert "csrf" in res["detail"].lower()
+    assert "unavailable" not in res["detail"].lower()
+
+
+def test_pair_sunshine_400_passes_its_message(monkeypatch):
+    from jc_client.sunshine import SunshineError
+    c = _PairClient(submit_exc=SunshineError(400, "pairing_id must contain exactly 32 hexadecimal characters"))
+    res = _pair(monkeypatch, c, {"pin": "1234", "pairing_id": "bad"})
+    assert res["ok"] is False
+    assert "pairing_id" in res["detail"]
+
+
+def test_pending_registered_as_host_skill():
+    game_stream.register_host()
+    names = {s["name"] for s in skills_registry.all_manifest()}
+    assert "game_stream_pending" in names

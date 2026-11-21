@@ -10,9 +10,13 @@ import pytest
 from jc_client.sunshine import SunshineClient, SunshineUnavailable
 
 
+PID = "13270f21e5f70861ecdfd7ae0a10ff4f"
+
+
 class _Rec:
     def __init__(self):
         self.requests = []  # (method, path, headers, body)
+        self.csrf_value = "CSRF123"   # what GET /api/csrf-token hands out
 
 
 def _make_handler(rec):
@@ -39,7 +43,13 @@ def _make_handler(rec):
                     {"name": "TV", "uuid": "u2"},
                 ]})
             elif self.path == "/api/csrf-token":
-                self._send({"status": True, "token": "CSRF123"})
+                # Real Sunshine: {"csrf_token": "..."} (key csrf_token, not token).
+                self._send({"csrf_token": rec.csrf_value})
+            elif self.path == "/api/pin":
+                # Real Sunshine: the pending pair requests a Moonlight client started.
+                self._send({"pairings": [
+                    {"id": PID, "name": "roth", "address": "192.168.1.69"},
+                ]})
             elif self.path == "/api/apps":
                 self._send({"status": True, "apps": [{"name": "Cyberpunk 2077"}]})
             elif self.path == "/api/config":
@@ -52,7 +62,16 @@ def _make_handler(rec):
             body = self.rfile.read(length).decode() if length else ""
             rec.requests.append(("POST", self.path, dict(self.headers), body))
             if self.headers.get("X-CSRF-Token") != "CSRF123":
-                self._send({"status": False, "error": "csrf"}, 403)
+                self._send({"status": False, "error": "Invalid CSRF token"}, 400)
+                return
+            if self.path == "/api/pin":
+                data = json.loads(body or "{}")
+                pid = str(data.get("pairing_id") or "")
+                if len(pid) != 32 or any(c not in "0123456789abcdef" for c in pid.lower()):
+                    self._send({"error": "pairing_id must contain exactly 32 hexadecimal characters"}, 400)
+                    return
+                # Real Sunshine answers 200 either way; status false = wrong PIN / unknown id.
+                self._send({"status": pid == PID and data.get("pin") == "1234"})
                 return
             self._send({"status": True})
 
@@ -86,7 +105,7 @@ def test_get_clients_parses_named_certs(server):
 
 def test_state_change_fetches_csrf(server):
     port, rec = server
-    ok = _client(port).submit_pin("1234")
+    ok = _client(port).submit_pin("1234", "roth", PID)
     assert ok is True
     paths = [r[1] for r in rec.requests]
     assert "/api/csrf-token" in paths
@@ -97,7 +116,7 @@ def test_state_change_fetches_csrf(server):
 
 def test_submit_pin_posts_pin(server):
     port, rec = server
-    _client(port).submit_pin("4321")
+    _client(port).submit_pin("4321", "roth", PID)
     post = [r for r in rec.requests if r[0] == "POST" and r[1] == "/api/pin"][0]
     assert "4321" in post[3]
 
@@ -140,3 +159,54 @@ def test_auth_error_is_a_sunshine_unavailable_subclass():
     from jc_client.sunshine import SunshineAuthError
     assert issubclass(SunshineAuthError, SunshineUnavailable)
 
+
+
+# ── the real Sunshine pairing API (verified live 2026-11-21) ──────────────
+def test_csrf_reads_the_csrf_token_key(server):
+    port, rec = server
+    assert _client(port)._csrf() == "CSRF123"
+
+
+def test_pending_pairings_parses_pairings_list(server):
+    port, rec = server
+    assert _client(port).pending_pairings() == [
+        {"id": PID, "name": "roth", "address": "192.168.1.69"}]
+    get = [r for r in rec.requests if r[0] == "GET" and r[1] == "/api/pin"][0]
+    assert get[2].get("Authorization", "").startswith("Basic ")
+
+
+def test_submit_pin_sends_pairing_id_pin_and_name(server):
+    port, rec = server
+    assert _client(port).submit_pin("1234", "roth", PID) is True
+    post = [r for r in rec.requests if r[0] == "POST" and r[1] == "/api/pin"][0]
+    assert json.loads(post[3]) == {"pairing_id": PID, "pin": "1234", "name": "roth"}
+
+
+def test_submit_pin_wrong_pin_returns_false(server):
+    port, rec = server
+    assert _client(port).submit_pin("9999", "roth", PID) is False
+
+
+def test_submit_pin_bad_pairing_id_raises_with_sunshine_message(server):
+    from jc_client.sunshine import SunshineError
+    port, rec = server
+    with pytest.raises(SunshineError) as e:
+        _client(port).submit_pin("1234", "roth", "")
+    assert "pairing_id" in str(e.value)
+    assert e.value.status == 400
+
+
+def test_csrf_rejection_raises_its_own_error(server):
+    from jc_client.sunshine import SunshineCsrfError
+    port, rec = server
+    rec.csrf_value = "stale"
+    with pytest.raises(SunshineCsrfError) as e:
+        _client(port).submit_pin("1234", "roth", PID)
+    assert "CSRF" in str(e.value)
+
+
+def test_request_errors_are_not_unavailable():
+    # A 400 means Sunshine answered: never read it as "Sunshine is down".
+    from jc_client.sunshine import SunshineCsrfError, SunshineError
+    assert not issubclass(SunshineError, SunshineUnavailable)
+    assert issubclass(SunshineCsrfError, SunshineError)

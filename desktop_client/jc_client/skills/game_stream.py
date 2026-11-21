@@ -23,7 +23,8 @@ import sys
 from pathlib import Path
 
 from jc_client.skills import skill
-from jc_client.sunshine import SunshineAuthError, SunshineClient, SunshineUnavailable  # noqa: F401
+from jc_client.sunshine import (  # noqa: F401
+    SunshineAuthError, SunshineClient, SunshineCsrfError, SunshineError, SunshineUnavailable)
 
 DESKTOP_APP = "Desktop"
 
@@ -170,16 +171,73 @@ def _host_ready(args):
     return {"ok": True, "data": {"reachable": c.reachable()}}
 
 
-def _host_pair(args):
+NO_PENDING_DETAIL = ("No device is waiting to pair. Open Moonlight on the device and tap "
+                     "your PC — it shows a 4-digit PIN — then enter it here.")
+SEVERAL_PENDING_DETAIL = "Several devices are waiting — pick one"
+WRONG_PIN_DETAIL = ("Sunshine didn't accept that PIN — check the PIN shown on the device "
+                    "and try again")
+AUTH_DETAIL = "Sunshine rejected the login — check your Sunshine password"
+
+
+def _host_pending(args):
+    """The pair requests waiting for a PIN (a Moonlight client that started pairing).
+    {pairings: [{id, name, address}], needs_login, reachable} — a wrong login reads as
+    needs_login, a stopped Sunshine as reachable false, never a crash."""
     c = _client_from(args)
     try:
-        ok = c.submit_pin(str((args or {}).get("pin", "")), (args or {}).get("device"))
+        pairings = c.pending_pairings()
     except SunshineAuthError:
-        return {"ok": False,
-                "detail": "Sunshine rejected the login — check your Sunshine password"}
+        return {"ok": True, "data": {"pairings": [], "needs_login": True, "reachable": True}}
+    except SunshineUnavailable:
+        return {"ok": True, "data": {"pairings": [], "needs_login": False, "reachable": False}}
+    except SunshineError as e:
+        return {"ok": False, "detail": f"Sunshine refused the request: {e.message}",
+                "data": {"pairings": [], "needs_login": False, "reachable": True}}
+    return {"ok": True, "data": {"pairings": pairings, "needs_login": False, "reachable": True}}
+
+
+def _pick_pending(pending, device):
+    """One pending request to answer, or None when it's ambiguous: the only one, else the
+    one whose name matches the device name (case-insensitive)."""
+    if len(pending) == 1:
+        return pending[0]
+    want = (device or "").strip().lower()
+    matches = [p for p in pending if want and str(p.get("name") or "").strip().lower() == want]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _host_pair(args):
+    """Answer a Moonlight pair request with its PIN. Sunshine needs the pending request's
+    pairing_id; when the caller didn't pick one, use the only pending request (or the one
+    named like the device) and say plainly when nothing is waiting."""
+    a = args or {}
+    c = _client_from(a)
+    pin = str(a.get("pin") or "").strip()
+    device = str(a.get("device") or "").strip()
+    pairing_id = str(a.get("pairing_id") or "").strip()
+    try:
+        if not pairing_id:
+            pending = c.pending_pairings()
+            if not pending:
+                return {"ok": False, "detail": NO_PENDING_DETAIL}
+            chosen = _pick_pending(pending, device)
+            if chosen is None:
+                return {"ok": False, "detail": SEVERAL_PENDING_DETAIL, "pairings": pending}
+            pairing_id = str(chosen.get("id") or "")
+            device = device or str(chosen.get("name") or "")
+        ok = c.submit_pin(pin, device, pairing_id)
+    except SunshineAuthError:
+        return {"ok": False, "detail": AUTH_DETAIL}
     except SunshineUnavailable as e:
         return {"ok": False, "detail": f"Sunshine unavailable: {e}"}
-    return {"ok": bool(ok), "detail": "paired" if ok else "pairing rejected"}
+    except SunshineCsrfError as e:
+        return {"ok": False,
+                "detail": f"Sunshine refused the request (CSRF: {e.message}) — try again"}
+    except SunshineError as e:
+        return {"ok": False, "detail": f"Sunshine refused the pairing: {e.message}"}
+    if not ok:
+        return {"ok": False, "detail": WRONG_PIN_DETAIL}
+    return {"ok": True, "detail": f"Paired {device}" if device else "Paired"}
 
 
 def _host_unpair(args):
@@ -188,6 +246,8 @@ def _host_unpair(args):
         c.unpair(str((args or {}).get("uuid", "")))
     except SunshineUnavailable as e:
         return {"ok": False, "detail": f"Sunshine unavailable: {e}"}
+    except SunshineError as e:
+        return {"ok": False, "detail": f"Sunshine refused the request: {e.message}"}
     return {"ok": True, "detail": "unpaired"}
 
 
@@ -197,6 +257,8 @@ def _host_stop(args):
         c.close_app()
     except SunshineUnavailable as e:
         return {"ok": False, "detail": f"Sunshine unavailable: {e}"}
+    except SunshineError as e:
+        return {"ok": False, "detail": f"Sunshine refused the request: {e.message}"}
     return {"ok": True, "detail": "stopped"}
 
 
@@ -232,6 +294,9 @@ def register_host():
           {"type": "object"})(_host_detect)
     skill("game_stream_ready", "Check the Sunshine host is reachable.",
           {"type": "object"})(_host_ready)
+    skill("game_stream_pending",
+          "List the Moonlight devices waiting to pair with the Sunshine host.",
+          {"type": "object"})(_host_pending)
     skill("game_stream_pair", "Submit a Moonlight pairing PIN to the Sunshine host.",
           {"type": "object"}, destructive=True)(_host_pair)
     skill("game_stream_unpair", "Unpair a device from the Sunshine host.",
