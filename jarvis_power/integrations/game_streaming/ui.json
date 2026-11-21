@@ -1,0 +1,45 @@
+{
+  "presentations": {
+    "card": {
+      "type": "section",
+      "children": [
+        {
+          "type": "stat",
+          "value": {
+            "$": "count"
+          },
+          "caption": "Count"
+        },
+        {
+          "type": "button",
+          "label": "Refresh",
+          "action": "refresh"
+        }
+      ],
+      "title": "Template"
+    },
+    "page": {
+      "type": "vstack",
+      "children": [
+        {
+          "type": "section",
+          "children": [
+            {
+              "type": "stat",
+              "value": {
+                "$": "count"
+              },
+              "caption": "Count"
+            }
+          ],
+          "title": "Overview"
+        },
+        {
+          "type": "button",
+          "label": "Refresh",
+          "action": "refresh"
+        }
+      ]
+    }
+  }
+}

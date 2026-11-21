@@ -266,6 +266,24 @@ def _handle_unpair(req, body, s):
     return req.reply(200, {"ok": True})
 
 
+_DESIRED = {"on": None}
+
+
+def power_changed(on: bool) -> None:
+    """The Power switch flipped: remember the desired state and push it to the PC
+    (the PC's watcher subsystem starts/stops on it; re-pushed on every bridge resync)."""
+    _DESIRED["on"] = bool(on)
+    try:
+        _publish_to(_pc_id(), "game_stream_power", {"on": bool(on)})
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def resync(did: str) -> None:
+    if _DESIRED["on"] is not None:
+        _publish_to(did, "game_stream_power", {"on": _DESIRED["on"]})
+
+
 def route(req) -> bool:
     parts = [p for p in req.sub.strip("/").split("/") if p]
     body = req.body if isinstance(req.body, dict) else {}

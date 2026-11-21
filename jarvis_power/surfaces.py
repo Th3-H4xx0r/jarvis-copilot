@@ -63,5 +63,8 @@ CATALOG: dict[str, str] = {
     # ── Windows ─────────────────────────────────────────────────────────────
     "windows.pc_stats": "PC Stats collector, uploads and the side-monitor dashboard window (windows_app/Jarvis/Stats)",
     "windows.pc_lighting": "jc-client lighting engine driving OpenRGB (desktop_client/jc_client/pc_lighting)",
+    "ios.game_streaming": "Game Streaming card + page on Integrations (Copilot/.../GameStreaming)",
+    "web.game_streaming": "Game Streaming card + page on Integrations (game_streaming.js, data-power)",
+    "windows.game_streaming": "jc-client Sunshine watcher + connect drivers (desktop_client/jc_client/skills/game_stream.py)",
     "windows.remote_desktop": "Settings → PC power → Remote Desktop: setup, saved password, status poster, credential release (windows_app/Jarvis/Remote)",
 }
