@@ -79,11 +79,31 @@ class _Zone:
         self.got = colors
 
 
+class _Device:
+    """Like his ASRock B760M-C under OpenRGB: per-zone updates do nothing; the whole-device update works."""
+
+    def __init__(self):
+        self.name = "ASRock Polychrome USB"
+        self.zones = [_Zone(40), _Zone(1)]
+        self.metadata = SimpleNamespace(location="HID: 26CE:01A2")
+        self.data = SimpleNamespace(zones=[SimpleNamespace(leds_min=0, leds_max=300), SimpleNamespace(leds_min=1, leds_max=1)])
+        self.sent = []
+
+    @property
+    def leds(self):
+        return [led for z in self.zones for led in z.leds]
+
+    def set_mode(self, m):
+        pass
+
+    def set_colors(self, colors, fast=False):
+        if len(colors) != len(self.leds):
+            raise IndexError("colour count must match the device")
+        self.sent.append(list(colors))
+
+
 def _device_0_3_8():
-    zd = [SimpleNamespace(leds_min=0, leds_max=300), SimpleNamespace(leds_min=1, leds_max=1)]
-    return SimpleNamespace(name="ASRock Polychrome USB", zones=[_Zone(40), _Zone(1)],
-                           metadata=SimpleNamespace(location="HID: 26CE:01A2"),
-                           data=SimpleNamespace(zones=zd), set_mode=lambda m: None)
+    return _Device()
 
 
 def test_driver_reads_0_3_8_location_and_zone_limits():
@@ -95,12 +115,23 @@ def test_driver_reads_0_3_8_location_and_zone_limits():
     assert c["zones"][1]["resizable"] is False
 
 
-def test_driver_write_fits_each_frame_to_the_live_zone():
+def test_driver_writes_the_whole_device_at_once_fitted_to_each_zone():
     d = driver.Driver("127.0.0.1:6742")
     dev = _device_0_3_8()
     d._client = SimpleNamespace(devices=[dev])
-    d.write({(0, 0): [(255, 0, 0)] * 48, (0, 1): []})
-    assert len(dev.zones[0].got) == 40 and len(dev.zones[1].got) == 1
+    d.write({(0, 0): [(255, 0, 0)] * 48, (0, 1): [(0, 0, 255)]})
+    assert len(dev.sent) == 1 and len(dev.sent[0]) == 41          # one update for the whole board
+    assert dev.zones[0].got is None                               # per-zone updates are ignored by his board
+    assert tuple(dev.sent[0][0]) == (255, 0, 0) and tuple(dev.sent[0][40]) == (0, 0, 255)
+
+
+def test_a_zone_missing_from_a_frame_keeps_its_last_colours():
+    d = driver.Driver("127.0.0.1:6742")
+    dev = _device_0_3_8()
+    d._client = SimpleNamespace(devices=[dev])
+    d.write({(0, 0): [(255, 0, 0)] * 40, (0, 1): [(0, 0, 255)]})
+    d.write({(0, 0): [(0, 255, 0)] * 40})
+    assert tuple(dev.sent[-1][0]) == (0, 255, 0) and tuple(dev.sent[-1][40]) == (0, 0, 255)
 
 
 def test_address_parsing():

@@ -22,6 +22,7 @@ class Driver:
     def __init__(self, address: str) -> None:
         self.host, self.port = parse_address(address)
         self._client = None
+        self._last: dict = {}          # (controller, zone) → the colours last sent
 
     def connect(self) -> None:
         from openrgb import OpenRGBClient  # PC only (pyproject: sys_platform == 'win32')
@@ -62,12 +63,22 @@ class Driver:
         except ImportError:  # tests off the PC
             def RGBColor(r, g, b):  # noqa: N802
                 return (r, g, b)
+        # One whole-device update per controller: his ASRock B760M-C (Polychrome USB) ignores per-zone
+        # updates (UPDATEZONELEDS) and only shows UPDATELEDS — what OpenRGB's own app sends. Zones a frame
+        # leaves out keep the colours they were last sent.
         devices = self._devices()
+        by_device: dict = {}
         for (c, z), colours in frames.items():
-            zone = devices[c].zones[z]
-            n = len(zone.leds)       # set_colors raises unless the count matches the live zone
-            fitted = (list(colours) + [(0, 0, 0)] * n)[:n]
-            zone.set_colors([RGBColor(*rgb) for rgb in fitted], fast=True)
+            by_device.setdefault(c, {})[z] = colours
+        for c, zones in by_device.items():
+            dev = devices[c]
+            out = []
+            for k, zone in enumerate(dev.zones):
+                n = len(zone.leds)   # fitted to the live zone: set_colors raises on a count mismatch
+                fitted = (list(zones.get(k, self._last.get((c, k), []))) + [(0, 0, 0)] * n)[:n]
+                self._last[(c, k)] = fitted
+                out += fitted
+            dev.set_colors([RGBColor(*rgb) for rgb in out], fast=True)
 
     def resize(self, controller: int, zone: int, leds: int) -> None:
         self._devices()[controller].zones[zone].resize(leds)
