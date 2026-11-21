@@ -23,6 +23,7 @@
         var n = (status.apps || []).length;
         return n ? ('Idle · ' + n + ' game' + (n === 1 ? '' : 's')) : 'Idle';
       }
+      if (status.needs_login) return 'Sunshine needs sign-in — check your password';
       return 'Host unreachable';
     },
     /// The one main button's game and device: the first game + first target the
@@ -46,11 +47,15 @@
       return 'mac';
     },
     /// The one setup status line, from GET /detect. Pure, for the test.
-    detectHeadline: function (detect) {
+    detectHeadline: function (detect, pwSet) {
       detect = detect || {};
       if (!detect.online) return 'Your PC is offline — turn it on to finish setup';
       if (detect.running && !detect.needs_login) return 'Found Sunshine on your gaming PC';
-      if (detect.running) return 'Sunshine is running — add your Sunshine login below';
+      if (detect.running) {
+        return pwSet
+          ? 'That login was rejected — check your Sunshine password'
+          : 'Sunshine is running — add your Sunshine login below';
+      }
       return "Sunshine isn't running on your PC yet";
     },
     /// The editable device list: Sunshine's paired clients (type guessed or taken from a
@@ -146,6 +151,8 @@
   function drawSetup(hostEl, row, detect, status) {
     var settings = row.settings || {};
     var pwSet = settings.password && settings.password.set;
+    // Pre-fill the username from the PC's Sunshine state file when the user hasn't set one.
+    var userVal = settings.user || (detect && detect.username) || '';
     var drafts = JCGameStreaming.drafts(status.paired, status.targets);
     var deviceRows = drafts.map(function (d, i) {
       var opts = KIND_LABELS.map(function (k) {
@@ -160,9 +167,9 @@
     }).join('');
     hostEl.innerHTML =
       '<h4 class="intg-section-title">Sunshine</h4>' +
-      '<div class="intg-card-meta gstream-detect">' + esc(JCGameStreaming.detectHeadline(detect)) + '</div>' +
+      '<div class="intg-card-meta gstream-detect">' + esc(JCGameStreaming.detectHeadline(detect, pwSet)) + '</div>' +
       '<div class="intg-row power-setting"><div class="intg-row-main"><span class="intg-row-name">Username</span></div>' +
-        '<input type="text" id="gstreamUser" autocomplete="username" value="' + esc(settings.user || '') + '"></div>' +
+        '<input type="text" id="gstreamUser" autocomplete="username" value="' + esc(userVal) + '"></div>' +
       '<div class="intg-row power-setting"><div class="intg-row-main"><span class="intg-row-name">Password</span>' +
         '<div class="intg-row-sub">' + (pwSet ? 'Set' : 'Not set') + ' — the login you set in Sunshine itself</div></div>' +
         '<input type="password" id="gstreamPw" autocomplete="off" placeholder="Replace"></div>' +

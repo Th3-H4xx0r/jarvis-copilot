@@ -58,3 +58,18 @@ test('drafts guess unknown types and keep saved type + address', () => {
   assert.strictEqual(d[3].name, 'Old TV');
 });
 
+
+test('statusLine says needs-sign-in when the login is wrong, not unreachable', () => {
+  assert.strictEqual(G.statusLine({ reachable: false, needs_login: true }),
+    'Sunshine needs sign-in — check your password');
+  assert.strictEqual(G.statusLine({ reachable: false, needs_login: false }), 'Host unreachable');
+});
+
+test('detectHeadline shows a rejection only when a password is already set', () => {
+  assert.strictEqual(G.detectHeadline({ online: true, running: true, needs_login: true }, true),
+    'That login was rejected — check your Sunshine password');
+  assert.strictEqual(G.detectHeadline({ online: true, running: true, needs_login: true }, false),
+    'Sunshine is running — add your Sunshine login below');
+  assert.strictEqual(G.detectHeadline({ online: true, running: true, needs_login: false }, true),
+    'Found Sunshine on your gaming PC');
+});
