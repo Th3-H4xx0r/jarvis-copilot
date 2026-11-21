@@ -11,16 +11,17 @@ Spec: docs/superpowers/specs/2026-11-20-pc-lighting-model-specs-design.md · Pla
 
 ## Tasks
 - [x] Task 0 — PC verified
-- [ ] Task 1 — effect engine + golden fixtures
-- [ ] Task 2 — OpenRGB engine + skills (jc-client)
-- [ ] Task 3 — specs reader (jc-client)
-- [ ] Task 4 — setup steps (jc-client)
-- [ ] Task 5 — server store, routes, Power integration
-- [ ] Task 6 — Jarvis tools
-- [ ] Task 7 — iPhone store + effect port
-- [ ] Task 8 — 3D model
-- [ ] Task 9 — PC card + page + shared controls
-- [ ] Task 10 — lighting section, setup, calibration
-- [ ] Task 11 — specs page + out-of-date
-- [ ] Task 12 — web
-- [ ] Task 13 — ship + live checks (setup on the real PC, calibrate, compare model vs real)
+- [x] Task 1 — effect engine + golden fixtures
+- [x] Task 2 — OpenRGB engine + skills (jc-client)
+- [x] Task 3 — specs reader (jc-client)
+- [x] Task 4 — setup steps (jc-client)
+- [x] Task 5 — server store, routes, Power integration
+- [x] Task 6 — Jarvis tools
+- [x] Task 7 — iPhone store + effect port
+- [x] Task 8 — 3D model
+- [x] Task 9 — PC card + page + shared controls
+- [x] Task 10 — lighting section, setup, calibration
+- [x] Task 11 — specs page + out-of-date
+- [x] Task 12 — web
+- [x] Task 13a — shipped: server 0cc519ec1 restarted, jc-client updated on the PC (specs arrive live), iPhone release.sh
+- [ ] Task 13b — LIVE (needs Pranav): PC page → Set up lighting (Face ID for OpenRGB install), then Show Jarvis each part at the PC; verify each part on the real PC vs the model; check OpenRGB starts headless at login
