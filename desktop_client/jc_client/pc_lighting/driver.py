@@ -35,12 +35,16 @@ class Driver:
     def controllers(self) -> list[dict]:
         out = []
         for i, dev in enumerate(self._devices()):
+            # openrgb-python 0.3.8: the size limits live on the device's ZoneData, the location on metadata.
+            limits = list(getattr(getattr(dev, "data", None), "zones", None) or [])
             zones = []
             for k, z in enumerate(dev.zones):
-                lo, hi = getattr(z, "leds_min", None), getattr(z, "leds_max", None)
+                zd = limits[k] if k < len(limits) else None
+                lo, hi = getattr(zd, "leds_min", None), getattr(zd, "leds_max", None)
                 zones.append({"index": k, "name": z.name, "leds": len(z.leds),
-                              "resizable": lo is not None and hi is not None and lo != hi})
-            out.append({"index": i, "name": dev.name, "location": getattr(dev, "location", ""), "zones": zones})
+                              "resizable": lo is not None and hi is not None and lo != hi, "max": hi})
+            location = getattr(getattr(dev, "metadata", None), "location", "") or ""
+            out.append({"index": i, "name": dev.name, "location": location, "zones": zones})
         return out
 
     def set_direct(self) -> None:
@@ -53,10 +57,17 @@ class Driver:
                     continue
 
     def write(self, frames: dict) -> None:
-        from openrgb.utils import RGBColor
+        try:
+            from openrgb.utils import RGBColor
+        except ImportError:  # tests off the PC
+            def RGBColor(r, g, b):  # noqa: N802
+                return (r, g, b)
         devices = self._devices()
         for (c, z), colours in frames.items():
-            devices[c].zones[z].set_colors([RGBColor(*rgb) for rgb in colours], fast=True)
+            zone = devices[c].zones[z]
+            n = len(zone.leds)       # set_colors raises unless the count matches the live zone
+            fitted = (list(colours) + [(0, 0, 0)] * n)[:n]
+            zone.set_colors([RGBColor(*rgb) for rgb in fitted], fast=True)
 
     def resize(self, controller: int, zone: int, leds: int) -> None:
         self._devices()[controller].zones[zone].resize(leds)

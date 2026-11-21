@@ -63,6 +63,46 @@ def test_setup_skill_runs_the_step_with_the_engine(monkeypatch):
     assert out["state"] == "done" and seen == {"step": "detect", "sensor_driver": False, "engine": e}
 
 
+class _Led:
+    pass
+
+
+class _Zone:
+    def __init__(self, n):
+        self.leds = [_Led() for _ in range(n)]
+        self.name = "ARGB"
+        self.got = None
+
+    def set_colors(self, colors, fast=False):
+        if len(colors) != len(self.leds):        # openrgb-python 0.3.8 raises on a mismatch
+            raise IndexError("colour count must match the zone")
+        self.got = colors
+
+
+def _device_0_3_8():
+    zd = [SimpleNamespace(leds_min=0, leds_max=300), SimpleNamespace(leds_min=1, leds_max=1)]
+    return SimpleNamespace(name="ASRock Polychrome USB", zones=[_Zone(40), _Zone(1)],
+                           metadata=SimpleNamespace(location="HID: 26CE:01A2"),
+                           data=SimpleNamespace(zones=zd), set_mode=lambda m: None)
+
+
+def test_driver_reads_0_3_8_location_and_zone_limits():
+    d = driver.Driver("127.0.0.1:6742")
+    d._client = SimpleNamespace(devices=[_device_0_3_8()])
+    (c,) = d.controllers()
+    assert c["location"] == "HID: 26CE:01A2"
+    assert c["zones"][0]["resizable"] is True and c["zones"][0]["max"] == 300
+    assert c["zones"][1]["resizable"] is False
+
+
+def test_driver_write_fits_each_frame_to_the_live_zone():
+    d = driver.Driver("127.0.0.1:6742")
+    dev = _device_0_3_8()
+    d._client = SimpleNamespace(devices=[dev])
+    d.write({(0, 0): [(255, 0, 0)] * 48, (0, 1): []})
+    assert len(dev.zones[0].got) == 40 and len(dev.zones[1].got) == 1
+
+
 def test_address_parsing():
     assert driver.parse_address("127.0.0.1:6742") == ("127.0.0.1", 6742)
     assert driver.parse_address("rtxpc") == ("rtxpc", 6742)

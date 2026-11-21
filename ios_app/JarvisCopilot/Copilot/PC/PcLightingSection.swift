@@ -4,6 +4,7 @@ import SwiftUI
 /// colours, effects, speed and saved looks. Greyed with the reason when the PC can't take a change.
 struct PcLightingSection: View {
     @Binding var selectedPart: PcPart?
+    var awake: Bool = true
     @State private var error: String?
     @State private var brightness: Double = 100
     @State private var speed: Double = 5
@@ -18,9 +19,11 @@ struct PcLightingSection: View {
 
     var body: some View {
         JcSectionLabel("Lighting")
-        if !store.online {
-            JcCard { unavailable("The PC is asleep or offline") }
-        } else if !store.isMapped {
+        switch store.availability(awake: awake) {
+        case .unavailable(let why):
+            JcCard { unavailable(why) }
+            if store.isMapped { setupRow }
+        case .setUp:
             JcCard(padding: 0) {
                 NavigationLink { PcLightingSetupPage() } label: {
                     JcRow(symbol: "wand.and.stars", title: "Set up lighting",
@@ -28,8 +31,22 @@ struct PcLightingSection: View {
                 }
                 .buttonStyle(.plain)
             }
-        } else if let state = store.state {
-            controls(state)
+        case .live:
+            if let state = store.state {
+                controls(state)
+                setupRow
+            }
+        }
+    }
+
+    /// Re-run setup or calibrate again (after moving a fan, say).
+    private var setupRow: some View {
+        JcCard(padding: 0) {
+            NavigationLink { PcLightingSetupPage() } label: {
+                JcRow(symbol: "slider.horizontal.3", title: "Setup & calibration",
+                      subtitle: "Re-run setup steps or show Jarvis each part again", last: true)
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -85,6 +102,8 @@ struct PcLightingSection: View {
                 chip("All", selected: selectedPart == nil) { selectedPart = nil }
                 ForEach(PcPart.allCases) { part in
                     chip(part.label, selected: selectedPart == part, dimmed: store.isMissing(part)) { selectedPart = part }
+                        .disabled(store.isMissing(part))
+                        .accessibilityHint(store.isMissing(part) ? "No lights mapped for this part" : "")
                 }
             }
         }

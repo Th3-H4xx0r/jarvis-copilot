@@ -61,7 +61,8 @@ class PcLighting(PowerIntegration):
 
     def state(self) -> dict:
         s = self._summary()
-        return {"status": self.status_line(), "brightness": f"{s.get('brightness', '—')}%" if s.get("mapped") else "—"}
+        return {"status": self.status_line(), "brightness": f"{s.get('brightness', '—')}%" if s.get("mapped") else "—",
+                "setup": f"{s.get('setup_done', 0)} of {s.get('setup_total', 6)} done"}
 
     def action(self, name: str, event: dict) -> dict:
         if name == "refresh":

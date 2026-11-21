@@ -48,6 +48,18 @@ final class PcStoreTests: XCTestCase {
         XCTAssertEqual(store.state?.light(.top).color, "#22d3ee")
     }
 
+    func testRunSetupWaitsForTheStepToFinish() async {
+        let t = MockTransport()
+        t.route("/api/pc-lighting/setup", json: ["ok": true, "step": ["id": "detect", "state": "running", "detail": "Working"]], status: 202)
+        var body = Self.body
+        body["setup"] = ["detect": ["id": "detect", "state": "done", "detail": "ASRock Polychrome USB (4 zones)"]]
+        t.route("/api/pc-lighting", json: body)
+        let store = PcStore(api: JarvisAPI(credentials: TestCredentials(), transport: t))
+        store.pollInterval = .milliseconds(5)
+        let result = await store.runSetup("detect")
+        XCTAssertEqual(result?.state, "done")
+    }
+
     func testSetPostsThePartialAndTakesTheNewState() async {
         let t = MockTransport()
         var newState = Self.body["state"] as! [String: Any]

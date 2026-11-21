@@ -139,7 +139,8 @@ def test_setup_runs_the_step_with_a_long_timeout_and_applies_cost(env):
     env.replies["lighting_setup"] = {"ok": True, "result": {"id": "cost", "state": "done", "detail": "0.3%",
                                                            "still_in_games": False}}
     status, body = light("POST", "/api/pc-lighting/setup", {"step": "cost"})
-    assert status == 200 and body["step"]["state"] == "done"
+    assert status == 202 and body["step"]["state"] == "running"
+    assert env.st.setup("pc-1")["cost"]["state"] == "done"      # _spawn runs inline in these tests
     (_, _, args, timeout), = _skills(env, "lighting_setup")
     assert args == {"step": "cost", "sensor_driver": True} and timeout >= 900
     assert env.st.setup("pc-1")["cost"]["state"] == "done"
@@ -160,6 +161,50 @@ def test_state_event_in_step_does_not_resync(env):
     s = env.st.update_state("pc-1", {"part": "all", "color": "#ff00ff"})
     routes.on_state_event("pc-1", {"state_rev": s["rev"], "map_version": 1, "engine": "running", "controllers": []})
     assert env.calls == []
+
+
+def test_engine_running_while_switched_off_is_told_to_stop(env, monkeypatch):
+    env.st.set_map("pc-1", MAP)
+    s = env.st.update_state("pc-1", {"part": "all", "color": "#ff00ff"})
+    monkeypatch.setattr(routes, "_enabled", lambda: False)
+    routes.on_state_event("pc-1", {"state_rev": s["rev"], "map_version": 1, "engine": "running", "controllers": []})
+    assert _skills(env, "lighting_state_set")[-1][2]["enabled"] is False
+
+
+def test_engine_stopped_while_switched_on_is_started(env):
+    env.st.set_map("pc-1", MAP)
+    s = env.st.update_state("pc-1", {"part": "all", "color": "#ff00ff"})
+    routes.on_state_event("pc-1", {"state_rev": s["rev"], "map_version": 1, "engine": "stopped", "controllers": []})
+    assert _skills(env, "lighting_state_set")[-1][2]["enabled"] is True
+
+
+def test_a_part_with_no_lights_is_refused_with_why(env):
+    env.st.set_map("pc-1", MAP)               # no cooler / strip in this map
+    status, body = light("POST", "/api/pc-lighting/state", {"part": "strip", "color": "#00ff00"})
+    assert status == 400 and body["error"] == "The strip has no lights mapped"
+    assert env.st.state("pc-1")["rev"] == 0 and not _skills(env, "lighting_state_set")
+
+
+def test_openrgb_down_is_refused_with_the_engine_error(env):
+    env.st.set_map("pc-1", MAP)
+    env.st.set_live("pc-1", {"engine": "error", "error": "Can't drive the lights through OpenRGB at 127.0.0.1:6742: refused",
+                             "controllers": []})
+    status, body = light("POST", "/api/pc-lighting/state", {"part": "all", "color": "#00ff00"})
+    assert status == 409 and "OpenRGB" in body["error"] and body.get("engine_error") is True
+    assert env.st.state("pc-1")["rev"] == 0
+
+
+def test_setup_answers_at_once_and_reports_through_the_topic(env, monkeypatch):
+    later = []
+    monkeypatch.setattr(routes, "_spawn", lambda fn, *a: later.append((fn, a)))
+    env.replies["lighting_setup"] = {"ok": True, "result": {"id": "detect", "state": "done", "detail": "1 controller"}}
+    status, body = light("POST", "/api/pc-lighting/setup", {"step": "detect"})
+    assert status == 202 and body["step"]["state"] == "running"
+    assert env.st.setup("pc-1")["detect"]["state"] == "running"
+    for fn, a in later:
+        fn(*a)
+    assert env.st.setup("pc-1")["detect"]["state"] == "done"
+    assert env.published[-1][0] == "pc_lighting"
 
 
 def test_power_off_tells_the_pc_to_stop(env, monkeypatch):

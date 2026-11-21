@@ -14,8 +14,7 @@ struct PcPage: View {
 
     /// The model glows only while the lights are really Jarvis's to show.
     private var lightsLive: Bool {
-        PowerState.shared.isOn("pc-lighting") && store.online && store.isMapped && store.engine != "stopped"
-            && (mac?.isAwake ?? false)
+        PowerState.shared.isOn("pc-lighting") && store.availability(awake: mac?.isAwake ?? false) == .live
     }
 
     var body: some View {
@@ -30,7 +29,7 @@ struct PcPage: View {
                     JcSectionLabel("Controls")
                     AgentsMacPowerCard(mac: mac, store: agents)
                 }
-                PcPageExtras(selectedPart: $selectedPart)
+                PcPageExtras(selectedPart: $selectedPart, awake: mac?.isAwake ?? false)
             }
         }
         .refreshable { await store.refresh(); await agents.refresh() }
@@ -58,10 +57,11 @@ struct PcPage: View {
 /// The page's lower sections: lighting (PC Lighting Power integration) and specs.
 struct PcPageExtras: View {
     @Binding var selectedPart: PcPart?
+    var awake: Bool
 
     var body: some View {
         if PowerState.shared.isOn("pc-lighting") {
-            PcLightingSection(selectedPart: $selectedPart)
+            PcLightingSection(selectedPart: $selectedPart, awake: awake)
         }
         JcSectionLabel("Hardware")
         JcCard(padding: 0) {

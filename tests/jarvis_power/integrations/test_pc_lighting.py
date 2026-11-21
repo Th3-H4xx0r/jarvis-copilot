@@ -37,6 +37,18 @@ def test_start_and_stop_follow_the_switch(reg, monkeypatch):
     assert seen == [False, True]
 
 
+def test_card_state_counts_setup_steps(reg, monkeypatch):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "webui"))
+    import api.pc_lighting_routes as routes
+    discovery.reset()
+    p = discovery.get("pc-lighting")
+    monkeypatch.setattr(routes, "summary", lambda: {"device_id": "pc-1", "online": True, "mapped": False,
+                                                    "setup_done": 4, "setup_total": 6})
+    assert p.state()["setup"] == "4 of 6 done"
+
+
 def test_status_line_says_what_is_missing(reg, monkeypatch):
     import sys
     from pathlib import Path

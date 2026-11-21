@@ -30,6 +30,8 @@ final class PcStore {
     @ObservationIgnored let api: JarvisAPI
     @ObservationIgnored private let topics: BridgeTopics
     @ObservationIgnored private var watchers = 0
+    /// How often a running setup step is checked (tests shorten it).
+    @ObservationIgnored var pollInterval: Duration = .seconds(2)
     @ObservationIgnored private var listening = false
 
     init(api: JarvisAPI = .shared, topics: BridgeTopics = .shared) {
@@ -126,13 +128,18 @@ final class PcStore {
         } catch { return apiErrorMessage(error) }
     }
 
+    /// Starts a step on the PC (the server answers at once) and waits until it's no longer running.
     func runSetup(_ step: String) async -> PcSetupStep? {
         do {
-            let body = try await api.post("/api/pc-lighting/setup", json: ["step": step], timeout: 980).object()
-            let result = PcCodec.decode(PcSetupStep.self, body["step"])
-            if let result { setup[result.id] = result }
-            await refresh()
-            return result
+            let body = try await api.post("/api/pc-lighting/setup", json: ["step": step], timeout: 30).object()
+            if let started = PcCodec.decode(PcSetupStep.self, body["step"]) { setup[started.id] = started }
+            let deadline = ContinuousClock.now + .seconds(17 * 60)
+            while ContinuousClock.now < deadline {
+                await refresh()
+                if let s = setup[step], s.state != "running" { return s }
+                try await Task.sleep(for: pollInterval)
+            }
+            return setup[step]
         } catch {
             let failed = PcSetupStep(id: step, state: "failed", detail: apiErrorMessage(error))
             setup[step] = failed

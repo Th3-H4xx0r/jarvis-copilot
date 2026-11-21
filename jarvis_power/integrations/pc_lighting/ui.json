@@ -17,6 +17,13 @@
             "$": "brightness"
           },
           "caption": "Brightness"
+        },
+        {
+          "type": "stat",
+          "value": {
+            "$": "setup"
+          },
+          "caption": "Setup"
         }
       ]
     },
@@ -40,6 +47,13 @@
                 "$": "brightness"
               },
               "caption": "Brightness"
+            },
+            {
+              "type": "stat",
+              "value": {
+                "$": "setup"
+              },
+              "caption": "Setup (finish on the PC page on your iPhone)"
             }
           ]
         },

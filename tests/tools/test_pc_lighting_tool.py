@@ -56,6 +56,13 @@ def test_offline_reason_comes_from_the_server(api):
     assert out["ok"] is False and "asleep or offline" in out["error"]
 
 
+def test_a_part_with_no_lights_comes_back_as_the_reason(api):
+    calls, replies = api
+    replies[("POST", "/api/pc-lighting/state")] = {"ok": False, "error": "The strip has no lights mapped"}
+    out = _out(t.pc_lights({"action": "set", "part": "strip", "color": "red"}))
+    assert out["ok"] is False and out["error"] == "The strip has no lights mapped"
+
+
 def test_not_set_up_says_where_to_finish(api):
     calls, replies = api
     replies[("GET", "/api/pc-lighting")] = dict(MAPPED, map={"segments": []})

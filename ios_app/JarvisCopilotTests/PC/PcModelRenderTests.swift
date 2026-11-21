@@ -72,6 +72,13 @@ final class PcModelRenderTests: XCTestCase {
         XCTAssertEqual(PcModel.ringLED(socket: 0, sockets: 16, leds: 8, startDeg: 0, clockwise: false), 0)
     }
 
+    func testMakingTheViewDoesNotBuildTheScene() {
+        let before = PcModel.buildCount
+        _ = PcModelView(state: nil, map: nil)
+        _ = PcModelView(state: nil, map: nil)
+        XCTAssertEqual(PcModel.buildCount, before)      // built lazily, once, when it's drawn
+    }
+
     func testTappingAFanFindsItsPart() {
         let live = PcModel.build()
         let fan = live.scene.rootNode.childNode(withName: "fan.bottom.1", recursively: true)

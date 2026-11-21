@@ -6,7 +6,8 @@
   const PARTS = [['top', 'Top fans'], ['rear', 'Rear fans'], ['bottom', 'Bottom fans'], ['cooler', 'Cooler'], ['strip', 'Strip']];
   const EFFECTS = [['static', 'Static'], ['breathing', 'Breathing'], ['rainbow', 'Rainbow'], ['spectrum', 'Spectrum'], ['comet', 'Comet']];
   const SWATCHES = ['#ffffff', '#ff2d55', '#ff9f0a', '#ffd60a', '#30d158', '#22d3ee', '#0a84ff', '#bf5af2'];
-  const st = { pc: null, lighting: null, specs: null, part: null, error: '', el: null };
+  const st = { pc: null, lighting: null, specs: null, part: null, error: '', card: null, loadedAt: 0 };
+  const RELOAD_MS = 30000;
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -53,7 +54,7 @@
       const cur = (s.parts || {})[part || 'top'] || {};
       const host = part && l.coverage && l.coverage[part] && l.coverage[part] !== 'missing' ? l.coverage[part] : '';
       const chip = (id, text, on, dim) => '<button type="button" class="agents-pill-btn pcd-chip' + (on ? ' is-on' : '') + (dim ? ' is-dim' : '') +
-        '" data-pcd="part" data-part="' + esc(id) + '">' + esc(text) + '</button>';
+        '" data-pcd="part" data-part="' + esc(id) + '"' + (dim ? ' disabled title="No lights mapped"' : '') + '>' + esc(text) + '</button>';
       body =
         '<div class="pcd-row"><label class="pcd-toggle"><input type="checkbox" data-pcd="on"' + (s.on ? ' checked' : '') + '> Lights</label>' +
         '<input type="range" min="0" max="100" value="' + esc(s.brightness) + '" data-pcd="brightness" aria-label="Brightness">' +
@@ -84,7 +85,7 @@
       '<div class="pcd-hero"><img src="static/img/pc/pc-model.png" alt="Your PC" loading="lazy"></div>' +
       (o.controlsHtml || '') +
       (o.powerOn ? lightingHtml(o.lighting, o.part) : '') +
-      '<details class="dev-skills"><summary class="dev-foot"><span>Specs</span></summary>' + specsHtml(o.specs) + '</details>' +
+      '<details class="dev-skills pcd-specs-wrap"><summary class="dev-foot"><span>Specs</span></summary>' + specsHtml(o.specs) + '</details>' +
       (o.error ? '<p class="pcd-err">' + esc(o.error) + '</p>' : '') + '</div>';
   }
 
@@ -99,12 +100,17 @@
   }
   function powerOn() { return !root.JCPower || root.JCPower.isOn('pc-lighting'); }
   function render() {
-    if (!st.el) return;
+    if (!st.card) return;
+    const q = (sel) => (st.card.querySelector ? st.card.querySelector(sel) : null);
+    const specsOpen = !!(q('details.pcd-specs-wrap') || {}).open;
     const controls = st.pc && root.JCMacControls ? root.JCMacControls.html(st.pc) : '';
-    st.el.innerHTML = cardHtml({ pc: st.pc, lighting: st.lighting, specs: st.specs, powerOn: powerOn(), part: st.part,
+    st.card.innerHTML = cardHtml({ pc: st.pc, lighting: st.lighting, specs: st.specs, powerOn: powerOn(), part: st.part,
       controlsHtml: controls, error: st.error });
+    const details = q('details.pcd-specs-wrap');
+    if (details && specsOpen) details.open = true;
   }
   async function load() {
+    st.loadedAt = Date.now();
     try {
       const list = await req('GET', '/api/coding/agents/list');
       st.pc = ((list && list.mac) || []).find((m) => m.os === 'windows') || null;
@@ -146,12 +152,18 @@
     if (t.dataset.pcd === 'speed') change({ speed: Number(t.value) });
     if (t.dataset.pcd === 'pick') change({ color: t.value });
   }
+  // devices.js rebuilds its page every 10 s: the card is one element of ours, moved into the new
+  // container, so an open Specs panel or colour picker survives, and it reloads at most every 30 s.
   function mount(el) {
     if (!el) return;
-    if (st.el !== el) { el.addEventListener('click', onClick); el.addEventListener('change', onChange); }
-    st.el = el;
-    render();
-    load();
+    if (!st.card) {
+      st.card = document.createElement('div');
+      st.card.addEventListener('click', onClick);
+      st.card.addEventListener('change', onChange);
+      render();
+    }
+    el.appendChild(st.card);
+    if (Date.now() - st.loadedAt > RELOAD_MS) load();
   }
 
   const api = { mount, cardHtml, lightsLabel };

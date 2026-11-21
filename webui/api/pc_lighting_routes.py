@@ -10,6 +10,9 @@ from typing import Any, Callable, Optional
 OFFLINE = "The PC is asleep or offline"
 OUTDATED = "Update Jarvis on the PC to control its lights"
 PROBE_KEYS = ("controller", "zone", "resize", "led", "range", "color", "clear")
+SETUP_STEPS = ("openrgb", "signalrgb", "driver", "detect", "cost", "calibrate")
+NO_LIGHTS = {"top": "The top fans have", "rear": "The rear fans have", "bottom": "The bottom fans have",
+             "cooler": "The cooler has", "strip": "The strip has"}
 SETUP_TIMEOUT = 960.0
 
 
@@ -136,8 +139,11 @@ def summary() -> dict:
         return {"device_id": "", "online": False}
     s = store()
     st = s.state(did)
+    steps = s.setup(did)
+    done = sum(1 for k in SETUP_STEPS if (steps.get(k) or {}).get("state") in ("done", "skipped"))
     return {"device_id": did, "online": _online(did), "mapped": bool(s.map(did).get("segments")),
-            "on": st["on"], "effect": st["parts"]["top"]["effect"], "brightness": st["brightness"]}
+            "on": st["on"], "effect": st["parts"]["top"]["effect"], "brightness": st["brightness"],
+            "setup_done": done, "setup_total": len(SETUP_STEPS)}
 
 
 def power_changed(enabled: bool) -> None:
@@ -157,6 +163,9 @@ def on_state_event(did: str, data: dict) -> None:
     if st.get("rev", 0) > 0 or m.get("rev", 0) > 0:
         if data.get("state_rev") != st.get("rev") or data.get("map_version") != m.get("rev"):
             _spawn(resync, did)
+        elif (data.get("engine") == "stopped") == _enabled():
+            # The switch moved while the PC slept (or it restarted): put the engine back in step.
+            _spawn(push_state, did)
     publish(did)
 
 
@@ -203,10 +212,17 @@ def route(req) -> bool:
     if needs_pc and not _online(did):
         return req.reply(409, {"ok": False, "error": OFFLINE, "offline": True})
 
+    if needs_pc and parts != ["setup"] and (s.live(did).get("engine") == "error"):
+        live = s.live(did)
+        return req.reply(409, {"ok": False, "error": live.get("error") or "OpenRGB isn't running on the PC",
+                               "engine_error": True})
+
     if req.method == "POST" and parts == ["state"]:
         partial = {k: body[k] for k in ("part", "effect", "color", "speed", "brightness", "on") if k in body}
         part = partial.get("part", "all")
         host = s.coverage(did).get(part) if part != "all" else None
+        if host == "missing" and s.map(did).get("segments"):
+            return req.reply(400, {"ok": False, "error": f"{NO_LIGHTS.get(part, 'That part has')} no lights mapped"})
         try:
             st = s.update_state(did, partial)
             if host and host != "missing":
@@ -242,14 +258,22 @@ def route(req) -> bool:
         return req.reply(200, {"ok": True, "map": m, "coverage": s.coverage(did)})
     if req.method == "POST" and parts == ["setup"]:
         step = str(body.get("step") or "")
-        ok, res = _result(_invoke(did, "lighting_setup", {"step": step, "sensor_driver": _sensor_driver()},
-                                  timeout=SETUP_TIMEOUT))
-        if not ok:
-            res = {"id": step, "state": "failed", "detail": res}
-        s.set_setup_step(did, res)
-        if "still_in_games" in res:
-            s.update_state(did, {"part": "all", "still_in_games": res["still_in_games"]})
-            push_state(did)
+        running = {"id": step, "state": "running", "detail": "Working on the PC…"}
+        s.set_setup_step(did, running)
         publish(did)
-        return req.reply(200, {"ok": True, "step": res})
+        _spawn(_run_setup, did, step)   # Face ID + winget can take minutes: never hold the request
+        return req.reply(202, {"ok": True, "step": running})
     return False
+
+
+def _run_setup(did: str, step: str) -> None:
+    s = store()
+    ok, res = _result(_invoke(did, "lighting_setup", {"step": step, "sensor_driver": _sensor_driver()},
+                              timeout=SETUP_TIMEOUT))
+    if not ok:
+        res = {"id": step, "state": "failed", "detail": res}
+    s.set_setup_step(did, res)
+    if isinstance(res, dict) and "still_in_games" in res:
+        s.update_state(did, {"part": "all", "still_in_games": res["still_in_games"]})
+        push_state(did)
+    publish(did)

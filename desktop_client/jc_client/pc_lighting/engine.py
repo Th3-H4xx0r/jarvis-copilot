@@ -21,6 +21,7 @@ log = logging.getLogger(__name__)
 
 FRAME_S = 1 / 30
 RETRY_S = 10.0
+PROBE_S = 60.0
 REPORT_S = 60.0
 WHITE = "#ffffff"
 
@@ -67,6 +68,8 @@ class Engine:
         self._paused = False
         self._frozen_at: Optional[float] = None
         self._probing = False
+        self._probe_at = 0.0
+        self._sizes_dirty = True
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._load()
@@ -82,6 +85,7 @@ class Engine:
                 self._driver = None
                 self._next_retry = 0.0
             self._enabled = bool(enabled)
+            self._probing = False
             self._dirty = True
             self._save()
         self._emit()
@@ -90,6 +94,8 @@ class Engine:
     def set_map(self, ledmap: dict) -> dict:
         with self._lock:
             self._map = dict(ledmap or {})
+            self._probing = False
+            self._sizes_dirty = True
             self._dirty = True
             self._save()
         self._emit()
@@ -99,6 +105,7 @@ class Engine:
         with self._lock:
             self._enabled = bool(enabled)
             self._dirty = True
+            self._save()
         self._emit()
 
     def probe(self, args: dict) -> dict:
@@ -134,6 +141,7 @@ class Engine:
                 self._fail(exc, self._clock())
                 return {"ok": False, "error": self._error}
             self._probing = True
+            self._probe_at = self._clock()
             return {"ok": True}
 
     def reconnect(self) -> dict:
@@ -151,23 +159,26 @@ class Engine:
                     "error": self._error, "paused_for_game": self._paused, "controllers": list(self._controllers)}
 
     def measure(self, seconds: float = 10.0) -> float:
-        """Average % of one core this process uses while rendering a rainbow on every part (setup's cost check)."""
-        with self._lock:
-            ledmap = dict(self._map)
-            driver = self._ensure_driver(self._clock())
+        """Average % of one core this process uses while rendering a rainbow on every LED of every zone
+        OpenRGB reports (setup's cost check). Holds the lock so the tick thread can't write meanwhile."""
         rainbow = {"on": True, "brightness": 100, "t0": time.time(), "frozen_at": None,
                    "parts": {p: {"effect": "rainbow", "color": WHITE, "speed": 5} for p in effects.PARTS}}
-        cpu0, wall0 = time.process_time(), time.monotonic()
-        while time.monotonic() - wall0 < seconds:
-            frames = effects.frame(rainbow, ledmap, time.time())
-            if driver is not None:
-                try:
-                    driver.write(frames)
-                except Exception:  # noqa: BLE001
-                    driver = None
-            time.sleep(FRAME_S)
-        wall = max(1e-6, time.monotonic() - wall0)
         with self._lock:
+            driver = self._ensure_driver(self._clock())
+            sizes = self._zone_sizes()
+            ledmap = {"zones": [{"controller": c, "zone": z, "leds": n} for (c, z), n in sizes.items()],
+                      "segments": [{"part": "strip", "index": 0, "controller": c, "zone": z, "start": 0, "count": n}
+                                   for (c, z), n in sizes.items()]}
+            cpu0, wall0 = time.process_time(), time.monotonic()
+            while time.monotonic() - wall0 < seconds:
+                frames = effects.frame(rainbow, ledmap, time.time())
+                if driver is not None:
+                    try:
+                        driver.write(frames)
+                    except Exception:  # noqa: BLE001
+                        driver = None
+                time.sleep(FRAME_S)
+            wall = max(1e-6, time.monotonic() - wall0)
             self._dirty = True
         return float((time.process_time() - cpu0) / wall * 100.0)
 
@@ -176,11 +187,16 @@ class Engine:
         emit = False
         with self._lock:
             now = self._clock()
+            if self._probing and now - self._probe_at > PROBE_S:
+                self._probing = False        # calibration was left mid-way: render again
+                self._dirty = True
             if not self._enabled or self._probing or not self._state or not self._map.get("segments"):
                 return
             driver = self._ensure_driver(now)
             if driver is None:
                 return
+            if self._sizes_dirty:
+                self._fit_zones(driver)
             st = self._state
             animated = st.get("on", True) and any(
                 (p or {}).get("effect", "static") != "static" for p in (st.get("parts") or {}).values())
@@ -244,6 +260,7 @@ class Engine:
             recovered = self._error is not None
             self._error = None
             self._dirty = True
+            self._sizes_dirty = True
             if recovered:
                 self._emit()
             return d
@@ -251,6 +268,21 @@ class Engine:
             self._fail(exc, now)
             self._emit()
             return None
+
+    def _fit_zones(self, driver) -> None:
+        """Resizable zones take the calibrated LED count (calibration measured them at 300)."""
+        self._sizes_dirty = False
+        resizable = {(c["index"], z["index"]): z for c in self._controllers for z in c.get("zones", [])
+                     if z.get("resizable")}
+        for z in self._map.get("zones", []):
+            key, want = (z["controller"], z["zone"]), int(z["leds"])
+            info = resizable.get(key)
+            if info is not None and int(info.get("leds", 0)) != want:
+                try:
+                    driver.resize(key[0], key[1], want)
+                    info["leds"] = want
+                except Exception:  # noqa: BLE001
+                    log.warning("couldn't resize zone %s to %s", key, want, exc_info=True)
 
     def _fail(self, exc: Exception, now: float) -> None:
         self._driver = None
@@ -282,7 +314,7 @@ class Engine:
             self._store.parent.mkdir(parents=True, exist_ok=True)
             tmp = self._store.with_suffix(".tmp")
             tmp.write_text(json.dumps({"state": self._state, "rev": self._rev, "map": self._map,
-                                       "address": self._address}), encoding="utf-8")
+                                       "address": self._address, "enabled": self._enabled}), encoding="utf-8")
             os.replace(tmp, self._store)
         except Exception:  # noqa: BLE001
             log.debug("couldn't save lighting state", exc_info=True)
@@ -296,3 +328,4 @@ class Engine:
         self._rev = data.get("rev")
         self._map = data.get("map") or {}
         self._address = data.get("address") or self._address
+        self._enabled = bool(data.get("enabled", True))

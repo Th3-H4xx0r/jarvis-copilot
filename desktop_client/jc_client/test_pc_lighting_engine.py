@@ -242,6 +242,51 @@ def test_state_and_map_survive_a_restart(rig):
     assert st["state_rev"] == 4 and st["map_version"] == 3
 
 
+def test_switched_off_survives_a_restart(rig):
+    rig.e.set_map(MAP)
+    rig.e.set_state(_state("rainbow"), rev=1, address="127.0.0.1:6742")
+    rig.e.set_enabled(False)
+    again = eng.Engine(lambda f: None, driver_factory=FakeDriver, clock=rig.clock,
+                       game_state=lambda: SimpleNamespace(on=False, reason="", anticheat=False),
+                       store_path=rig.tmp / "pc_lighting.json")
+    assert again.status()["engine"] == "stopped"
+
+
+def test_set_map_resizes_resizable_zones_to_the_calibrated_size(rig):
+    rig.e.set_state(_state(), rev=1, address="127.0.0.1:6742")
+    rig.e.tick()
+    rig.e.set_map({"version": 1, "rev": 4, "zones": [{"controller": 0, "zone": 0, "leds": 48}],
+                   "segments": [{"part": "top", "index": 0, "controller": 0, "zone": 0, "start": 0, "count": 48}]})
+    rig.e.tick()
+    assert (0, 0, 48) in rig.drivers[0].resized
+
+
+def test_a_probe_expires_after_a_minute_and_a_new_state_clears_it(rig):
+    rig.e.set_map(MAP)
+    rig.e.set_state(_state("rainbow"), rev=1, address="127.0.0.1:6742")
+    rig.e.tick()
+    rig.e.probe({"controller": 0, "zone": 0, "led": 2})
+    n = len(rig.drivers[0].writes)
+    rig.clock.t += 61
+    rig.e.tick()
+    assert len(rig.drivers[0].writes) > n          # expired: rendering again
+    rig.e.probe({"controller": 0, "zone": 0, "led": 2})
+    rig.e.set_state(_state("rainbow"), rev=2)
+    n = len(rig.drivers[0].writes)
+    rig.clock.t += 0.1
+    rig.e.tick()
+    assert len(rig.drivers[0].writes) > n          # a new state ends calibration's probe
+
+
+def test_measure_lights_every_controller_zone(rig):
+    rig.e.set_state(_state(), rev=1, address="127.0.0.1:6742")
+    rig.e.tick()
+    rig.e.measure(seconds=0.1)
+    frames = [f for f in rig.drivers[0].writes if f]
+    assert frames and set(frames[-1]) == {(0, 0), (0, 1)}
+    assert any(c != (0, 0, 0) for c in frames[-1][(0, 0)])
+
+
 def test_measure_returns_a_cpu_percentage(rig):
     rig.e.set_map(MAP)
     rig.e.set_state(_state(), rev=1, address="127.0.0.1:6742")

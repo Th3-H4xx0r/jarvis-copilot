@@ -94,7 +94,7 @@ struct PcEntryCard: View {
         let lightsOn = PowerState.shared.isOn("pc-lighting")
         let status = AgentsMacPowerCopy.status(mac, now: .now)
         return DeviceCard(name: AgentsMacPowerCopy.cardName(mac.name, os: mac.os), subtitle: status.label, pictureAtTop: true) {
-            PcModelView(state: store.state, map: store.map, lit: lightsOn && mac.isAwake && store.isMapped)
+            PcModelView(state: store.state, map: store.map, lit: lightsOn && store.availability(awake: mac.isAwake) == .live)
                 .environment(\.sceneStills, true)
                 .frame(width: 210, height: 160)
                 .padding(.trailing, -10)

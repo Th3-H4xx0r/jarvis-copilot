@@ -30,6 +30,9 @@ enum PcModel {
 
     enum View { case hero, side, front }
 
+    /// How many scenes were built (tests check views don't build one per refresh).
+    nonisolated(unsafe) static var buildCount = 0
+
     final class Live {
         let scene: SCNScene
         let camera: SCNNode
@@ -226,6 +229,7 @@ enum PcModel {
     // MARK: Build
 
     static func build(view: View = .hero) -> Live {
+        buildCount += 1
         let scene = SCNScene()
         let root = SCNNode()
         root.name = "pc"

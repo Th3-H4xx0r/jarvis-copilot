@@ -14,8 +14,11 @@ struct PcModelView: View {
     /// Calibration: the exact LED socket tapped (a fan's sector, a strip or logo segment).
     var onTapLED: ((PcLedKey) -> Void)? = nil
 
-    @State private var live = PcModel.build()
+    /// Built the first time it's drawn, then kept: a SwiftUI @State initial value is evaluated on every
+    /// view init, and a scene build per parent refresh was jank and battery.
+    @State private var holder = PcLiveHolder()
     @State private var glow = PcGlow()
+    private var live: PcModel.Live { holder.live }
     @State private var turnStart: Float = 0
 
     private var animated: Bool {
@@ -57,6 +60,16 @@ struct PcModelView: View {
         if let onTapLED, let key = live.socket(of: node) { onTapLED(key); return }
         if let part = PcModel.part(of: node) { onTapPart?(part) }
         else if let comp = PcModel.component(of: node) { onTapComponent?(comp) }
+    }
+}
+
+final class PcLiveHolder {
+    private var built: PcModel.Live?
+    var live: PcModel.Live {
+        if let built { return built }
+        let made = PcModel.build()
+        built = made
+        return made
     }
 }
 

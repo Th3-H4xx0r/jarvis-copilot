@@ -14,6 +14,22 @@ const lighting = (over = {}) => Object.assign({
 const specs = { cpu: { name: 'Intel(R) Core(TM) i7-14700F', cores: 20, threads: 28 }, gpus: [{ name: 'NVIDIA GeForce RTX 5070', vram_mb: 12227 }],
   board: { maker: 'ASRock', product: 'B760M-C' }, memory: { total_mb: 32768, modules: [{ maker: 'Team Group Inc', part: 'UD5-6400', size_mb: 16384, mhz: 6400 }] } };
 
+test('a Devices re-render keeps the same card element and does not refetch', async () => {
+  let fetches = 0;
+  global.fetch = async () => { fetches += 1; return { ok: true, json: async () => ({ mac: [] }) }; };
+  const el = () => ({ children: [], innerHTML: '', addEventListener() {}, appendChild(c) { this.children.push(c); },
+    ownerDocument: null });
+  global.document = { createElement: () => ({ innerHTML: '', addEventListener() {}, isCard: true }) };
+  const a = el(), b = el();
+  P.mount(a);
+  await new Promise((r) => setTimeout(r, 5));
+  const first = fetches;
+  P.mount(b);                                   // devices.js rebuilt #pcDeviceCard
+  await new Promise((r) => setTimeout(r, 5));
+  assert.strictEqual(fetches, first);           // no reload within 30 s
+  assert.strictEqual(b.children[0], a.children[0]);   // the same card element moved over (Specs stays open)
+});
+
 test('no PC: no card', () => {
   assert.strictEqual(P.cardHtml({ pc: null }), '');
 });
