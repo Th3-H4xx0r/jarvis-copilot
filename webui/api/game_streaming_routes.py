@@ -213,6 +213,11 @@ def _handle_status(req, s):
                                "paired": s.get_paired(), "apps": [], "targets": _targets()})
     res = _invoke(pc, "game_stream_status", {"sunshine": _sunshine_conn()}) or {}
     data = res.get("data") or {}
+    try:
+        from api import game_streaming_alerts
+        game_streaming_alerts.note_reachable(bool(data.get("reachable", False)))
+    except Exception:  # noqa: BLE001
+        pass
     if data.get("paired"):
         s.upsert_paired(data["paired"])
     return req.reply(200, {"ok": True, "reachable": bool(data.get("reachable", False)),
