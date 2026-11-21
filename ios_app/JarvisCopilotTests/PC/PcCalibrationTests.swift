@@ -58,6 +58,23 @@ final class PcCalibrationTests: XCTestCase {
         XCTAssertEqual(c.missingParts, [.rear, .bottom, .cooler, .strip])
     }
 
+    func testScrubbingUsesTheConnectorsRealMaximum() {
+        var c = PcCalibration(zones: [.init(controller: 0, zone: 1, resizable: true, leds: 80, max: 100)])
+        XCTAssertEqual(c.resizeTo, 100)
+        XCTAssertEqual(c.scrubRange, 0...99)
+        c.setSize(lastLit: 47)
+        XCTAssertEqual(c.scrubRange, 0...47)               // the LEDs left on this connector
+        c.addSegment(end: 15, part: .bottom, index: 0, ringStartDeg: 0, clockwise: true)
+        XCTAssertEqual(c.scrubRange, 16...47)
+    }
+
+    func testASingleLEDConnectorHasNoSlider() {
+        let c = PcCalibration(zones: [.init(controller: 0, zone: 0, resizable: false, leds: 1, max: 1)])
+        XCTAssertTrue(c.isSingleLED)
+        XCTAssertNil(c.scrubRange)
+        XCTAssertNil(c.resizeTo)
+    }
+
     func testTapAngleSnapsToTheNearestSocket() {
         XCTAssertEqual(PcCalibration.snap(degrees: 100, sockets: 16), 90)
         XCTAssertEqual(PcCalibration.snap(degrees: 350, sockets: 16), 0)

@@ -120,6 +120,8 @@ struct PcZoneInfo: Codable, Equatable {
     var name: String
     var leds: Int
     var resizable: Bool?
+    /// The most LEDs OpenRGB allows on this connector.
+    var max: Int?
 }
 
 struct PcController: Codable, Equatable {

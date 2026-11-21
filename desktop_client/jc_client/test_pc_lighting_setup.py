@@ -59,6 +59,29 @@ def test_every_step_refuses_while_gaming(step):
     assert out["state"] == "failed" and "game" in out["detail"].lower()
 
 
+def test_openrgb_installed_as_a_service_gets_no_second_copy():
+    shell = Shell({"Test-Path": "True", "Get-Service OpenRGB": "Running"})
+    out = _run("openrgb", shell=shell)
+    assert out["state"] == "done"
+    joined = "\n".join(shell.calls)
+    assert "Start-Process" not in joined                      # the service already runs it
+    assert "Remove-ItemProperty" in joined and "-Name OpenRGB" in joined   # no login copy beside it
+    assert "Stop-Process" in joined                           # and any user copy is stopped
+
+
+def test_signalrgb_service_is_found_by_its_real_name():
+    shell, admin = Shell({"Get-Service": "Running"}), Admin()
+    _run("signalrgb", shell=shell, admin=admin)
+    assert "Get-Service *SignalRgb*" in shell.calls[0]
+    assert "Get-Service *SignalRgb*" in admin.calls[0]          # SignalRgb.Service, not SignalRgbService
+
+
+def test_install_also_stops_signalrgb_by_its_real_name():
+    admin = Admin()
+    _run("openrgb", shell=Shell({"Test-Path": "False"}), admin=admin)
+    assert "Get-Service *SignalRgb*" in admin.calls[0]
+
+
 def test_openrgb_installs_once_through_face_id_and_starts_it():
     shell, admin = Shell({"Test-Path": "False"}), Admin()
     out = _run("openrgb", shell=shell, admin=admin)

@@ -9,6 +9,8 @@ struct PcCalibration {
         let zone: Int
         let resizable: Bool
         let leds: Int
+        /// The most LEDs OpenRGB lets this connector have (resizable ones are measured up to it).
+        var max: Int? = nil
     }
 
     let zones: [ZoneJob]
@@ -28,6 +30,23 @@ struct PcCalibration {
     var current: ZoneJob? { zoneIndex < zones.count ? zones[zoneIndex] : nil }
     var done: Bool { zoneIndex >= zones.count }
     var needsSize: Bool { current != nil && size == nil }
+    /// A one-LED connector (a 12 V header): nothing to slide, just "what lit up?".
+    var isSingleLED: Bool { !needsSize && (size ?? 0) - cursor <= 1 && current != nil }
+
+    /// While measuring, the connector is resized to this so every LED can be lit.
+    var resizeTo: Int? {
+        guard let job = current, job.resizable, needsSize else { return nil }
+        return Swift.max(1, job.max ?? job.leds)
+    }
+
+    /// The LEDs the slider can light now: the whole connector while measuring, else what's left of it.
+    var scrubRange: ClosedRange<Int>? {
+        guard let job = current else { return nil }
+        if needsSize { return 0...(Swift.max(1, job.max ?? job.leds) - 1) }
+        guard let size, size - cursor > 1 else { return nil }
+        return cursor...(size - 1)
+    }
+
     var missingParts: [PcPart] {
         PcPart.allCases.filter { p in !segments.contains { $0.part == p.rawValue || ($0.also ?? []).contains(p.rawValue) } }
     }

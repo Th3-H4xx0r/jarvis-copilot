@@ -15,15 +15,24 @@ from typing import Any, Callable
 
 OPENRGB_EXE = r"C:\Program Files\OpenRGB\OpenRGB.exe"
 RUN_KEY = r"HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-SERVICE = "SignalRgbService"
+SIGNALRGB_SERVICES = "Get-Service *SignalRgb* -ErrorAction SilentlyContinue"   # it's "SignalRgb.Service"
 COST_LIMIT = 1.0          # % of one core
 PAWNIO_MIN = (2, 1, 0)    # FACEIT blocks older PawnIO
 
 INSTALL = (f"winget install --id OpenRGB.OpenRGB --exact --silent --accept-package-agreements "
            f"--accept-source-agreements; $c = $LASTEXITCODE; "
-           f"Stop-Service {SERVICE} -Force -ErrorAction SilentlyContinue; "
-           f"Set-Service {SERVICE} -StartupType Manual -ErrorAction SilentlyContinue; exit $c")
-STOP_SERVICE = f"Stop-Service {SERVICE} -Force -ErrorAction SilentlyContinue; Set-Service {SERVICE} -StartupType Manual"
+           f"{SIGNALRGB_SERVICES} | Stop-Service -Force -ErrorAction SilentlyContinue; "
+           f"{SIGNALRGB_SERVICES} | Set-Service -StartupType Manual -ErrorAction SilentlyContinue; "
+           f"Stop-Process -Name SignalRgbService -Force -ErrorAction SilentlyContinue; exit $c")
+STOP_SERVICE = (f"{SIGNALRGB_SERVICES} | Stop-Service -Force -ErrorAction SilentlyContinue; "
+                f"{SIGNALRGB_SERVICES} | Set-Service -StartupType Manual; "
+                f"Stop-Process -Name SignalRgbService -Force -ErrorAction SilentlyContinue")
+# The winget installer registers OpenRGB as a Windows service (Automatic, headless): then no login copy beside it.
+OPENRGB_SERVICE = "(Get-Service OpenRGB -ErrorAction SilentlyContinue).Status"
+SERVICE_MODE = (f"Remove-ItemProperty -Path '{RUN_KEY}' -Name OpenRGB -ErrorAction SilentlyContinue; "
+                f"Get-CimInstance Win32_Process -Filter \"Name='OpenRGB.exe'\" | Where-Object {{ "
+                f"(Get-Process -Id $_.ParentProcessId -ErrorAction SilentlyContinue).Name -ne 'services' }} | "
+                f"ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}")
 INSTALLED = f"Test-Path '{OPENRGB_EXE}'"
 AUTOSTART = (f"Set-ItemProperty -Path '{RUN_KEY}' -Name OpenRGB "
              f"-Value '\"{OPENRGB_EXE}\" --server --noautoconnect'")
@@ -31,7 +40,7 @@ LAUNCH = (f"if (-not (Get-Process OpenRGB -ErrorAction SilentlyContinue)) {{ Sta
           f"-ArgumentList '--server','--noautoconnect' -WindowStyle Hidden }}")
 QUIT_SIGNALRGB = (f"Stop-Process -Name SignalRgb,SignalRgbLauncher -Force -ErrorAction SilentlyContinue; "
                   f"Remove-ItemProperty -Path '{RUN_KEY}' -Name SignalRgb -ErrorAction SilentlyContinue; "
-                  f"(Get-Service {SERVICE} -ErrorAction SilentlyContinue).Status")
+                  f"({SIGNALRGB_SERVICES} | Select-Object -First 1).Status")
 PAWNIO_VERSION = (r"(Get-ItemProperty HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*, "
                   r"HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\* "
                   r"-ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match 'PawnIO' } "
@@ -97,8 +106,11 @@ def run_step(step: str, sensor_driver: bool, admin_run: Callable[..., dict] = _d
                                                      "(and stop SignalRGB's service)", timeout_s=900))
             if not ok:
                 return _step(step, "failed", why)
-        shell(AUTOSTART, 30)
-        shell(LAUNCH, 30)
+        if (shell(OPENRGB_SERVICE, 30).get("stdout") or "").strip():
+            shell(SERVICE_MODE, 30)       # the service runs it: never a second copy fighting over the lights
+        else:
+            shell(AUTOSTART, 30)
+            shell(LAUNCH, 30)
         for _ in range(10):
             engine.reconnect()
             if engine.status().get("controllers"):
