@@ -354,3 +354,100 @@ def test_pending_registered_as_host_skill():
     game_stream.register_host()
     names = {s["name"] for s in skills_registry.all_manifest()}
     assert "game_stream_pending" in names
+
+# ── through the REAL dispatcher: skills.invoke calls fn(**args) ──────────────
+# Regression (live 2026-11-21): the handlers take one payload dict, so invoke()
+# unwrapped {"sunshine": {...}} into args=<creds> (blank login → 401) and raised
+# TypeError for multi-key payloads (detect / pair / connect). Calling the handlers
+# directly hid it; these go through invoke() exactly as the server's calls do.
+class _CapClient:
+    made = []
+    pin = None
+
+    def __init__(self, host, port, user, password, scheme="https", **kw):
+        _CapClient.made.append({"host": host, "user": user, "password": password})
+
+    def get_clients(self):
+        return [{"name": "Mac", "uuid": "u1"}]
+
+    def get_apps(self):
+        return [{"name": "Desktop"}]
+
+    def probe(self):
+        return {"running": True, "needs_login": False}
+
+    def reachable(self):
+        return True
+
+    def pending_pairings(self):
+        return [{"id": "a" * 32, "name": "Roth", "address": "1.2.3.4"}]
+
+    def submit_pin(self, pin, name=None, pairing_id=None):
+        _CapClient.pin = (pin, name, pairing_id)
+        return True
+
+    def unpair(self, uuid):
+        pass
+
+    def close_app(self):
+        pass
+
+
+CREDS = {"user": "root", "password": "hunter2", "scheme": "https"}
+
+
+@pytest.fixture
+def cap(monkeypatch):
+    monkeypatch.setattr(game_stream, "SunshineClient", _CapClient)
+    _CapClient.made = []
+    _CapClient.pin = None
+    game_stream.register()
+    game_stream.register_host()
+    return _CapClient
+
+
+def test_dispatcher_passes_creds_to_status(cap):
+    res = skills_registry.invoke("game_stream_status", {"sunshine": CREDS})
+    assert cap.made[-1]["user"] == "root" and cap.made[-1]["password"] == "hunter2"
+    assert res["data"]["reachable"] is True
+
+
+def test_dispatcher_detect_with_log_path(cap):
+    res = skills_registry.invoke("game_stream_detect", {"sunshine": CREDS, "log_path": ""})
+    assert cap.made[-1]["password"] == "hunter2"
+    assert res["data"]["running"] is True
+
+
+def test_dispatcher_pending(cap):
+    res = skills_registry.invoke("game_stream_pending", {"sunshine": CREDS})
+    assert cap.made[-1]["password"] == "hunter2"
+    assert res["data"]["pairings"][0]["id"] == "a" * 32
+
+
+def test_dispatcher_pair_with_all_fields(cap):
+    res = skills_registry.invoke("game_stream_pair", {
+        "sunshine": CREDS, "device": "Roth", "pin": "1234", "pairing_id": "a" * 32})
+    assert res["ok"] is True
+    assert cap.pin == ("1234", "Roth", "a" * 32)
+    assert cap.made[-1]["password"] == "hunter2"
+
+
+def test_dispatcher_unpair_stop_ready(cap):
+    assert skills_registry.invoke("game_stream_unpair", {"sunshine": CREDS, "uuid": "u1"})["ok"] is True
+    assert skills_registry.invoke("game_stream_stop", {"sunshine": CREDS})["ok"] is True
+    assert skills_registry.invoke("game_stream_ready", {"sunshine": CREDS})["ok"] is True
+    assert cap.made and all(m["password"] == "hunter2" for m in cap.made)
+
+
+def test_dispatcher_connect_payload(monkeypatch, cap):
+    seen = {}
+
+    def fake_connect(target, app, srs=False, **kw):
+        seen.update(target=target, app=app, srs=srs)
+        return {"ok": True}
+
+    monkeypatch.setattr(game_stream, "connect", fake_connect)
+    res = skills_registry.invoke("game_stream_connect", {
+        "target": {"kind": "mac", "host": "gpc"}, "app": "Halo", "stream_running_session": True})
+    assert res["ok"] is True
+    assert seen == {"target": {"kind": "mac", "host": "gpc"}, "app": "Halo", "srs": True}

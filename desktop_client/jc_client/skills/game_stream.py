@@ -268,6 +268,18 @@ def _connect_skill(args):
 
 
 # ── registration ─────────────────────────────────────────────────────────
+def _kw(fn):
+    """jc-client's dispatcher (skills.invoke) calls a skill as fn(**args). These handlers
+    take the whole payload dict, so register a **kwargs adapter that hands it over intact
+    — without it invoke() unwrapped {"sunshine": …} into a blank login and rejected
+    multi-key payloads (pair / detect / connect) as unexpected args."""
+    def run(**args):
+        return fn(args)
+    run.__name__ = fn.__name__
+    run.__doc__ = fn.__doc__
+    return run
+
+
 _CONNECT_SCHEMA = {
     "type": "object",
     "properties": {
@@ -282,24 +294,24 @@ def register():
     """Connect driver — registered on every device (Mac / PC / handheld)."""
     skill("game_stream_connect",
           "Point this device's Moonlight at the Sunshine host and stream an app.",
-          _CONNECT_SCHEMA, destructive=True)(_connect_skill)
+          _CONNECT_SCHEMA, destructive=True)(_kw(_connect_skill))
 
 
 def register_host():
     """Sunshine host control — registered on the PC only."""
     skill("game_stream_status", "Report Sunshine reachability, paired devices and apps.",
-          {"type": "object"})(_host_status)
+          {"type": "object"})(_kw(_host_status))
     skill("game_stream_detect",
           "Detect Sunshine on this PC for setup: whether it is running and whether the login works.",
-          {"type": "object"})(_host_detect)
+          {"type": "object"})(_kw(_host_detect))
     skill("game_stream_ready", "Check the Sunshine host is reachable.",
-          {"type": "object"})(_host_ready)
+          {"type": "object"})(_kw(_host_ready))
     skill("game_stream_pending",
           "List the Moonlight devices waiting to pair with the Sunshine host.",
-          {"type": "object"})(_host_pending)
+          {"type": "object"})(_kw(_host_pending))
     skill("game_stream_pair", "Submit a Moonlight pairing PIN to the Sunshine host.",
-          {"type": "object"}, destructive=True)(_host_pair)
+          {"type": "object"}, destructive=True)(_kw(_host_pair))
     skill("game_stream_unpair", "Unpair a device from the Sunshine host.",
-          {"type": "object"}, destructive=True)(_host_unpair)
+          {"type": "object"}, destructive=True)(_kw(_host_unpair))
     skill("game_stream_stop", "Stop the running Sunshine app / session.",
-          {"type": "object"}, destructive=True)(_host_stop)
+          {"type": "object"}, destructive=True)(_kw(_host_stop))
