@@ -273,8 +273,9 @@ def _public_settings() -> dict:
 def _handle_status(req, s):
     pc = _pc_id()
     if not _online(pc):
-        return req.reply(200, {"ok": True, "reachable": False, "live": s.get_live(),
-                               "paired": s.get_paired(), "apps": [], "targets": _targets()})
+        return req.reply(200, {"ok": True, "reachable": False, "needs_login": False,
+                               "live": s.get_live(), "paired": s.get_paired(),
+                               "apps": [], "targets": _targets()})
     res = _invoke(pc, "game_stream_status", {"sunshine": _sunshine_conn()}) or {}
     data = res.get("data") or {}
     try:
@@ -285,6 +286,7 @@ def _handle_status(req, s):
     if data.get("paired"):
         s.upsert_paired(data["paired"])
     return req.reply(200, {"ok": True, "reachable": bool(data.get("reachable", False)),
+                           "needs_login": bool(data.get("needs_login", False)),
                            "live": s.get_live(), "paired": s.get_paired(),
                            "apps": data.get("apps", []), "targets": _targets()})
 
@@ -295,12 +297,16 @@ def _handle_detect(req):
     "not running" from "running but the login is missing/wrong"."""
     pc = _pc_id()
     if not _online(pc):
-        return req.reply(200, {"ok": True, "online": False, "running": False, "needs_login": False})
-    res = _invoke(pc, "game_stream_detect", {"sunshine": _sunshine_conn()}) or {}
+        return req.reply(200, {"ok": True, "online": False, "running": False,
+                               "needs_login": False, "username": ""})
+    log_path = str(_settings().get("log_path") or "").strip()
+    res = _invoke(pc, "game_stream_detect",
+                  {"sunshine": _sunshine_conn(), "log_path": log_path}) or {}
     data = res.get("data") or {}
     return req.reply(200, {"ok": True, "online": True,
                            "running": bool(data.get("running", False)),
-                           "needs_login": bool(data.get("needs_login", False))})
+                           "needs_login": bool(data.get("needs_login", False)),
+                           "username": str(data.get("username") or "")})
 
 
 def _handle_set_targets(req, body, s):

@@ -110,3 +110,71 @@ def test_pair_forwards_pin(wired):
     R.route(Req("POST", "/pair", {"device": "Mac", "pin": "1234"}))
     pair = [c for c in calls if len(c) == 3 and c[1] == "game_stream_pair"][0]
     assert pair[2]["pin"] == "1234"
+
+
+# ── needs_login / username passthrough (wrong-login vs offline) ─────────
+def test_status_passes_needs_login_through(wired):
+    st, calls, mp = wired
+    _online(mp, ["pc"])
+    mp.setattr(R, "_invoke", lambda *a, **k: {"ok": True, "data": {
+        "reachable": False, "needs_login": True, "paired": [], "apps": []}})
+    req = Req("GET", "/status")
+    R.route(req)
+    assert req.replied[1]["reachable"] is False
+    assert req.replied[1]["needs_login"] is True
+
+
+def test_status_offline_is_not_needs_login(wired):
+    st, calls, mp = wired
+    _online(mp, [])
+    req = Req("GET", "/status")
+    R.route(req)
+    assert req.replied[1]["reachable"] is False
+    assert req.replied[1]["needs_login"] is False
+
+
+def test_detect_passes_username_and_needs_login(wired):
+    st, calls, mp = wired
+    _online(mp, ["pc"])
+    mp.setattr(R, "_invoke", lambda *a, **k: {"ok": True, "data": {
+        "running": True, "needs_login": True, "username": "admin"}})
+    R.route(req := Req("GET", "/detect"))
+    body = req.replied[1]
+    assert body["online"] is True and body["running"] is True
+    assert body["needs_login"] is True
+    assert body["username"] == "admin"
+
+
+def test_detect_offline_has_blank_username(wired):
+    st, calls, mp = wired
+    _online(mp, [])
+    R.route(req := Req("GET", "/detect"))
+    body = req.replied[1]
+    assert body["online"] is False
+    assert body["needs_login"] is False
+    assert body["username"] == ""
+
+
+def test_detect_forwards_log_path(wired):
+    st, calls, mp = wired
+    _online(mp, ["pc"])
+    mp.setattr(R, "_settings", lambda: {"log_path": "C:/Sunshine/sunshine.log"})
+    seen = {}
+
+    def fake(did, skill, args, timeout=20):
+        seen["args"] = args
+        return {"ok": True, "data": {"running": True, "needs_login": False, "username": ""}}
+
+    mp.setattr(R, "_invoke", fake)
+    R.route(Req("GET", "/detect"))
+    assert seen["args"]["log_path"] == "C:/Sunshine/sunshine.log"
+
+
+def test_pair_surfaces_auth_detail(wired):
+    st, calls, mp = wired
+    _online(mp, ["pc"])
+    mp.setattr(R, "_invoke", lambda *a, **k: {
+        "ok": False, "detail": "Sunshine rejected the login — check your Sunshine password"})
+    R.route(req := Req("POST", "/pair", {"device": "TV", "pin": "1234"}))
+    assert req.replied[1]["ok"] is False
+    assert "password" in req.replied[1]["detail"].lower()
