@@ -11,10 +11,18 @@ def test_invoke_unwraps_skill_envelope(monkeypatch):
     assert R._invoke("pc", "game_stream_status", {}) == {"ok": True, "data": {"reachable": True}}
 
 
-def test_targets_parses_json_string(monkeypatch):
+def test_targets_migrates_legacy_json(monkeypatch):
+    # C2 protection moved into the one-time legacy migration: a configured JSON targets
+    # setting becomes structured rows (never iterated char-by-char).
     monkeypatch.setattr(R, "_settings", lambda: {"targets": '[{"name":"Mac","kind":"mac","host":"gpc"}]'})
-    assert R._targets() == [{"name": "Mac", "kind": "mac", "host": "gpc"}]
+    R.store().set_targets([])
+    out = R._targets()
+    assert any(t["name"] == "Mac" and t["kind"] == "mac" for t in out)
+
+
+def test_targets_invalid_json_is_empty(monkeypatch):
     monkeypatch.setattr(R, "_settings", lambda: {"targets": "not json"})
+    R.store().set_targets([])
     assert R._targets() == []
 
 
