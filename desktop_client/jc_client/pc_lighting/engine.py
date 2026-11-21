@@ -136,6 +136,14 @@ class Engine:
             self._probing = True
             return {"ok": True}
 
+    def reconnect(self) -> dict:
+        """Drop the connection and try OpenRGB again now (setup just started it)."""
+        with self._lock:
+            self._driver = None
+            self._next_retry = 0.0
+            self._ensure_driver(self._clock())
+        return self.status()
+
     def status(self) -> dict:
         with self._lock:
             engine = "stopped" if not self._enabled else ("error" if self._error else "running")

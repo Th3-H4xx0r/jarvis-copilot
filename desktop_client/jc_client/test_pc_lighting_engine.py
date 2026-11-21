@@ -176,6 +176,25 @@ def test_driver_failure_reports_error_and_retries_every_ten_seconds(tmp_path):
     assert sum(d.connected for d in made) == attempts + 1
 
 
+def test_reconnect_tries_at_once_after_a_failure(tmp_path):
+    sent, clock, made = [], Clock(), []
+
+    def factory(address):
+        d = FakeDriver(address, fail=len(made) == 0)
+        made.append(d)
+        return d
+
+    e = eng.Engine(sent.append, driver_factory=factory, clock=clock,
+                   game_state=lambda: SimpleNamespace(on=False, reason="", anticheat=False),
+                   store_path=tmp_path / "s.json")
+    e.set_map(MAP)
+    e.set_state(_state(), rev=1, address="127.0.0.1:6742")
+    e.tick()
+    assert e.status()["engine"] == "error"
+    e.reconnect()                                   # OpenRGB was just started: don't wait 10 s
+    assert e.status()["engine"] == "running" and e.status()["controllers"]
+
+
 def test_probe_lights_one_led_and_pauses_until_cleared(rig):
     rig.e.set_map(MAP)
     rig.e.set_state(_state("rainbow"), rev=1, address="127.0.0.1:6742")

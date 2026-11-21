@@ -39,6 +39,13 @@ def lighting_status() -> dict:
     return dict(_engine.status(), ok=True) if _engine else _missing()
 
 
+def lighting_setup(step: str, sensor_driver: bool = True) -> dict:
+    if not _engine:
+        return _missing()
+    from jc_client.pc_lighting import setup
+    return setup.run_step(step, sensor_driver, engine=_engine)
+
+
 def register() -> None:
     from jc_client.skills import skill
     obj = {"type": "object"}
@@ -54,3 +61,6 @@ def register() -> None:
                                             "clear": {"type": "boolean"}}})(lighting_probe)
     skill("lighting_status", "Server-only: the PC lighting engine's status and OpenRGB controllers.",
           {"type": "object"})(lighting_status)
+    skill("lighting_setup", "Server-only: run one PC lighting setup step (may wait for Face ID).",
+          {"type": "object", "properties": {"step": {"type": "string"}, "sensor_driver": {"type": "boolean"}},
+           "required": ["step"]}, destructive=True, watchdog=lambda a: 960.0)(lighting_setup)

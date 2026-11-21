@@ -49,7 +49,18 @@ def test_register_adds_the_four_server_only_skills():
     from jc_client import skills as registry
     skills.register()
     names = {s["name"] for s in registry.list_skills()} if hasattr(registry, "list_skills") else set(registry._REGISTRY)
-    assert {"lighting_state_set", "lighting_map_set", "lighting_probe", "lighting_status"} <= names
+    assert {"lighting_state_set", "lighting_map_set", "lighting_probe", "lighting_status", "lighting_setup"} <= names
+
+
+def test_setup_skill_runs_the_step_with_the_engine(monkeypatch):
+    from jc_client.pc_lighting import setup
+    e = FakeEngine()
+    skills.set_engine(e)
+    seen = {}
+    monkeypatch.setattr(setup, "run_step", lambda step, sensor_driver, engine=None: seen.update(
+        step=step, sensor_driver=sensor_driver, engine=engine) or {"id": step, "state": "done", "detail": ""})
+    out = skills.lighting_setup(step="detect", sensor_driver=False)
+    assert out["state"] == "done" and seen == {"step": "detect", "sensor_driver": False, "engine": e}
 
 
 def test_address_parsing():
