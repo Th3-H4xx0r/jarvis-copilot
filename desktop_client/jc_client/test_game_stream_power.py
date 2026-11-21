@@ -109,3 +109,14 @@ def test_default_log_path_is_os_specific():
         assert p.endswith("sunshine.log") and "Sunshine" in p
     else:
         assert p.endswith(".config/sunshine/sunshine.log")
+
+
+def test_seed_known_without_host_uses_localhost():
+    # The server no longer sends a host (Sunshine is localhost on the PC). Seeding must
+    # still read the paired clients, or every device that connects reads as "unknown".
+    sent = []
+    gs = _subsystem(sent)
+    gs.handle_power({"on": True, "log_path": "/tmp/sunshine.log",
+                     "sunshine": {"user": "root", "password": "pw", "scheme": "https"}})
+    w = FakeWatcher.instances[-1]
+    assert w.known == {"Mac", "Living Room TV"}

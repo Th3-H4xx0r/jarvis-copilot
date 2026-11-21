@@ -79,11 +79,12 @@ class GameStreamPower:
     def _seed_known(self, conn: dict) -> set:
         """Paired client names from Sunshine's local API, so a new device is flagged unknown.
         Any failure (Sunshine down / bad creds) just yields an empty set — we still watch."""
-        if not conn.get("host"):
+        if not conn:
             return set()
         try:
+            # Sunshine runs on this PC: the server sends only the login, so default to localhost.
             client = self._client_factory(
-                conn.get("host", "127.0.0.1"), int(conn.get("port", 47990) or 47990),
+                conn.get("host") or "127.0.0.1", int(conn.get("port", 47990) or 47990),
                 conn.get("user", ""), conn.get("password", ""),
                 scheme=conn.get("scheme", "https"))
             return {c.get("name") for c in (client.get_clients() or []) if c.get("name")}

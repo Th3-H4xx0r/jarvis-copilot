@@ -271,6 +271,7 @@ def _on_event(did: str, data: dict) -> None:
 def register_events() -> None:
     from api import device_bridge
     device_bridge.on_device_event("game_stream", _on_event)
+    device_bridge.on_subscribe(_on_subscribe)
 
 
 # ── HTTP ─────────────────────────────────────────────────────────────────────
@@ -451,11 +452,19 @@ def _handle_unpair(req, body, s):
 _DESIRED = {"on": None}
 
 
+def _desired_on() -> bool:
+    """The watcher's wanted state: the last power_changed, or — in a fresh webui process
+    that hasn't seen one yet — the Power switch itself."""
+    if _DESIRED["on"] is not None:
+        return bool(_DESIRED["on"])
+    return bool(_enabled())
+
+
 def _power_payload() -> dict:
     """What the PC needs to start its Sunshine-log watcher: the desired on/off, plus
     (when on) the Sunshine connection and the log path to tail. Omits credentials when
     off — the PC only needs to know to stop."""
-    on = bool(_DESIRED["on"])
+    on = _desired_on()
     data: dict = {"on": on}
     if on:
         data["sunshine"] = _sunshine_conn()
@@ -478,8 +487,15 @@ def power_changed(on: bool) -> None:
 def resync(did: str) -> None:
     """A (re)connecting PC: re-push the desired power state (with the Sunshine conn +
     log path) so its watcher is started or stopped to match."""
-    if _DESIRED["on"] is not None:
-        _publish_to(did, "game_stream_power", _power_payload())
+    _publish_to(did, "game_stream_power", _power_payload())
+
+
+def _on_subscribe(device_id: str, topics) -> None:
+    """Re-push the power state once the PC's subscription is stored — race-free, unlike the
+    hello that can arrive before the subscribe frame (that push was dropped and the watcher
+    never restarted after a reconnect or a wake from sleep)."""
+    if "game_stream_power" in (topics or {}):
+        resync(device_id)
 
 
 def route(req) -> bool:

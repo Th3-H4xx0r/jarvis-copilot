@@ -51,11 +51,16 @@ def test_resync_republishes_desired_power_with_conn(monkeypatch):
     assert data["on"] is True and data["sunshine"]["host"] == "gpc"
 
 
-def test_resync_noop_when_no_desired_state(monkeypatch):
+def test_resync_with_unknown_state_follows_a_switched_off_power(monkeypatch):
+    # Unknown desired state (fresh webui process) follows the Power switch; switched off,
+    # the PC is told to stop and no Sunshine login is sent.
     pubs = _capture_publish(monkeypatch)
+    monkeypatch.setattr(R, "_enabled", lambda: False)
     R._DESIRED["on"] = None
     R.resync("pc")
-    assert pubs == []
+    assert len(pubs) == 1
+    payload = pubs[0][-1]
+    assert payload["on"] is False and "sunshine" not in payload
 
 
 def test_reap_drops_only_expired_pendings():
@@ -67,3 +72,35 @@ def test_reap_drops_only_expired_pendings():
         assert len(R._PENDING) == 1 and R._PENDING[0]["deadline"] == 10 ** 12
     finally:
         R._PENDING.clear()
+
+
+def test_resync_falls_back_to_power_state_when_desired_unknown(monkeypatch):
+    # A fresh webui process hasn't seen power_changed yet; a reconnecting PC must still
+    # get the watcher state (from the Power switch) with the Sunshine login.
+    from api import game_streaming_routes as R
+    sent = []
+    monkeypatch.setattr(R, "_publish_to", lambda did, topic, data: sent.append((did, topic, data)))
+    monkeypatch.setattr(R, "_enabled", lambda: True)
+    monkeypatch.setattr(R, "_settings", lambda: {"user": "root", "password": "pw"})
+    monkeypatch.setitem(R._DESIRED, "on", None)
+    R.resync("pc")
+    assert sent and sent[0][0] == "pc" and sent[0][1] == "game_stream_power"
+    assert sent[0][2]["on"] is True
+    assert sent[0][2]["sunshine"]["user"] == "root"
+
+
+def test_subscribe_hook_resyncs_when_pc_subscribes(monkeypatch):
+    # Race-free: re-push the power state once the PC's subscription is stored, not on the
+    # hello that arrives before it (the push was dropped, so the watcher never restarted).
+    from api import game_streaming_routes as R
+    from api import device_bridge
+    hooks = []
+    monkeypatch.setattr(device_bridge, "on_subscribe", lambda cb: hooks.append(cb))
+    monkeypatch.setattr(device_bridge, "on_device_event", lambda name, fn: None)
+    seen = []
+    monkeypatch.setattr(R, "resync", lambda did: seen.append(did))
+    R.register_events()
+    assert hooks
+    hooks[0]("pc", {"game_stream_power": 0})
+    hooks[0]("phone", {"pc_stats": 5})
+    assert seen == ["pc"]
