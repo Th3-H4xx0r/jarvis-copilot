@@ -160,6 +160,12 @@ def test_setup_runs_the_step_with_a_long_timeout_and_applies_cost(env):
     assert env.st.state("pc-1")["still_in_games"] is False and _skills(env, "lighting_state_set")
 
 
+def test_setup_refuses_an_unknown_step(env):
+    status, body = light("POST", "/api/pc-lighting/setup", {"step": "format-c"})
+    assert status == 400 and "format-c" in body["error"]
+    assert env.st.setup("pc-1") == {} and not _skills(env, "lighting_setup")
+
+
 def test_state_event_with_old_revisions_resyncs_map_then_state(env):
     env.st.set_map("pc-1", MAP)
     env.st.update_state("pc-1", {"part": "all", "color": "#ff00ff"})

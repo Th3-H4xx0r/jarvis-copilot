@@ -292,6 +292,8 @@ def route(req) -> bool:
         return req.reply(200, {"ok": True, "map": m, "coverage": s.coverage(did)})
     if req.method == "POST" and parts == ["setup"]:
         step = str(body.get("step") or "")
+        if step not in SETUP_STEPS:
+            return req.reply(400, {"ok": False, "error": f"Unknown setup step {step!r}: one of {', '.join(SETUP_STEPS)}"})
         running = {"id": step, "state": "running", "detail": "Working on the PC…"}
         s.set_setup_step(did, running)
         publish(did)
