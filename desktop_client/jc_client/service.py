@@ -599,6 +599,10 @@ class Service:
                     self._lighting = LightingEngine(self._send_up_ok)
                     pc_lighting_skills.set_engine(self._lighting)
                     self._lighting.start()
+                    from jc_client import pc_specs   # the Specs screen: read once, resend on change
+                    self._specs = pc_specs.SpecsReporter(self._send_up_ok)
+                    pc_specs.set_reporter(self._specs)
+                    self._specs.start()
                 except Exception as exc:  # noqa: BLE001 — never fatal
                     log.warning("pc lighting unavailable: %s", exc)
             self._start_agents_link()

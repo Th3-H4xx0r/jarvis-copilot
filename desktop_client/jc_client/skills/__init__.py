@@ -206,6 +206,8 @@ def load_all(allow_shell: bool = False) -> None:
         try:
             from jc_client.pc_lighting import skills as pc_lighting_skills
             pc_lighting_skills.register()
+            from jc_client import pc_specs
+            pc_specs.register()
         except Exception as exc:
             log.warning("Failed to load PC lighting skills: %s", exc)
 
