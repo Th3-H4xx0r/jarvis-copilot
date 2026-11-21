@@ -19,7 +19,7 @@ from __future__ import annotations
 import subprocess
 
 from jc_client.skills import skill
-from jc_client.sunshine import SunshineClient, SunshineUnavailable
+from jc_client.sunshine import SunshineAuthError, SunshineClient, SunshineUnavailable  # noqa: F401
 
 DESKTOP_APP = "Desktop"
 
@@ -79,11 +79,13 @@ def connect(target, app, stream_running_session=False, *, run=_run):
 
 # ── host control (PC) via the Sunshine API ───────────────────────────────
 def _client_from(args):
+    # jc-client runs ON the gaming PC, so Sunshine is always at localhost: the server
+    # sends only the credentials and host/port default here (never typed by the user).
     s = (args or {}).get("sunshine") or {}
     return SunshineClient(
-        s.get("host", "127.0.0.1"), int(s.get("port", 47990)),
+        s.get("host") or "127.0.0.1", int(s.get("port") or 47990),
         s.get("user", ""), s.get("password", ""),
-        scheme=s.get("scheme", "https"))
+        scheme=s.get("scheme") or "https")
 
 
 def _host_status(args):
@@ -97,6 +99,14 @@ def _host_status(args):
     except SunshineUnavailable:
         apps = []
     return {"ok": True, "data": {"reachable": True, "paired": paired, "apps": apps}}
+
+
+def _host_detect(args):
+    """Setup probe: is Sunshine running on this PC, and does the login work?
+    Returns {running, needs_login} so the setup page can say "Found Sunshine" or
+    "running but the login is missing/wrong" instead of a bare reachable flag."""
+    c = _client_from(args)
+    return {"ok": True, "data": c.probe()}
 
 
 def _host_ready(args):
@@ -158,6 +168,9 @@ def register_host():
     """Sunshine host control — registered on the PC only."""
     skill("game_stream_status", "Report Sunshine reachability, paired devices and apps.",
           {"type": "object"})(_host_status)
+    skill("game_stream_detect",
+          "Detect Sunshine on this PC for setup: whether it is running and whether the login works.",
+          {"type": "object"})(_host_detect)
     skill("game_stream_ready", "Check the Sunshine host is reachable.",
           {"type": "object"})(_host_ready)
     skill("game_stream_pair", "Submit a Moonlight pairing PIN to the Sunshine host.",

@@ -23,6 +23,12 @@ class SunshineUnavailable(RuntimeError):
     """Sunshine's API could not be reached or rejected our credentials."""
 
 
+class SunshineAuthError(SunshineUnavailable):
+    """Sunshine answered but rejected our credentials (401/403): it is running, it
+    just needs a valid login. A subclass so existing except-SunshineUnavailable
+    callers keep treating it as down."""
+
+
 class SunshineClient:
     def __init__(self, host, port, user, password, scheme="https",
                  verify_tls=False, timeout=5.0):
@@ -48,7 +54,7 @@ class SunshineClient:
             return json.loads(raw)
         except urllib.error.HTTPError as e:
             if e.code in (401, 403):
-                raise SunshineUnavailable(f"auth failed ({e.code})") from e
+                raise SunshineAuthError(f"auth failed ({e.code})") from e
             raise
         except (urllib.error.URLError, OSError, socket.timeout) as e:
             raise SunshineUnavailable(str(e)) from e
@@ -77,6 +83,18 @@ class SunshineClient:
             return True
         except SunshineUnavailable:
             return False
+
+    def probe(self):
+        """Detect for setup: is Sunshine running, and are the credentials good?
+        Distinguishes not-running (connection refused/timeout) from running-but-the-
+        login-is-missing/wrong (401/403), which the status probe cannot tell apart."""
+        try:
+            self._get("/api/clients/list")
+        except SunshineAuthError:
+            return {"running": True, "needs_login": True}
+        except SunshineUnavailable:
+            return {"running": False, "needs_login": False}
+        return {"running": True, "needs_login": False}
 
     def get_clients(self):
         return self._get("/api/clients/list").get("named_certs", [])

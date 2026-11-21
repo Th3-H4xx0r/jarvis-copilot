@@ -77,3 +77,44 @@ def test_register_adds_skills():
     names = {s["name"] for s in skills_registry.all_manifest()}
     assert "game_stream_connect" in names
     assert "game_stream_status" in names
+
+
+# ── detect (localhost probe) ──────────────────────────────────────────────
+class FakeClientRec:
+    made = []
+
+    def __init__(self, host, port, user, password, scheme="https"):
+        FakeClientRec.made.append((host, port, user, password, scheme))
+        self.probe_result = {"running": True, "needs_login": False}
+
+    def probe(self):
+        return self.probe_result
+
+
+def test_detect_defaults_to_localhost(monkeypatch):
+    FakeClientRec.made = []
+    monkeypatch.setattr(game_stream, "SunshineClient", FakeClientRec)
+    res = game_stream._host_detect({"sunshine": {"user": "a", "password": "b"}})
+    assert res["ok"] is True
+    assert res["data"] == {"running": True, "needs_login": False}
+    host, port, user, password, scheme = FakeClientRec.made[0]
+    assert host == "127.0.0.1" and port == 47990 and user == "a" and password == "b"
+
+
+def test_detect_reports_needs_login(monkeypatch):
+    from jc_client.sunshine import SunshineAuthError
+
+    class NeedsLogin(FakeClientRec):
+        def probe(self):
+            return {"running": True, "needs_login": True}
+
+    monkeypatch.setattr(game_stream, "SunshineClient", NeedsLogin)
+    res = game_stream._host_detect({"sunshine": {"user": "", "password": ""}})
+    assert res["data"]["needs_login"] is True
+
+
+def test_detect_registered_as_host_skill():
+    game_stream.register_host()
+    names = {s["name"] for s in skills_registry.all_manifest()}
+    assert "game_stream_detect" in names
+

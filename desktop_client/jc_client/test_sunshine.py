@@ -107,3 +107,36 @@ def test_unreachable_raises_SunshineUnavailable():
     assert c.reachable() is False
     with pytest.raises(SunshineUnavailable):
         c.get_clients()
+
+
+# ── probe (detect) ────────────────────────────────────────────────────────
+def test_probe_running_and_logged_in(server):
+    port, rec = server
+    assert _client(port).probe() == {"running": True, "needs_login": False}
+
+
+def test_probe_running_but_needs_login(monkeypatch):
+    from jc_client.sunshine import SunshineAuthError
+    c = SunshineClient("127.0.0.1", 1, "admin", "pw", scheme="http")
+
+    def boom(path):
+        raise SunshineAuthError("auth failed (401)")
+
+    monkeypatch.setattr(c, "_get", boom)
+    assert c.probe() == {"running": True, "needs_login": True}
+
+
+def test_probe_not_running(monkeypatch):
+    c = SunshineClient("127.0.0.1", 1, "admin", "pw", scheme="http")
+
+    def boom(path):
+        raise SunshineUnavailable("connection refused")
+
+    monkeypatch.setattr(c, "_get", boom)
+    assert c.probe() == {"running": False, "needs_login": False}
+
+
+def test_auth_error_is_a_sunshine_unavailable_subclass():
+    from jc_client.sunshine import SunshineAuthError
+    assert issubclass(SunshineAuthError, SunshineUnavailable)
+
