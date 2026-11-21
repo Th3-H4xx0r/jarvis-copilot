@@ -5,7 +5,7 @@
 (function (root) {
   const PARTS = [['top', 'Top fans'], ['rear', 'Rear fans'], ['bottom', 'Bottom fans'], ['cooler', 'Cooler'], ['strip', 'Strip']];
   const EFFECTS = [['static', 'Static'], ['breathing', 'Breathing'], ['rainbow', 'Rainbow'], ['spectrum', 'Spectrum'], ['comet', 'Comet']];
-  const SWATCHES = ['#ffffff', '#ff2d55', '#ff9f0a', '#ffd60a', '#30d158', '#22d3ee', '#0a84ff', '#bf5af2'];
+  const SWATCHES = ['#ffffff', '#ff3b30', '#ff9f0a', '#ffd60a', '#30d158', '#22d3ee', '#0a84ff', '#bf5af2'];
   const st = { pc: null, lighting: null, specs: null, part: null, error: '', card: null, loadedAt: 0 };
   const RELOAD_MS = 30000;
 

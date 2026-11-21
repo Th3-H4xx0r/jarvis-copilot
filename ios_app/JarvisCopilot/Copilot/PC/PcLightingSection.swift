@@ -13,7 +13,7 @@ struct PcLightingSection: View {
     @State private var lookName = ""
 
     private var store: PcStore { .shared }
-    private static let swatches = ["#ffffff", "#ff2d55", "#ff9f0a", "#ffd60a", "#30d158", "#22d3ee", "#0a84ff", "#bf5af2"]
+    private static let swatches = ["#ffffff", "#ff3b30", "#ff9f0a", "#ffd60a", "#30d158", "#22d3ee", "#0a84ff", "#bf5af2"]
 
     private var current: PcPartLight? { store.state?.light(selectedPart ?? .top) }
 

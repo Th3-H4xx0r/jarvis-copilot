@@ -21,6 +21,16 @@ log = logging.getLogger(__name__)
 
 FRAME_S = 1 / 30
 _CH = {"r": 0, "g": 1, "b": 2}
+
+
+def _led_power(v: int) -> int:
+    """One sRGB channel (0–255) to the LED drive that gives the same light."""
+    c = v / 255
+    lin = c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+    return round(lin * 255)
+
+
+_LED = [_led_power(v) for v in range(256)]
 RETRY_S = 10.0
 PROBE_S = 60.0
 REPORT_S = 60.0
@@ -286,10 +296,12 @@ class Engine:
             return None
 
     def _ordered(self, frames: dict) -> dict:
-        """Each connector's colour order (its LEDs may be GRB: calibration's colour test sets it)."""
+        """Screen colours as LED power (sRGB decoded: an LED's light is linear in its drive, so a raw
+        33 % blue tints red pink), then each connector's colour order (its LEDs may be GRB)."""
         orders = {(z["controller"], z["zone"]): str(z.get("order") or "rgb") for z in self._map.get("zones", [])}
         out = {}
         for key, colours in frames.items():
+            colours = [(_LED[r], _LED[g], _LED[b]) for r, g, b in colours]
             order = orders.get(key, "rgb")
             if order != "rgb" and sorted(order) == ["b", "g", "r"]:
                 a, b, c = (_CH[ch] for ch in order)

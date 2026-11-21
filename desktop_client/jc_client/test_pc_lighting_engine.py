@@ -110,6 +110,27 @@ def test_a_grb_connector_gets_its_channels_swapped(rig):
     assert rig.drivers[0].writes[-1][(0, 0)][0] == (0, 255, 0)  # the fan shows red
 
 
+def test_screen_colours_become_led_power_so_red_does_not_turn_pink(rig):
+    # #ff2d55 is red on a screen; sent raw, its 33 % blue lights the LED's blue chip at a third: pink.
+    rig.e.set_map(MAP)
+    rig.e.set_state(_state(parts={k: {"effect": "static", "color": "#ff2d55", "speed": 5}
+                                  for k in ("top", "rear", "bottom", "cooler", "strip")}),
+                    rev=1, address="127.0.0.1:6742")
+    rig.e.tick()
+    assert rig.drivers[0].writes[-1][(0, 0)][0] == (255, 7, 23)
+
+
+def test_led_power_and_the_grb_swap_both_apply(rig):
+    m = {"version": 1, "rev": 5, "zones": [{"controller": 0, "zone": 0, "leds": 20, "order": "grb"}],
+         "segments": [{"part": "top", "index": 0, "controller": 0, "zone": 0, "start": 0, "count": 20}]}
+    rig.e.set_map(m)
+    rig.e.set_state(_state(parts={k: {"effect": "static", "color": "#ff2d55", "speed": 5}
+                                  for k in ("top", "rear", "bottom", "cooler", "strip")}),
+                    rev=1, address="127.0.0.1:6742")
+    rig.e.tick()
+    assert rig.drivers[0].writes[-1][(0, 0)][0] == (7, 255, 23)
+
+
 def test_probes_send_raw_colours_for_the_colour_test(rig):
     m = {"version": 1, "rev": 5, "zones": [{"controller": 0, "zone": 0, "leds": 20, "order": "grb"}],
          "segments": [{"part": "top", "index": 0, "controller": 0, "zone": 0, "start": 0, "count": 20}]}
