@@ -27,6 +27,7 @@ MOUNTS = (
     ("/api/devices", "api.devices_routes"),
     ("/api/door", "api.door_routes"),
     ("/api/edge", "api.edge"),
+    ("/api/game-streaming", "api.game_streaming_routes"),
     ("/api/harnesses", "api.harness_routes"),
     ("/api/holo-drop", "api.holo_drop_routes"),
     ("/api/island", "api.island_routes"),

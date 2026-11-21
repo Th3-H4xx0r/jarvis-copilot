@@ -897,6 +897,8 @@ def start(store) -> AgentsCore:
     try:   # PC lighting engine reports + the PC's specs
         from api import pc_lighting_routes
         pc_lighting_routes.register_events()
+        from api import game_streaming_routes
+        game_streaming_routes.register_events()
     except Exception:  # noqa: BLE001
         pass
     for name, fn in (("agent_roster", c.on_roster), ("device_sleeping", c.on_sleeping),
