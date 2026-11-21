@@ -88,6 +88,7 @@ _HERMES_CORE_TOOLS = [
     "pc_stats_query", "pc_dashboard",
     # PC Lighting (a Power integration): the gaming PC's fans, cooler and strip, part by part.
     "pc_lights", "pc_light_looks", "pc_light_setup",
+    "game_stream_status", "game_stream_start", "game_stream_stop", "game_stream_pair", "game_stream_unpair",
     # Remote Desktop (a Power integration): is the PC ready for RDP, who's connected (read-only).
     "remote_desktop_status",
     # Cross-platform messaging (gated on gateway running via check_fn)
@@ -351,6 +352,12 @@ TOOLSETS = {
     "pc_lighting": {
         "description": "PC Lighting: colour the gaming PC's fans, cooler and strip part by part, effects, brightness, saved looks, setup and calibration tests.",
         "tools": ["pc_lights", "pc_light_looks", "pc_light_setup"],
+        "includes": []
+    },
+
+    "game_streaming": {
+        "description": "Game Streaming: Sunshine + Moonlight on the gaming PC — status, paired devices, start/stop a stream to a device, launch a game, pair/unpair.",
+        "tools": ["game_stream_status", "game_stream_start", "game_stream_stop", "game_stream_pair", "game_stream_unpair"],
         "includes": []
     },
 
