@@ -894,6 +894,11 @@ def start(store) -> AgentsCore:
         device_bridge.on_device_event(name, fn)
     from api import pc_admin
     device_bridge.on_device_event("pc_admin_request", pc_admin.store().on_request)
+    try:   # PC lighting engine reports + the PC's specs
+        from api import pc_lighting_routes
+        pc_lighting_routes.register_events()
+    except Exception:  # noqa: BLE001
+        pass
     for name, fn in (("agent_roster", c.on_roster), ("device_sleeping", c.on_sleeping),
                      ("agent_transcript_chunk", c.on_chunk),
                      ("agent_merge_done", c.on_merge_done), ("agent_delivery", c.on_delivery),

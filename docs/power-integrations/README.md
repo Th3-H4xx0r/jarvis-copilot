@@ -8,7 +8,7 @@ native device code. They can't be created from the chat setup flow.
 
 Today's Power integrations: `imessage-memory`, `jarvis-health`, `car`, `door-alarm`,
 `dashcam`, `vault`, `widgets`, `kanban`, `security-advisor`, `island-designs`, `photon`,
-`holo-drop`.
+`holo-drop`, `pc-stats`, `remote-desktop`, `pc-lighting`.
 
 ## Power or regular?
 

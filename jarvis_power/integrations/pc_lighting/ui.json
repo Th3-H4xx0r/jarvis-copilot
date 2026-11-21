@@ -1,0 +1,54 @@
+{
+  "presentations": {
+    "card": {
+      "type": "section",
+      "title": "PC Lighting",
+      "children": [
+        {
+          "type": "stat",
+          "value": {
+            "$": "status"
+          },
+          "caption": "Lights"
+        },
+        {
+          "type": "stat",
+          "value": {
+            "$": "brightness"
+          },
+          "caption": "Brightness"
+        }
+      ]
+    },
+    "page": {
+      "type": "vstack",
+      "children": [
+        {
+          "type": "section",
+          "title": "Now",
+          "children": [
+            {
+              "type": "stat",
+              "value": {
+                "$": "status"
+              },
+              "caption": "Lights"
+            },
+            {
+              "type": "stat",
+              "value": {
+                "$": "brightness"
+              },
+              "caption": "Brightness"
+            }
+          ]
+        },
+        {
+          "type": "button",
+          "label": "Refresh",
+          "action": "refresh"
+        }
+      ]
+    }
+  }
+}

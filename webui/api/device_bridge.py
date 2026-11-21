@@ -131,6 +131,10 @@ def _notify_registry_change() -> None:
 # injected or overheard request switch the siren off or blind the alarm without Face ID.
 SERVER_ONLY_SKILLS = frozenset({"esp32_door_configure", "esp32_door_set", "esp32_door_forget",
                                 "door_alarm_ring",
+                                # PC lighting + specs: the server's pc_lighting tools apply the LED map
+                                # and the Power switch; a raw call would bypass both.
+                                "lighting_state_set", "lighting_map_set", "lighting_probe", "lighting_status",
+                                "lighting_setup", "pc_specs_read",
                                 # The call/text card the server shows and closes (agent/send_confirm.py).
                                 "confirm_card",
                                 # Spotify's App Remote play on the phone, with the server's token.

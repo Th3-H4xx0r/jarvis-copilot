@@ -34,6 +34,8 @@ MOUNTS = (
     ("/api/kanban", "api.kanban_bridge"),
     ("/api/live", "api.live_ws"),
     ("/api/pc-admin", "api.pc_admin"),
+    ("/api/pc-lighting", "api.pc_lighting_routes"),
+    ("/api/pc-specs", "api.pc_specs_routes"),
     ("/api/pc-stats", "api.pc_stats_routes"),
     ("/api/power", "api.power_routes"),
     ("/api/rdp", "api.rdp_routes"),

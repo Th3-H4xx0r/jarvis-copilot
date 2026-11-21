@@ -86,6 +86,8 @@ _HERMES_CORE_TOOLS = [
     "holo_drop",
     # PC Stats (a Power integration): the gaming PC's stats history and dashboards.
     "pc_stats_query", "pc_dashboard",
+    # PC Lighting (a Power integration): the gaming PC's fans, cooler and strip, part by part.
+    "pc_lights", "pc_light_looks",
     # Remote Desktop (a Power integration): is the PC ready for RDP, who's connected (read-only).
     "remote_desktop_status",
     # Cross-platform messaging (gated on gateway running via check_fn)
@@ -343,6 +345,12 @@ TOOLSETS = {
     "pc_stats": {
         "description": "PC Stats: the gaming PC's live stats, history, game sessions, energy, and its dashboards.",
         "tools": ["pc_stats_query", "pc_dashboard"],
+        "includes": []
+    },
+
+    "pc_lighting": {
+        "description": "PC Lighting: colour the gaming PC's fans, cooler and strip part by part, effects, brightness, saved looks.",
+        "tools": ["pc_lights", "pc_light_looks"],
         "includes": []
     },
 
