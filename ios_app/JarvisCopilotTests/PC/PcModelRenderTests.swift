@@ -165,6 +165,21 @@ final class PcModelRenderTests: XCTestCase {
         XCTAssertTrue(mine.isEnabled)
     }
 
+    func testPartsSharingADrawnStripGlowWithIt() {
+        let live = PcModel.build()
+        var seg = PcSegment(part: "strip", index: 0, controller: 0, zone: 2, start: 0, count: 30)
+        seg.line = [[-2.0, 0.6, 1.4], [2.0, 0.6, 1.4]]
+        seg.also = ["top"]
+        let map = PcLedMap(version: 1, rev: 1, zones: [PcZone(controller: 0, zone: 2, leds: 30)], segments: [seg])
+        let s = PcLightingState(on: true, brightness: 100, t0: 0, frozenAt: 1, stillInGames: false, rev: 1,
+                                parts: Dictionary(uniqueKeysWithValues: PcPart.allCases.map {
+                                    ($0.rawValue, PcPartLight(effect: "static", color: "#0000ff", speed: 5)) }))
+        PcModel.apply(colours: PcEffects.ledColours(state: s, map: map, now: Date()), map: map, to: live)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        (live.leds[PcLedKey(part: .top, index: 1, led: 4)]!.emission.contents as? UIColor)?.getRed(&r, green: &g, blue: &b, alpha: &a)
+        XCTAssertGreaterThan(b, 0.9)
+    }
+
     func testMakingTheViewDoesNotBuildTheScene() {
         let before = PcModel.buildCount
         _ = PcModelView(state: nil, map: nil)

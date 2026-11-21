@@ -636,8 +636,8 @@ enum PcModel {
     static func apply(colours: [[SIMD3<Float>]], map: PcLedMap, to live: Live) {
         applyDrawn(colours: colours, map: map, to: live)
         var bySlot: [String: (PcSegment, [SIMD3<Float>])] = [:]
-        for (seg, cols) in zip(map.segments, colours) where seg.line == nil {
-            bySlot["\(seg.part).\(seg.index ?? 0)"] = (seg, cols)
+        for (seg, cols) in zip(map.segments, colours) {
+            if seg.line == nil { bySlot["\(seg.part).\(seg.index ?? 0)"] = (seg, cols) }   // a drawn strip glows on its line
             for extra in seg.also ?? [] where bySlot["\(extra).\(seg.index ?? 0)"] == nil {
                 bySlot["\(extra).\(seg.index ?? 0)"] = (seg, cols)
             }

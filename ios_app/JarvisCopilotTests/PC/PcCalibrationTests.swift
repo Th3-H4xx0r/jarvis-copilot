@@ -97,6 +97,31 @@ final class PcCalibrationTests: XCTestCase {
         XCTAssertEqual(seg?.line, [[0, 0.5, 1.4], [2, 0.5, 1.4]])
     }
 
+    func testOneRunCanBeTheDrawnStripAndTheFansChainedToIt() {
+        var b = board()
+        b.setLEDs(1, 40)
+        b.place(1, 0...30, fans: [PcLedKey(part: .top, index: 0, led: 0), PcLedKey(part: .cooler, index: 0, led: 0)],
+                line: [[0, 0.5, 1.4], [2, 0.5, 1.4]])
+        let seg = b.map().segments.first
+        XCTAssertEqual(seg?.part, "strip")
+        XCTAssertEqual(seg?.also, ["top", "cooler"])
+        XCTAssertEqual(seg?.line, [[0, 0.5, 1.4], [2, 0.5, 1.4]])
+        XCTAssertFalse(b.missingParts.contains(.top))
+        XCTAssertFalse(b.missingParts.contains(.cooler))
+    }
+
+    func testReopeningAMappedRunStartsFromWhatIsOnIt() {
+        var b = board()
+        b.setLEDs(1, 40)
+        b.assign(1, 0...29, part: .top, index: 0, also: [.cooler])
+        let had = b.mapped(1, 5...10)
+        XCTAssertEqual(had.fans, [PcLedKey(part: .top, index: 0, led: 0), PcLedKey(part: .cooler, index: 0, led: 0)])
+        XCTAssertNil(had.line)
+        b.place(1, 0...29, fans: [], line: [[0, 0.5, 1.4], [2, 0.5, 1.4]])
+        XCTAssertEqual(b.mapped(1, 0...3).line, [[0, 0.5, 1.4], [2, 0.5, 1.4]])
+        XCTAssertTrue(b.mapped(1, 35...39).fans.isEmpty)
+    }
+
     func testTapAngleSnapsToTheNearestSocket() {
         XCTAssertEqual(PcCalibration.snap(degrees: 100, sockets: 16), 90)
     }

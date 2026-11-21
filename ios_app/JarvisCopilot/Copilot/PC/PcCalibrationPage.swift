@@ -61,7 +61,9 @@ struct PcCalibrationPage: View {
         .jcPageChrome("Show Jarvis each part", header: .inline)
         .fullScreenCover(isPresented: $placing) {
             if let r = paint, board.connectors.indices.contains(active) {
-                PcPlaceView(connector: board.connectors[active].name, index: active, range: r, board: board, picked: picked,
+                let had = board.mapped(active, r)
+                PcPlaceView(connector: board.connectors[active].name, index: active, range: r, board: board,
+                            picked: picked.isEmpty ? had.fans : picked, startLine: had.line,
                             keepLit: { light(active, range: r) }) { fans, line in
                     board.place(active, r, fans: fans, line: line)
                     paint = nil; picked = []
@@ -219,6 +221,7 @@ struct PcPlaceView: View {
     let range: ClosedRange<Int>
     let board: PcCalibrationBoard
     var picked: [PcLedKey] = []
+    var startLine: [[Double]]? = nil
     var keepLit: () -> Void = {}
     let onAssign: ([PcLedKey], [[Double]]?) -> Void
 
@@ -231,6 +234,8 @@ struct PcPlaceView: View {
     @State private var pose: PcModel.Pose = .hero
     @State private var poseToken = 0
     @State private var lastTap: [String] = []
+    /// Newest last, for Undo: a fan tapped in (nil = the strip drawn).
+    @State private var history: [PcLedKey?] = []
 
     /// The board with this choice applied: the run glows where it would go.
     private var preview: PcLedMap {
@@ -239,15 +244,17 @@ struct PcPlaceView: View {
         return b.map()
     }
 
-    private var highlights: [String] { fans.isEmpty ? (line == nil ? lastTap : []) : fans.map(Self.node) }
+    private var highlights: [String] {
+        return fans.isEmpty && line == nil ? lastTap : fans.map(Self.node)
+    }
 
     static func node(_ k: PcLedKey) -> String {
         k.part == .cooler || k.part == .strip ? "part.\(k.part.rawValue)" : "fan.\(k.part.rawValue).\(k.index)"
     }
 
     private var chosen: String {
-        if line != nil { return "Strip, drawn" }
-        return fans.map { $0.part.count > 1 ? "\($0.part.label) \($0.index + 1)" : $0.part.label }.joined(separator: " · ")
+        let names = fans.map { $0.part.count > 1 ? "\($0.part.label) \($0.index + 1)" : $0.part.label }
+        return (names + (line == nil ? [] : ["Strip (drawn)"])).joined(separator: " · ")
     }
 
     var body: some View {
@@ -260,7 +267,7 @@ struct PcPlaceView: View {
                         highlighted: highlights, drawing: tool == .draw,
                         onDraw: { a, b in
                             line = [[Double(a.x), Double(a.y), Double(a.z)], [Double(b.x), Double(b.y), Double(b.z)]]
-                            fans = []
+                            history.append(nil)
                         },
                         workLight: true, camera: tool == .draw ? .zoomOnly : .orbit, pose: pose, poseToken: poseToken)
                 .ignoresSafeArea()
@@ -271,7 +278,7 @@ struct PcPlaceView: View {
             }
         }
         .preferredColorScheme(.dark)
-        .onAppear { fans = picked }
+        .onAppear { fans = picked; line = startLine }
         .task {
             // A test lighting lapses after a minute on the PC: keep the run lit while it's being placed.
             while !Task.isCancelled {
@@ -308,12 +315,12 @@ struct PcPlaceView: View {
                 Text("Draw strip").tag(Tool.draw)
             }
             .pickerStyle(.segmented)
-            Text(tool == .tap ? "Drag to turn · pinch to zoom · two fingers to move. Tap every fan that lit up."
-                              : "Drag along where the strip runs · pinch to zoom.")
+            Text(tool == .tap ? "Drag to turn · pinch to zoom · two fingers to move. Tap every part that lit up — chained parts can share the same LEDs."
+                              : "Drag along where the strip runs · pinch to zoom. Fans you tap stay picked too.")
                 .font(.footnote).foregroundStyle(.white.opacity(0.8))
             if !chosen.isEmpty { Text(chosen).font(.subheadline.weight(.semibold)) }
             HStack(spacing: 10) {
-                Button("Undo") { if line != nil { line = nil } else if !fans.isEmpty { fans.removeLast() } }
+                Button("Undo") { undo() }
                     .buttonStyle(.jcGlass)
                     .disabled(fans.isEmpty && line == nil)
                 Button { onAssign(fans, line); dismiss() } label: {
@@ -339,8 +346,15 @@ struct PcPlaceView: View {
     }
 
     private func toggle(_ key: PcLedKey) {
-        line = nil
         let fan = PcLedKey(part: key.part, index: key.index, led: 0)
-        if let at = fans.firstIndex(of: fan) { fans.remove(at: at) } else { fans.append(fan) }
+        if let at = fans.firstIndex(of: fan) { fans.remove(at: at) } else { fans.append(fan); history.append(fan) }
+    }
+
+    private func undo() {
+        while let last = history.popLast() {
+            if let fan = last { if let at = fans.firstIndex(of: fan) { fans.remove(at: at); return } }
+            else if line != nil { line = nil; return }
+        }
+        if !fans.isEmpty { fans.removeLast() } else { line = nil }   // picked before this view opened
     }
 }

@@ -95,12 +95,31 @@ struct PcCalibrationBoard {
 
     /// What the full-screen model gave back: a drawn line is the strip; otherwise the first fan tapped
     /// gets the run and the other parts tapped mirror it (his hub sends one stream to every fan).
+    /// Every part picked shares the run (daisy-chained parts show the same LEDs): a drawn strip leads it.
     mutating func place(_ c: Int, _ range: ClosedRange<Int>, fans: [PcLedKey], line: [[Double]]?) {
-        if let line { assign(c, range, part: .strip, index: 0, line: line); return }
+        if let line {
+            var also: [PcPart] = []
+            for k in fans where k.part != .strip && !also.contains(k.part) { also.append(k.part) }
+            assign(c, range, part: .strip, index: 0, also: also, line: line)
+            return
+        }
         guard let first = fans.first else { return }
         var also: [PcPart] = []
         for k in fans.dropFirst() where k.part != first.part && !also.contains(k.part) { also.append(k.part) }
         assign(c, range, part: first.part, index: first.index, also: also)
+    }
+
+    /// What's already on LEDs `range` of connector `c` (to start from when that run is placed again).
+    func mapped(_ c: Int, _ range: ClosedRange<Int>) -> (fans: [PcLedKey], line: [[Double]]?) {
+        guard connectors.indices.contains(c) else { return ([], nil) }
+        var fans: [PcLedKey] = []
+        var line: [[Double]]?
+        func add(_ k: PcLedKey) { if !fans.contains(k) { fans.append(k) } }
+        for run in connectors[c].runs where run.range.overlaps(range) {
+            if run.part == .strip, let l = run.line { line = l } else { add(PcLedKey(part: run.part, index: run.index, led: 0)) }
+            for p in run.also { add(PcLedKey(part: p, index: 0, led: 0)) }
+        }
+        return (fans, line)
     }
 
     func part(_ c: Int, led: Int) -> PcPart? {
