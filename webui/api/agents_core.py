@@ -36,6 +36,26 @@ log = logging.getLogger(__name__)
 TITLE_MAX = 120
 _SERVER_ROSTER_EVERY = 60.0
 _TICK_EVERY = 5.0
+
+
+def _game_streaming_on_connect(device_id: str) -> None:
+    """A (re)connecting PC re-receives its game-stream power state, and any pending
+    stream is dispatched now that it's awake (api.game_streaming_routes). Best-effort."""
+    try:
+        from api import game_streaming_routes as gs
+        gs.resync(device_id)
+        gs.complete_pending(device_id)
+    except Exception:  # noqa: BLE001
+        log.debug("game-streaming reconnect hook failed", exc_info=True)
+
+
+def _game_streaming_reap() -> None:
+    """Drop game-stream pending connects whose wake deadline passed (periodic tick)."""
+    try:
+        from api import game_streaming_routes as gs
+        gs._reap()
+    except Exception:  # noqa: BLE001
+        log.debug("game-streaming reap failed", exc_info=True)
 _WAITING = ("approval", "question")
 _WORKING = ("working", "thinking")
 _REVERSE_EVENTS = ("Stop", "PostToolUse", "UserPromptSubmit", "SubagentStop", "StopFailure")
@@ -227,6 +247,7 @@ class AgentsCore:
         self.handoff.on_device_connect(device_id)
         self._send_frame(device_id, {"type": "agent_roster_request"})
         self._changed()
+        _game_streaming_on_connect(device_id)
 
     def on_disconnect(self, device_id) -> None:
         self.presence.on_disconnect(device_id, self._name(device_id))
@@ -364,6 +385,7 @@ class AgentsCore:
         if now - self._last_tick < _TICK_EVERY:
             return
         self._last_tick = now
+        _game_streaming_reap()
         if self._recover_pending:
             self._recover_pending = not self.handoff.recover()
         if self.presence.tick():

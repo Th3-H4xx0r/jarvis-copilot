@@ -646,3 +646,25 @@ def test_an_integration_lists_only_its_newest_runs_with_the_total():
     assert imsg["total"] == 300
     assert len(app["sessions"]) == 80 and "total" not in app  # his own chats are never trimmed
 
+
+
+def test_on_hello_resyncs_and_completes_game_streaming(env, monkeypatch):
+    """A (re)connecting PC re-receives the game-stream power state and any pending
+    stream is dispatched — the live layer's reconnect hook."""
+    from api import game_streaming_routes as GS
+    seen = []
+    monkeypatch.setattr(GS, "resync", lambda did: seen.append(("resync", did)))
+    monkeypatch.setattr(GS, "complete_pending", lambda did: seen.append(("complete", did)))
+    env["core"].on_hello("pc", {})
+    assert ("resync", "pc") in seen
+    assert ("complete", "pc") in seen
+
+
+def test_tick_reaps_stale_game_stream_pendings(env, monkeypatch):
+    from api import game_streaming_routes as GS
+    reaped = []
+    monkeypatch.setattr(GS, "_reap", lambda: reaped.append(True))
+    core = env["core"]
+    core._last_tick = 0.0
+    core.tick()
+    assert reaped
