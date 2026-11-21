@@ -52,7 +52,7 @@ struct PcLedKey: Hashable {
     let led: Int
 }
 
-struct PcPartLight: Codable, Equatable {
+struct PcPartLight: Codable, Hashable {
     var effect: String
     var color: String
     var speed: Int
@@ -60,7 +60,7 @@ struct PcPartLight: Codable, Equatable {
     static let white = PcPartLight(effect: "static", color: "#ffffff", speed: 5)
 }
 
-struct PcLightingState: Codable, Equatable {
+struct PcLightingState: Codable, Hashable {
     var on: Bool
     var brightness: Int
     var t0: Double
