@@ -95,7 +95,7 @@ His asks: a full simulator he uses until the glasses arrive. Jarvis drives it li
     - Found: (a) from the background iOS refuses any audio-session switch; his keepalive is plain playback (no jc.talkHere.armed in his prefs), so the ring's mic claim was refused and the failed switch cut the chime. (b) With a record-ready keepalive, the glasses turn's own playbackPlan claim would ALSO be refused from the background.
     - Fix: new AudioSessionClient .glassesSim = mixedVoicePlan (the record-ready keepalive's exact plan), outranking .externalVoice; the simulator holds it from the ring press through the end of Jarvis's turn; the keepalive is record-ready while the sim is on (no orange dot until a press). The arbiter truth-table test is extended. Note: build 263261825's archive overlapped these edits, so it's interim. ✅ build 263261835 (6838f83b9b)
 23. [x] His ask: "a live video stream as well on phone which emulates what the glasses sends". Fix: full-screen MetaLiveViewer: the iPhone camera held to the glasses' 720×1280 live format (session preset while live), smooth preview, LIVE + time, format, battery/heat, Wi-Fi note, Stop; shows why the stream ended (LED/heat/battery). Opens on Start live; "Watch live" whenever streaming. ✅ build 263261835
-24. [ ] His hypothesis: "Maybe the mic issue has something to do with the wake word listening right after the mic stops". Confirmed, three windows: the hold-to-talk chime handoff (~0.35 s with nothing "busy"), Jarvis thinking after a ring press (the listener restarted mid-turn), and the background (going to the background isn't "leaving the screen", so the listener could keep the mic with the phone locked). Fix: one pure gate MetaSimWakeListener.shouldListen (on screen + app active + not pressing/handing off/capturing/assistant busy/turn running/Jarvis speaking) plus simulator.assistantBusy. Unit-tested per window.
+24. [x] His hypothesis: "Maybe the mic issue has something to do with the wake word listening right after the mic stops". Confirmed, three windows: the hold-to-talk chime handoff (~0.35 s with nothing "busy"), Jarvis thinking after a ring press (the listener restarted mid-turn), and the background (going to the background isn't "leaving the screen", so the listener could keep the mic with the phone locked). Fix: one pure gate MetaSimWakeListener.shouldListen (on screen + app active + not pressing/handing off/capturing/assistant busy/turn running/Jarvis speaking) plus simulator.assistantBusy. Unit-tested per window. ✅ build 263261843 (987577ea58)
 
 ## Shipped (2026-11-22)
 - build 263260740 (94118210d0): full Gen 2 simulator, 7 meta_glasses_* tools, Device | Sim page
@@ -105,6 +105,10 @@ His asks: a full simulator he uses until the glasses arrive. Jarvis drives it li
 - build 263261701 (1673674dbd): touchpad under the model, haptics, imports saved to Photos
 - build 263261756 (d1eefbead6): chime + haptic when "Hey Jarvis" is heard
 - build 263261808 (a482fb0b15): done chime, ring Talk via the action picker, haptics while the sim records
+- build 263261817 (10f0b5093f): Jarvis tools parity + media/settings + jarvis-meta-glasses skill
+- build 263261825 (77135df096): chime-before-release + video toggle (interim)
+- build 263261835 (6838f83b9b): ring Talk from the background (.glassesSim) + full-screen live viewer
+- build 263261843 (987577ea58): wake-word listener can't grab the mic mid-handoff
 - Mac: scripts/glasses-sim.sh (d075a60d2e)
 
 ## For you
