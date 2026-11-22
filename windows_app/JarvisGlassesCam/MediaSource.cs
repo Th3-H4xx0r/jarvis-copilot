@@ -292,7 +292,9 @@ namespace JarvisGlassesCam
 
                     using var pv = new PropVariant(time);
                     var detached = pv.Detached;
-                    queue.Object.QueueEventParamVar((uint)__MIDL___MIDL_itf_mfobjects_0000_0013_0001.MESourceStopped, Guid.Empty, HRESULTS.S_OK, detached).ThrowOnError();
+                    // MESourceStarted (VCamNetSample sends MESourceStopped here; the C++ VCamSample and Media
+                    // Foundation's contract say Started, and a source reader stops at a Stopped).
+                    queue.Object.QueueEventParamVar((uint)__MIDL___MIDL_itf_mfobjects_0000_0013_0001.MESourceStarted, Guid.Empty, HRESULTS.S_OK, detached).ThrowOnError();
                     return HRESULTS.S_OK;
                 }
             }
