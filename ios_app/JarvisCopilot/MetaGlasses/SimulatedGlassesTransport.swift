@@ -37,6 +37,8 @@ struct MetaStoredMedia: Identifiable, Equatable, Sendable {
     var seconds: Double?
     var mode: MetaVideoMode?
     var source: String
+    /// Imported to the phone AND added to the Photos library.
+    var savedToPhotos = false
 }
 
 /// The simulated Ray-Ban Meta (Gen 2): software glasses behind the same `GlassesTransport` the
@@ -90,6 +92,8 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
     var mediaKeys: ((MetaMediaCommand) async -> Void)?
     /// How long a Wi-Fi import really takes is scaled by this (tests use 0).
     var transferTimeScale: Double = 1
+    /// Adds an imported photo/clip to the phone's Photos library (the hub sets it; tests fake it).
+    var saveToPhotos: ((MetaStoredMedia) async throws -> Void)?
 
     /// Every frame the session sent down, in order — the assertion surface for tests.
     private(set) var sentFrames: [GlassesFrame] = []
@@ -246,7 +250,7 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
         guard let rec = hw.recording else { return }
         let kept = hw.finishRecording()
         if !hw.streaming { ledLit = false }
-        let url = await camera.stopRecording()
+        let url = persist(await camera.stopRecording())
         let bytes = Int64(rec.mode.bytesPerSecond * kept)
         storage.insert(MetaStoredMedia(id: UUID(), kind: .video, date: Date(), bytes: bytes, fileURL: url,
                                        thumbnail: nil, seconds: kept, mode: rec.mode, source: camera.sourceName), at: 0)
@@ -366,7 +370,7 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
     private func reportFinishedRecording(seconds: Double, mode: MetaVideoMode, reason: String) async {
         if !hw.streaming { ledLit = false }
         settleFocus()
-        let url = await camera.stopRecording()
+        let url = persist(await camera.stopRecording())
         let bytes = Int64(mode.bytesPerSecond * seconds)
         storage.insert(MetaStoredMedia(id: UUID(), kind: .video, date: Date(), bytes: bytes, fileURL: url,
                                        thumbnail: nil, seconds: seconds, mode: mode, source: camera.sourceName), at: 0)
@@ -509,12 +513,37 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
             if transferTimeScale > 0 { try? await Task.sleep(for: .seconds(seconds * transferTimeScale / Double(steps))) }
         }
         importProgress = nil
-        imported.insert(contentsOf: items, at: 0)
+        // Like the Meta app: imports land in the phone's Photos library.
+        var landed = items
+        var saved = 0
+        var problem: String?
+        if let saveToPhotos {
+            for index in landed.indices {
+                do {
+                    try await saveToPhotos(landed[index])
+                    landed[index].savedToPhotos = true
+                    saved += 1
+                } catch {
+                    problem = problem ?? error.localizedDescription
+                }
+            }
+        }
+        imported.insert(contentsOf: landed, at: 0)
         storage.removeAll { item in items.contains { $0.id == item.id } }
         hw.freeStorage(bytes: bytes, photos: items.filter { $0.kind == .photo }.count,
                        videos: items.filter { $0.kind == .video }.count)
         if !hw.streaming { phoneOnGlassesWiFi = false }
-        feed.log(.glasses, "Imported \(items.count) item\(items.count == 1 ? "" : "s") to the phone")
+        let summary = saveToPhotos == nil ? nil
+            : "\(saved) of \(items.count) saved to Photos" + (problem.map { " · \($0)" } ?? "")
+        feed.log(.glasses, "Imported \(items.count) item\(items.count == 1 ? "" : "s") to the phone", detail: summary,
+                 outcome: problem == nil ? .done : .info)
+    }
+
+    /// Keep a finished clip with the glasses' other media (the camera writes to tmp, which iOS purges).
+    private func persist(_ url: URL?) -> URL? {
+        guard let url else { return nil }
+        let dest = mediaDirectory.appendingPathComponent("video-\(UUID().uuidString).\(url.pathExtension.isEmpty ? "mov" : url.pathExtension)")
+        do { try FileManager.default.moveItem(at: url, to: dest); return dest } catch { return url }
     }
 
     // MARK: Focus (what the 3D model glides to)

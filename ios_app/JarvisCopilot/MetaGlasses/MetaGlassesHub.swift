@@ -1,4 +1,5 @@
 import Foundation
+import Photos
 import UIKit
 
 /// Which Ray-Ban Meta glasses Jarvis talks to — the real ones (Device) or the simulator (Sim) —
@@ -27,6 +28,7 @@ final class MetaGlassesHub: ObservableObject {
         let sim = SimulatedGlassesTransport(camera: MetaSimCamera(), feed: feed, mediaDirectory: folder)
         sim.speaker = MetaPhoneSpeaker()
         sim.wakeDefaults = .standard
+        sim.saveToPhotos = { item in try await Self.addToPhotos(item) }
         // No mediaKeys: the sim's touchpad drives the SIMULATED music only. Real media keys run
         // through iOS Shortcuts on iOS 27 and yanked him into the Shortcuts app (2026-11-22).
         return sim
@@ -68,6 +70,21 @@ final class MetaGlassesHub: ObservableObject {
         catch { feed.log(.glasses, "Couldn't start the simulated glasses", detail: error.localizedDescription, outcome: .info) }
         // A background launch gets no didEnterBackground: start paused, catch up on foreground.
         if UIApplication.shared.applicationState == .background { simulator.pauseTicking() }
+    }
+
+    /// Add-only, like HoloDrop's saver: Jarvis never reads the library.
+    static func addToPhotos(_ item: MetaStoredMedia) async throws {
+        guard let url = item.fileURL, FileManager.default.fileExists(atPath: url.path) else {
+            throw MetaGlassesError.refused(item.kind == .video ? "a test-scene clip has no video file to save" : "the photo file is missing")
+        }
+        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        guard status == .authorized || status == .limited else {
+            throw MetaGlassesError.refused("allow Jarvis to add to Photos in Settings → Privacy → Photos")
+        }
+        try await PHPhotoLibrary.shared().performChanges {
+            let request = PHAssetCreationRequest.forAsset()
+            request.addResource(with: item.kind == .video ? .video : .photo, fileURL: url, options: nil)
+        }
     }
 
     private func deactivate() async {

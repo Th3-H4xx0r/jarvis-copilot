@@ -72,6 +72,9 @@ His asks: a full simulator he uses until the glasses arrive. Jarvis drives it li
 - [ ] iOS side: MetaGlassesDevice (WearableKind.metaGlasses), CoreBluetooth L2CAP transport, wake→VoiceStore, photo→vision, touch→RingActionRunner, Power integration — per plan §6. Hard to test without glasses; can unit-test logic against a mock transport.
 - [ ] Ownership/change-owner: user-performed one-time step (Meta login + receipts); Jarvis won't extract/embed tokens. Only needed on real hardware.
 
+16. [ ] His asks (2026-11-22): "The touch controls card needs to be on the top right below the glasses model", "add vibrations and haptic feedback when I tap or touch and hold", "when I import photos or videos taken on glasses sim to the phone, it doesn't save it to my gallery".
+    - Found: Import only moved items into the in-app list; it never touched the Photos library.
+    - Fix: touchpad card moved right under the 3D model; MetaGlassesHaptics (taps at the glasses' rhythm, swipe ticks, shutter, a firm thump when a hold registers; Touch-and-hold and Hold-video tiles now need a real 0.5 s hold); hold to talk ticks on open/close; Import saves to Photos (add-only), tiles show it, the feed says "N of M saved to Photos" with the reason for any miss; clips are moved out of tmp. Testing.
 
 ## Shipped (2026-11-22)
 - build 263260740 (94118210d0): full Gen 2 simulator, 7 meta_glasses_* tools, Device | Sim page

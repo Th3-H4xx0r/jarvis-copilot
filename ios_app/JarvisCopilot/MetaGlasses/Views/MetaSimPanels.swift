@@ -10,8 +10,8 @@ struct MetaSimScreen: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             MetaSimHero(sim: sim)
-            MetaTalkCard(sim: sim)
             MetaTouchpadCard(sim: sim)
+            MetaTalkCard(sim: sim)
             MetaGlassesStateCard(sim: sim)
             MetaFeedCard(feed: hub.feed, emptyText: "Ask Jarvis something about your glasses, or use the controls above.")
             MetaLiveCard(sim: sim, hub: hub)
@@ -210,6 +210,7 @@ private struct MetaTalkCard: View {
         pressing = true
         listener.stop()
         micError = nil
+        MetaGlassesHaptics.micOpened()
         sim.setHoldToTalk(true)
         Task {
             do {
@@ -225,6 +226,7 @@ private struct MetaTalkCard: View {
     private func stopMic() {
         guard pressing else { return }
         pressing = false
+        MetaGlassesHaptics.micClosed()
         sim.setHoldToTalk(false)
         if let pcm = mic.finishPress() { send(pcm) }
     }
@@ -260,36 +262,84 @@ private struct MetaTouchpadCard: View {
                 VStack(spacing: 10) {
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                         ForEach(gestures, id: \.self) { gesture in
-                            Button { Task { await sim.touch(gesture) } } label: {
-                                VStack(spacing: 2) {
-                                    Text(MetaTouchBinding.label(gesture)).font(.system(size: 13, weight: .semibold))
-                                    Text(MetaTouchBinding.label(MetaTouchBinding.defaultAction(for: gesture)))
-                                        .font(.system(size: 11)).foregroundStyle(JcTheme.muted)
+                            if gesture == .hold {
+                                MetaHoldTile(title: MetaTouchBinding.label(gesture),
+                                             detail: MetaTouchBinding.label(MetaTouchBinding.defaultAction(for: gesture)),
+                                             symbol: nil) {
+                                    Task { await sim.touch(.hold) }
                                 }
-                                .frame(maxWidth: .infinity, minHeight: 44)
+                            } else {
+                                Button {
+                                    MetaGlassesHaptics.play(gesture)
+                                    Task { await sim.touch(gesture) }
+                                } label: {
+                                    VStack(spacing: 2) {
+                                        Text(MetaTouchBinding.label(gesture)).font(.system(size: 13, weight: .semibold))
+                                        Text(MetaTouchBinding.label(MetaTouchBinding.defaultAction(for: gesture)))
+                                            .font(.system(size: 11)).foregroundStyle(JcTheme.muted)
+                                    }
+                                    .frame(maxWidth: .infinity, minHeight: 44)
+                                }
+                                .buttonStyle(.jcGlass)
                             }
-                            .buttonStyle(.jcGlass)
                         }
                     }
                     HStack(spacing: 8) {
-                        Button { Task { await sim.pressCaptureButton(hold: false) } } label: {
+                        Button {
+                            MetaGlassesHaptics.shutter()
+                            Task { await sim.pressCaptureButton(hold: false) }
+                        } label: {
                             Label("Press · photo", systemImage: "camera").frame(maxWidth: .infinity, minHeight: 40)
                         }
                         .buttonStyle(.jcGlass)
-                        Button { Task { await sim.pressCaptureButton(hold: true) } } label: {
-                            Label(sim.hw.recording == nil ? "Hold · video" : "Hold · stop",
-                                  systemImage: sim.hw.recording == nil ? "video" : "stop.circle")
-                                .frame(maxWidth: .infinity, minHeight: 40)
+                        MetaHoldTile(title: sim.hw.recording == nil ? "Hold · video" : "Hold · stop",
+                                     detail: nil, symbol: sim.hw.recording == nil ? "video" : "stop.circle") {
+                            MetaGlassesHaptics.recording(started: sim.hw.recording == nil)
+                            Task { await sim.pressCaptureButton(hold: true) }
                         }
-                        .buttonStyle(.jcGlass)
                     }
-                    Text("The glasses do these themselves; a Jarvis action you bind below runs too.")
+                    Text("Press and hold the hold tiles like the real arm. The glasses do these themselves; a Jarvis action you bind below runs too.")
                         .font(.system(size: 12))
                         .foregroundStyle(JcTheme.muted)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
+    }
+}
+
+/// A tile you must actually press and hold (0.5 s), like the glasses' arm: a faint tick on touch,
+/// a firm thump when the hold registers, then the action.
+private struct MetaHoldTile: View {
+    let title: String
+    let detail: String?
+    let symbol: String?
+    let onHold: () -> Void
+    @State private var pressing = false
+
+    var body: some View {
+        VStack(spacing: 2) {
+            if let symbol {
+                Label(title, systemImage: symbol).font(.system(size: 15, weight: .semibold))
+            } else {
+                Text(title).font(.system(size: 13, weight: .semibold)).multilineTextAlignment(.center)
+            }
+            if let detail { Text(detail).font(.system(size: 11)).foregroundStyle(JcTheme.muted) }
+        }
+        .foregroundStyle(JcTheme.text)
+        .frame(maxWidth: .infinity, minHeight: symbol == nil ? 44 : 40)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 12).fill(pressing ? JcButton.selectedFill : JcButton.fill))
+        .scaleEffect(pressing ? 0.96 : 1)
+        .animation(.easeOut(duration: 0.15), value: pressing)
+        .contentShape(RoundedRectangle(cornerRadius: 12))
+        .onLongPressGesture(minimumDuration: 0.5, maximumDistance: 30, perform: {
+            MetaGlassesHaptics.holdRegistered()
+            onHold()
+        }, onPressingChanged: { down in
+            pressing = down
+            if down { MetaGlassesHaptics.pressStarted() }
+        })
     }
 }
 
@@ -519,7 +569,7 @@ private struct MetaStorageCard: View {
                 Image(systemName: item.kind == .video ? "video" : "photo").foregroundStyle(JcTheme.muted)
             }
             HStack(spacing: 3) {
-                Image(systemName: onGlasses ? "eyeglasses" : "iphone")
+                Image(systemName: onGlasses ? "eyeglasses" : item.savedToPhotos ? "photo.on.rectangle" : "iphone")
                 if let seconds = item.seconds { Text("\(Int(seconds.rounded())) s") }
             }
             .font(.system(size: 10, weight: .semibold))

@@ -244,6 +244,22 @@ final class MetaGlassesSimulatorHardwareTests: XCTestCase {
         XCTAssertEqual(sim.focus, MetaGlassesFocus(part: .camera, pulse: .capture))
     }
 
+    func testImportSavesToPhotosAndReportsTestSceneClips() async throws {
+        let sim = try await makeSim()
+        var saved: [MetaStoredMedia.Kind] = []
+        sim.saveToPhotos = { item in
+            guard item.fileURL != nil else { throw MetaGlassesError.refused("a test-scene clip has no video file to save") }
+            saved.append(item.kind)
+        }
+        try await sim.send(.capturePhoto(question: nil))
+        try await sim.send(.startVideo(seconds: 5))
+        await sim.advance(seconds: 6)                      // test-scene clip: no movie file
+        await sim.importAll()
+        XCTAssertEqual(saved, [.photo])
+        XCTAssertEqual(sim.imported.filter(\.savedToPhotos).count, 1)
+        XCTAssertEqual(sim.feed.entries.first?.detail, "1 of 2 saved to Photos · a test-scene clip has no video file to save")
+    }
+
     func testImportMovesMediaToThePhoneAndFreesStorage() async throws {
         let sim = try await makeSim()
         try await sim.send(.capturePhoto(question: nil))
