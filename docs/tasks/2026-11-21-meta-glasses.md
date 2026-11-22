@@ -41,12 +41,12 @@ Server→relay: `{"type":"ready"}`, `{"type":"reply.start","replyId":X,"kind":"t
 His asks: a full simulator he uses until the glasses arrive. Jarvis drives it like the real glasses ("Hey Jarvis, what am I looking at" → sim camera → vision). It simulates touch, audio, video and live, enforces the real Gen 2 limits, puts a 3D model on Wearables, and has a Device | Sim toggle (the Device screen is built now for the hardware). His picks: a real Jarvis voice turn, prompt as spoken audio, the iPhone camera as the glasses camera (test scenes as fallback).
 1. [x] Relay logs each turn's heard/said. ✅ 8 relay tests pass
 2. [x] `scripts/glasses-sim.sh`: one Mac command. ✅ Verified on his Mac: "What is 7 times 8?" → "7 times 8 is 56." (3.0 s), PASS. Found: no Jarvis model configured on the Mac → the script now says so and uses local Claude Code (haiku); relay failures are now reported instead of a silent "something went wrong"
-3. [ ] v1 voice pieces (voice→glasses relay, session watch, prompt voice, runner) green in XCTest
-4. [ ] Gen 2 hardware profile + battery/heat/storage model (real limits)
-5. [ ] Simulator engine: enforces limits, answers every command, command feed
-6. [ ] 7 Jarvis tools + Device/Sim registration ("what am I looking at" end to end)
-7. [ ] iPhone camera as the glasses camera (photo/video/live) + hold-to-talk
-8. [ ] Page: Device | Sim toggle, controls, feed, live view, gallery, settings, limits
+3. [x] v1 voice pieces (voice→glasses relay, session watch, prompt voice, runner) green in XCTest. ✅ 17 tests pass; committed d075a60d2e
+4. [ ] Gen 2 hardware profile + battery/heat/storage model (real limits). Written: MetaGen2Profile (sourced, "assumed" marked) + MetaHardwareState (drain per activity, case charge 50 %/20 min, 3K overheats ~15 min and cools in 3–5 min, LED/fold/case/range/low-battery/storage refusals, clip cap). Testing now
+5. [ ] Simulator engine: enforces limits, answers every command, command feed. Written: SimulatedGlassesTransport is now the full simulator (1 s tick, paused in the background), touchpad defaults + capture button, Wi-Fi import, MetaCommandFeed
+6. [ ] 7 Jarvis tools + Device/Sim registration ("what am I looking at" end to end). Written: meta_glasses_status/look/photo/video/live/speak/volume; MetaGlassesHub registers the sim while Sim is selected
+7. [ ] iPhone camera as the glasses camera (photo/video/live) + hold-to-talk. Written: MetaPhoneCamera (ultra-wide, 3024×4032 portrait, clips capped, live frames) + test-scene fallback; MetaSimMic
+8. [ ] Page: Device | Sim toggle, controls, feed, live view, gallery, settings, limits. Written; building
 9. [ ] Drop 1 to his phone (release.sh)
 10. [ ] 3D Ray-Ban Meta model on the card + page (helper agent)
 11. [ ] Drop 2 (video/live/gallery polish + 3D model)

@@ -39,6 +39,9 @@ final class MetaGlassesSimRunner: ObservableObject {
     private let speech: MetaPromptSpeaking
     private let frameInterval: Duration
     private let sessionTuning: ((MetaGlassesSession) -> Void)?
+    /// The live simulated glasses to drive (the hub's); nil = a private pair (tests).
+    private let target: (() -> (MetaGlassesSession, SimulatedGlassesTransport)?)?
+    private var usingTarget = false
 
     private var transport: SimulatedGlassesTransport?
     private var session: MetaGlassesSession?
@@ -52,7 +55,9 @@ final class MetaGlassesSimRunner: ObservableObject {
     init(voice: MetaVoiceTurnController? = nil,
          speech: MetaPromptSpeaking? = nil,
          frameInterval: Duration = .milliseconds(40),
-         sessionTuning: ((MetaGlassesSession) -> Void)? = nil) {
+         sessionTuning: ((MetaGlassesSession) -> Void)? = nil,
+         target: (() -> (MetaGlassesSession, SimulatedGlassesTransport)?)? = nil) {
+        self.target = target
         // Resolved here, not as default arguments: building @MainActor types there is a
         // nonisolated call (see MetaGlassesSession.init).
         self.voice = voice ?? VoiceStoreTurnController.shared
@@ -61,21 +66,12 @@ final class MetaGlassesSimRunner: ObservableObject {
         self.sessionTuning = sessionTuning
     }
 
-    /// One simulated turn, start to finish. Refuses while a voice chat is running.
+    /// One simulated turn from the typed prompt (voiced into glasses-mic audio).
     func run() async {
         guard phase != .running else { return }
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { phase = .failed("Type something for the glasses to hear"); return }
-        guard voice.snapshot().state == .idle else { phase = .failed(Self.busyMessage); return }
-
-        rows = []
-        wakeToAnswer = nil
-        wakeAt = nil
-        stopping = false
-        answered = false
-        began = clock.now
-        phase = .running
-
+        guard begin() else { return }
         let pcm: Data
         do { pcm = try await speech.pcm16k(for: text) } catch {
             phase = .failed("Couldn't voice the prompt: \(error.localizedDescription)")
@@ -83,9 +79,41 @@ final class MetaGlassesSimRunner: ObservableObject {
         }
         guard !stopping else { return finishStopped() }
         guard !pcm.isEmpty else { phase = .failed("Couldn't voice the prompt"); return }
+        await runTurn(pcm: pcm, said: "“\(text)”")
+    }
 
-        let transport = SimulatedGlassesTransport()
-        let session = MetaGlassesSession(transport: transport, voice: voice)
+    /// One simulated turn from your own voice (hold to talk), already 16 kHz PCM.
+    func run(recorded pcm: Data) async {
+        guard phase != .running else { return }
+        guard pcm.count >= 3_200 else { phase = .failed("Hold to talk, then speak — that was too short"); return }
+        guard begin() else { return }
+        await runTurn(pcm: pcm, said: "Your voice · \(String(format: "%.1f", Double(pcm.count) / 32_000)) s")
+    }
+
+    /// Refuses while a voice chat is running; resets the run state.
+    private func begin() -> Bool {
+        guard voice.snapshot().state == .idle else { phase = .failed(Self.busyMessage); return false }
+        rows = []
+        wakeToAnswer = nil
+        wakeAt = nil
+        stopping = false
+        answered = false
+        began = clock.now
+        phase = .running
+        return true
+    }
+
+    private func runTurn(pcm: Data, said: String) async {
+        let session: MetaGlassesSession
+        let transport: SimulatedGlassesTransport
+        if let live = target?() {
+            (session, transport) = live
+            usingTarget = true
+        } else {
+            transport = SimulatedGlassesTransport()
+            session = MetaGlassesSession(transport: transport, voice: voice)
+            usingTarget = false
+        }
         sessionTuning?(session)
         let (stream, continuation) = AsyncStream<MetaVoiceRelay.Outcome>.makeStream()
         self.transport = transport
@@ -93,19 +121,31 @@ final class MetaGlassesSimRunner: ObservableObject {
         ended = continuation
         session.onEvent = { [weak self] event in self?.record(event) }
 
-        do { try await session.start() } catch {
+        if !usingTarget {
+            do { try await session.start() } catch {
+                cleanUp()
+                phase = .failed("Simulated link failed: \(error.localizedDescription)")
+                return
+            }
+        } else if !session.isReady {
             cleanUp()
-            phase = .failed("Simulated link failed: \(error.localizedDescription)")
+            phase = .failed(transport.hw.unreachableReason ?? "The simulated glasses aren't connected")
             return
         }
         add("link", "Link ready", "Simulated glasses")
         guard !stopping else { await tearDown(session, transport); return finishStopped() }
 
+        if usingTarget, let reason = transport.hw.voiceRefusal() {
+            transport.wake()     // logs the refusal in the feed
+            cleanUp()
+            phase = .failed(reason)
+            return
+        }
         wakeAt = clock.now
-        transport.scriptWake()
+        if usingTarget { transport.wake() } else { transport.scriptWake() }
         add("waveform", "Wake", "“Hey Jarvis”")
         transport.streamSpokenAudio(pcm, frameInterval: frameInterval)
-        add("mic", "Glasses mic", "“\(text)”")
+        add("mic", "Glasses mic", said)
 
         var outcome = MetaVoiceRelay.Outcome.failed("Stopped")
         for await value in stream { outcome = value; break }
@@ -128,7 +168,7 @@ final class MetaGlassesSimRunner: ObservableObject {
         ended?.yield(.failed("Stopped"))
         ended?.finish()
         ended = nil
-        await session?.stop()
+        if usingTarget { await session?.endTurn(outcome: .failed("Stopped")) } else { await session?.stop() }
     }
 
     // MARK: Internals
@@ -161,7 +201,11 @@ final class MetaGlassesSimRunner: ObservableObject {
 
     private func tearDown(_ session: MetaGlassesSession, _ transport: SimulatedGlassesTransport) async {
         transport.stopStreaming()
-        await session.stop()
+        if usingTarget {
+            if session.turnActive { await session.endTurn(outcome: .failed("Stopped")) }
+        } else {
+            await session.stop()
+        }
         cleanUp()
     }
 

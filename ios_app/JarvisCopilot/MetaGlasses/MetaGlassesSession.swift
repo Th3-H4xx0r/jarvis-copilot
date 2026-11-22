@@ -55,6 +55,13 @@ final class MetaGlassesSession {
     /// How the last turn ended.
     private(set) var lastOutcome: MetaVoiceRelay.Outcome?
     private var watch: Task<Void, Never>?
+    private var videoWaiter: ((Result<MetaClip, Error>) -> Void)?
+    /// The newest live-stream frame (JPEG) while streaming.
+    private(set) var latestLiveFrame: Data?
+    /// A Jarvis action bound to a touch gesture, run in addition to the glasses' own default.
+    var onTouchBinding: ((MetaTouchGesture) -> Void)?
+    /// What the glasses report about themselves (battery, heat, storage, worn…).
+    var hardware: MetaHardwareState? { transport.hardware }
 
     /// Bumped on each turn so a stale async step no-ops (the INMO generation guard).
     private var generation = 0
@@ -133,6 +140,10 @@ final class MetaGlassesSession {
             photoWaiter?(.success(jpeg))
         case .touch(let gesture):
             await handleTouch(gesture)
+        case .video(let clip):
+            videoWaiter?(.success(clip))
+        case .liveFrame(let jpeg):
+            latestLiveFrame = jpeg
         }
     }
 
@@ -278,24 +289,78 @@ final class MetaGlassesSession {
 
     private func failPhotoWaiter(_ error: Error) {
         photoWaiter?(.failure(error))
+        videoWaiter?(.failure(error))
+    }
+
+    // MARK: Video, live, speaker (Gen 2 camera + open-ear speakers)
+
+    /// Record a clip of up to `seconds` (the glasses cap it at their clip-length setting) and
+    /// wait for it. A clip the glasses cut short still returns, with `stopReason` set.
+    func recordVideo(seconds: Int) async throws -> MetaClip {
+        guard isReady else { throw MetaGlassesError.notReady }
+        guard videoWaiter == nil else { throw MetaGlassesError.busy("a recording is already in progress") }
+        try await transport.send(.startVideo(seconds: seconds))
+        let limit = Duration.seconds(Double(seconds) + 20)
+        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<MetaClip, Error>) in
+            var resumed = false
+            let finish: (Result<MetaClip, Error>) -> Void = { [weak self] result in
+                guard !resumed else { return }
+                resumed = true
+                self?.videoWaiter = nil
+                cont.resume(with: result)
+            }
+            videoWaiter = finish
+            Task { @MainActor in
+                try? await Task.sleep(for: limit)
+                finish(.failure(MetaGlassesError.timedOut("video recording")))
+            }
+        }
+    }
+
+    func stopVideo() async throws {
+        guard isReady else { throw MetaGlassesError.notReady }
+        try await transport.send(.stopVideo)
+    }
+
+    func startLive() async throws {
+        guard isReady else { throw MetaGlassesError.notReady }
+        try await transport.send(.startLiveStream)
+    }
+
+    func stopLive() async throws {
+        latestLiveFrame = nil
+        guard isReady else { return }
+        try await transport.send(.stopLiveStream)
+    }
+
+    func speak(_ text: String) async throws {
+        guard isReady else { throw MetaGlassesError.notReady }
+        try await transport.send(.speak(text: text))
+    }
+
+    func setVolume(_ level: Int) async throws {
+        guard isReady else { throw MetaGlassesError.notReady }
+        try await transport.send(.setVolume(level))
     }
 
     // MARK: Touch (plan §6.5)
 
+    /// A gesture the glasses reported. They already did their own default (play/pause, tracks,
+    /// volume, a capture — those can't be suppressed); here the assistant gesture starts or ends a
+    /// Jarvis turn, and any Jarvis action bound to the gesture runs too.
     func handleTouch(_ gesture: MetaTouchGesture) async {
         lastTouchGesture = gesture
         let action = touchBindings[gesture] ?? MetaTouchBinding.defaultAction(for: gesture)
         lastTouchAction = action
         switch action {
         case .startAssistant:
-            await startTurn()
+            if turnActive { await endTurn() } else { await startTurn() }
         case .endAssistant:
             await endTurn()
-        case .capturePhoto:
-            Task { @MainActor in _ = try? await self.capturePhoto(question: nil) }
-        case .nextTrack, .previousTrack, .none:
-            break   // music stays on A2DP; these are recorded for the UI/bridge to act on
+        case .capturePhoto, .nextTrack, .previousTrack, .playPause, .volumeUp, .volumeDown, .none:
+            break   // done on the glasses
         }
+        onTouchBinding?(gesture)
     }
 
     // MARK: Snapshot
@@ -306,6 +371,7 @@ final class MetaGlassesSession {
             "connected": isReady,
             "turn_active": turnActive,
             "wake_count": wakeCount,
+            "streaming_frame": latestLiveFrame != nil,
         ]
     }
 }

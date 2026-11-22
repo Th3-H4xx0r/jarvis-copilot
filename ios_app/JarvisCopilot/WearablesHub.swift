@@ -466,6 +466,8 @@ final class WearablesHub: ObservableObject {
         Task { await InmoDeviceTrial.runIfRequested() }
         #endif
         glasses.refreshMembership()
+        // Ray-Ban Meta: the simulator (or, later, the real glasses) per the glasses page's toggle.
+        Task { await MetaGlassesHub.shared.activate() }
         DeviceRegistry.shared.register(WearablesDevice())
         BridgeClient.shared.sendRegistration()
         registerHealthIntegrations()

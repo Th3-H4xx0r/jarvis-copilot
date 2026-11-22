@@ -34,6 +34,26 @@ enum GlassesInboundEvent: Sendable {
     case photo(Data)
     /// A touchpad gesture on the glasses arm (plan §6.5).
     case touch(MetaTouchGesture)
+    /// A video clip finished (cap reached, stopped, or cut short — `stopReason` says why).
+    case video(MetaClip)
+    /// One live-stream frame (JPEG, ≤720×1280).
+    case liveFrame(Data)
+}
+
+/// A recorded clip as the glasses report it.
+struct MetaClip: Equatable, Sendable {
+    var seconds: Double
+    var mode: MetaVideoMode
+    var bytes: Int64
+    /// The movie file once imported to the phone (nil for a test-scene clip with no real video).
+    var fileURL: URL?
+    /// Set when the glasses ended it early (LED covered, too hot, battery low, storage full…).
+    var stopReason: String?
+}
+
+/// Media keys the glasses send the phone (AVRCP) — their touchpad defaults.
+enum MetaMediaCommand: String, Sendable {
+    case playPause, next, previous
 }
 
 /// A logical frame the phone sends down to the glasses. Again, these are *meanings*; the real
@@ -45,6 +65,15 @@ enum GlassesFrame: Equatable, Sendable {
     case setSpeaking(Bool)
     case capturePhoto(question: String?)
     case closeAssistant
+    case startVideo(seconds: Int)
+    case stopVideo
+    case startLiveStream
+    case stopLiveStream
+    /// Say text through the glasses' open-ear speakers.
+    case speak(text: String)
+    case setVolume(Int)
+    case setClipLength(Int)
+    case setVideoMode(MetaVideoMode)
 }
 
 /// A touchpad gesture on the glasses arm.
@@ -52,8 +81,8 @@ enum MetaTouchGesture: String, Sendable, CaseIterable {
     case tap, doubleTap, tripleTap, hold, swipeForward, swipeBackward, capture
 }
 
-/// What a touch gesture is bound to do. A small-scale stand-in for the shared Ring action idea
-/// (plan §6.5) without pulling the Ring picker into scaffolding.
+/// What a touch gesture does ON THE GLASSES. These defaults can't be suppressed (research doc);
+/// a Jarvis action bound to the gesture runs in addition (plan §6.5).
 enum MetaTouchAction: Equatable, Sendable {
     case none
     case startAssistant
@@ -61,20 +90,50 @@ enum MetaTouchAction: Equatable, Sendable {
     case capturePhoto
     case nextTrack
     case previousTrack
+    case playPause
+    case volumeUp
+    case volumeDown
 }
 
 enum MetaTouchBinding {
-    /// The default gesture→action map. Music gestures keep A2DP playback (plan §6.3); the
-    /// assistant is reached with a double tap, matching the Meta default most closely.
+    /// The glasses' own gesture map: tap = play/pause, double = next, triple = previous,
+    /// hold = the assistant (Jarvis, since Jarvis owns the glasses), swipes = volume, the
+    /// capture button = a photo (hold it for video).
     static func defaultAction(for gesture: MetaTouchGesture) -> MetaTouchAction {
         switch gesture {
-        case .tap: return .none
-        case .doubleTap: return .startAssistant
-        case .tripleTap: return .endAssistant
+        case .tap: return .playPause
+        case .doubleTap: return .nextTrack
+        case .tripleTap: return .previousTrack
         case .hold: return .startAssistant
-        case .swipeForward: return .nextTrack
-        case .swipeBackward: return .previousTrack
+        case .swipeForward: return .volumeUp
+        case .swipeBackward: return .volumeDown
         case .capture: return .capturePhoto
+        }
+    }
+
+    static func label(_ gesture: MetaTouchGesture) -> String {
+        switch gesture {
+        case .tap: return "Tap"
+        case .doubleTap: return "Double tap"
+        case .tripleTap: return "Triple tap"
+        case .hold: return "Touch and hold"
+        case .swipeForward: return "Swipe forward"
+        case .swipeBackward: return "Swipe back"
+        case .capture: return "Capture button"
+        }
+    }
+
+    static func label(_ action: MetaTouchAction) -> String {
+        switch action {
+        case .none: return "Nothing"
+        case .startAssistant: return "Jarvis"
+        case .endAssistant: return "End Jarvis"
+        case .capturePhoto: return "Photo"
+        case .nextTrack: return "Next track"
+        case .previousTrack: return "Previous track"
+        case .playPause: return "Play / pause"
+        case .volumeUp: return "Volume up"
+        case .volumeDown: return "Volume down"
         }
     }
 
@@ -94,6 +153,8 @@ enum MetaGlassesError: LocalizedError {
     case busy(String)
     case timedOut(String)
     case transportUnavailable(String)
+    /// The glasses themselves refused (a hardware limit: LED covered, too hot, folded…).
+    case refused(String)
 
     var errorDescription: String? {
         switch self {
@@ -107,6 +168,8 @@ enum MetaGlassesError: LocalizedError {
             return "Meta glasses timed out: \(what)"
         case .transportUnavailable(let why):
             return "Meta glasses transport unavailable: \(why)"
+        case .refused(let why):
+            return why
         }
     }
 }
@@ -126,4 +189,10 @@ protocol GlassesTransport: AnyObject {
     func send(_ frame: GlassesFrame) async throws
     /// Tear the link down and finish the inbound stream.
     func disconnect() async
+    /// Battery, heat, storage, worn/folded… as the glasses report it. Nil until known.
+    var hardware: MetaHardwareState? { get }
+}
+
+extension GlassesTransport {
+    var hardware: MetaHardwareState? { nil }
 }

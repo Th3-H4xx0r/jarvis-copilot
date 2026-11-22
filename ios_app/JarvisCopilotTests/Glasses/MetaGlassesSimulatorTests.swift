@@ -125,33 +125,37 @@ final class MetaGlassesSimulatorTests: XCTestCase {
     }
 
     func testTouchGesturesMapToActions() async throws {
-        // Pure mapping (plan §6.5).
-        XCTAssertEqual(MetaTouchBinding.defaultAction(for: .doubleTap), .startAssistant)
-        XCTAssertEqual(MetaTouchBinding.defaultAction(for: .tripleTap), .endAssistant)
+        // The glasses' own defaults (research doc): media keys, volume, the assistant on hold.
+        XCTAssertEqual(MetaTouchBinding.defaultAction(for: .tap), .playPause)
+        XCTAssertEqual(MetaTouchBinding.defaultAction(for: .doubleTap), .nextTrack)
+        XCTAssertEqual(MetaTouchBinding.defaultAction(for: .tripleTap), .previousTrack)
+        XCTAssertEqual(MetaTouchBinding.defaultAction(for: .hold), .startAssistant)
+        XCTAssertEqual(MetaTouchBinding.defaultAction(for: .swipeForward), .volumeUp)
         XCTAssertEqual(MetaTouchBinding.defaultAction(for: .capture), .capturePhoto)
-        XCTAssertEqual(MetaTouchBinding.defaultAction(for: .swipeForward), .nextTrack)
 
         let (session, transport, voice) = makeSession()
         try await session.start()
 
-        // A double tap starts a turn.
-        transport.scriptTouch(.doubleTap)
+        // Touch and hold starts a Jarvis turn; holding again ends it.
+        transport.scriptTouch(.hold)
         try await settle()
-        XCTAssertEqual(session.lastTouchGesture, .doubleTap)
         XCTAssertEqual(session.lastTouchAction, .startAssistant)
         XCTAssertTrue(session.turnActive)
         XCTAssertEqual(voice.beginTurnCalls, 1)
-
-        // A triple tap ends it.
-        transport.scriptTouch(.tripleTap)
+        transport.scriptTouch(.hold)
         try await settle()
-        XCTAssertEqual(session.lastTouchAction, .endAssistant)
         XCTAssertFalse(session.turnActive)
 
-        // A capture gesture requests a still from the glasses.
+        // A double tap is the glasses' next-track: no Jarvis turn.
+        transport.scriptTouch(.doubleTap)
+        try await settle()
+        XCTAssertEqual(session.lastTouchAction, .nextTrack)
+        XCTAssertEqual(voice.beginTurnCalls, 1)
+
+        // The capture button is handled on the glasses — the session sends no capture of its own.
         transport.scriptTouch(.capture)
         try await settle()
         XCTAssertEqual(session.lastTouchAction, .capturePhoto)
-        XCTAssertTrue(transport.sentFrames.contains { if case .capturePhoto = $0 { return true }; return false })
+        XCTAssertFalse(transport.sentFrames.contains { if case .capturePhoto = $0 { return true }; return false })
     }
 }

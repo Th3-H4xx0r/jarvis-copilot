@@ -1214,6 +1214,14 @@
 		5B0F79C550EFA5F4B5B71D6A /* MetaGlassesSimulatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3E5E3B84C066F922A4F562B /* MetaGlassesSimulatorTests.swift */; };
 		20E4AE11832860C85BC2F12B /* MetaGlassesTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A82195F4804E344800BBC2A /* MetaGlassesTransport.swift */; };
 		6D9A244A8A5EB5A936E838B3 /* MetaWakeChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF01D221F3E3D2B5377A59FF /* MetaWakeChannel.swift */; };
+		17DAED199D69A04830A80EF1 /* MetaGen2Profile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C03F8618D3E576D754BCD0E /* MetaGen2Profile.swift */; };
+		8FDB67E2A1266F49754C85FF /* MetaHardwareState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2666075B3D662E9000B49F0E /* MetaHardwareState.swift */; };
+		A8679F79090942A7702E6693 /* MetaSimCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB041E244B3962F5FAEF16F /* MetaSimCamera.swift */; };
+		A0DDD406AC885C4C77AA486D /* MetaSimMic.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA6E06F75D0DB4BB903E6E8D /* MetaSimMic.swift */; };
+		B4C4F6B8F2E7BFB34C3B9D50 /* MetaCommandFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CCBCEE0391E55849DFE6F5B /* MetaCommandFeed.swift */; };
+		3AD0B7BA2F45A977A01871F5 /* MetaGlassesHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0C5ABA0BA94B824489E21D2 /* MetaGlassesHub.swift */; };
+		62CD1BB39D094B34A25CCF1E /* MetaSimPanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69A99EDDAD2709D7C033BD96 /* MetaSimPanels.swift */; };
+		16354D0866358FC8F2692EE6 /* MetaGlassesHardwareSimTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB511B2BCD6DEAC831FBDFF2 /* MetaGlassesHardwareSimTests.swift */; };
 		BE8DEF9EE040AFF0FFDCE263 /* MetaGlassesModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 294D5D61987F42AE9F6E4899 /* MetaGlassesModel.swift */; };
 		064AC2EB199E9C43AB50A49E /* MetaGlassesSceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D688F732E67C8E96EB671B0 /* MetaGlassesSceneView.swift */; };
 		9CC6C767BC5812E3CFAEF1E8 /* MetaGlassesModelRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C4E7C2C4423130E8AF5D814 /* MetaGlassesModelRenderTests.swift */; };
@@ -2085,6 +2093,14 @@
 		C3E5E3B84C066F922A4F562B /* MetaGlassesSimulatorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaGlassesSimulatorTests.swift; sourceTree = "<group>"; };
 		0A82195F4804E344800BBC2A /* MetaGlassesTransport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaGlassesTransport.swift; sourceTree = "<group>"; };
 		DF01D221F3E3D2B5377A59FF /* MetaWakeChannel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaWakeChannel.swift; sourceTree = "<group>"; };
+		1C03F8618D3E576D754BCD0E /* MetaGen2Profile.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaGen2Profile.swift; sourceTree = "<group>"; };
+		2666075B3D662E9000B49F0E /* MetaHardwareState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaHardwareState.swift; sourceTree = "<group>"; };
+		4EB041E244B3962F5FAEF16F /* MetaSimCamera.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaSimCamera.swift; sourceTree = "<group>"; };
+		EA6E06F75D0DB4BB903E6E8D /* MetaSimMic.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaSimMic.swift; sourceTree = "<group>"; };
+		2CCBCEE0391E55849DFE6F5B /* MetaCommandFeed.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaCommandFeed.swift; sourceTree = "<group>"; };
+		A0C5ABA0BA94B824489E21D2 /* MetaGlassesHub.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaGlassesHub.swift; sourceTree = "<group>"; };
+		69A99EDDAD2709D7C033BD96 /* MetaSimPanels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaSimPanels.swift; sourceTree = "<group>"; };
+		CB511B2BCD6DEAC831FBDFF2 /* MetaGlassesHardwareSimTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaGlassesHardwareSimTests.swift; sourceTree = "<group>"; };
 		294D5D61987F42AE9F6E4899 /* MetaGlassesModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaGlassesModel.swift; sourceTree = "<group>"; };
 		0D688F732E67C8E96EB671B0 /* MetaGlassesSceneView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaGlassesSceneView.swift; sourceTree = "<group>"; };
 		8C4E7C2C4423130E8AF5D814 /* MetaGlassesModelRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaGlassesModelRenderTests.swift; sourceTree = "<group>"; };
@@ -3480,6 +3496,9 @@
 				10210EABAF1FFB3E5F015649 /* MetaGlassesSimRunner.swift */,
 				671EA70B868E3B0070A09872 /* Views */,
 				45A987A539C2AA54CC79ED9A /* Model */,
+				2CCBCEE0391E55849DFE6F5B /* MetaCommandFeed.swift */,
+				A0C5ABA0BA94B824489E21D2 /* MetaGlassesHub.swift */,
+				B8D752D5B118019D940E38A0 /* Sim */,
 				29BCF9F0D7F500190F82358C /* Features */,
 			);
 			path = MetaGlasses;
@@ -3494,6 +3513,17 @@
 			path = Model;
 			sourceTree = "<group>";
 		};
+		B8D752D5B118019D940E38A0 /* Sim */ = {
+			isa = PBXGroup;
+			children = (
+				1C03F8618D3E576D754BCD0E /* MetaGen2Profile.swift */,
+				2666075B3D662E9000B49F0E /* MetaHardwareState.swift */,
+				4EB041E244B3962F5FAEF16F /* MetaSimCamera.swift */,
+				EA6E06F75D0DB4BB903E6E8D /* MetaSimMic.swift */,
+			);
+			path = Sim;
+			sourceTree = "<group>";
+		};
 		29BCF9F0D7F500190F82358C /* Features */ = {
 			isa = PBXGroup;
 			children = (
@@ -3506,6 +3536,7 @@
 			isa = PBXGroup;
 			children = (
 				050B74AC490381D23136672A /* MetaGlassesView.swift */,
+				69A99EDDAD2709D7C033BD96 /* MetaSimPanels.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -5239,6 +5270,7 @@
 				A531BBA711DF1B7C8D8A0E2E /* GlassesMusicRouteTests.swift */,
 				EF913AA82E6FB08A019A13CB /* InmoGalleryTests.swift */,
 				C3E5E3B84C066F922A4F562B /* MetaGlassesSimulatorTests.swift */,
+				CB511B2BCD6DEAC831FBDFF2 /* MetaGlassesHardwareSimTests.swift */,
 				8C4E7C2C4423130E8AF5D814 /* MetaGlassesModelRenderTests.swift */,
 				14A12097749B2421A6E6790B /* MetaVoiceRelayTests.swift */,
 			);
@@ -6170,6 +6202,7 @@
 				CA7CB59714C0D976F33A2F13 /* MemoryGraphTests.swift in Sources */,
 				07A0486E05360BD3ACD322B9 /* InmoGalleryTests.swift in Sources */,
 				5B0F79C550EFA5F4B5B71D6A /* MetaGlassesSimulatorTests.swift in Sources */,
+				16354D0866358FC8F2692EE6 /* MetaGlassesHardwareSimTests.swift in Sources */,
 				9CC6C767BC5812E3CFAEF1E8 /* MetaGlassesModelRenderTests.swift in Sources */,
 				61BA64EEE243B0A2892D3FCC /* MetaVoiceRelayTests.swift in Sources */,
 				DBDCAD99A0E74629F5443D28 /* LiveOrbRenderTests.swift in Sources */,
@@ -6750,6 +6783,13 @@
 				825D188B5D2F771A8CEC0BFC /* SimulatedGlassesTransport.swift in Sources */,
 				20E4AE11832860C85BC2F12B /* MetaGlassesTransport.swift in Sources */,
 				6D9A244A8A5EB5A936E838B3 /* MetaWakeChannel.swift in Sources */,
+				17DAED199D69A04830A80EF1 /* MetaGen2Profile.swift in Sources */,
+				8FDB67E2A1266F49754C85FF /* MetaHardwareState.swift in Sources */,
+				A8679F79090942A7702E6693 /* MetaSimCamera.swift in Sources */,
+				A0DDD406AC885C4C77AA486D /* MetaSimMic.swift in Sources */,
+				B4C4F6B8F2E7BFB34C3B9D50 /* MetaCommandFeed.swift in Sources */,
+				3AD0B7BA2F45A977A01871F5 /* MetaGlassesHub.swift in Sources */,
+				62CD1BB39D094B34A25CCF1E /* MetaSimPanels.swift in Sources */,
 				BE8DEF9EE040AFF0FFDCE263 /* MetaGlassesModel.swift in Sources */,
 				064AC2EB199E9C43AB50A49E /* MetaGlassesSceneView.swift in Sources */,
 				D6BEF2612322C09A5DB79374 /* MetaVoiceRelay.swift in Sources */,
@@ -7586,7 +7626,7 @@
 				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "JarvisCopilot uses Bluetooth to connect to your glasses, wearables and Jarvis devices.";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "JarvisCopilot reads and adds calendar events when you ask Jarvis about your schedule.";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "JarvisCopilot reads and adds calendar events when you ask Jarvis about your schedule.";
-				INFOPLIST_KEY_NSCameraUsageDescription = "JarvisCopilot uses the camera to scan the Jarvis Copilot pairing QR code.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "JarvisCopilot uses the camera to scan the pairing QR code, and as the camera of the simulated Meta glasses when you test them.";
 				INFOPLIST_KEY_NSContactsUsageDescription = "JarvisCopilot looks up contacts so Jarvis can address a text or call to the right person.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "JarvisCopilot reads steps, heart rate and sleep when you ask Jarvis about your health.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "JarvisCopilot saves your workouts and what your ring and scale measure — heart rate, steps, sleep, blood oxygen, weight — to Apple Health. Choose which in Health settings.";
@@ -7754,7 +7794,7 @@
 				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "JarvisCopilot uses Bluetooth to connect to your glasses, wearables and Jarvis devices.";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "JarvisCopilot reads and adds calendar events when you ask Jarvis about your schedule.";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "JarvisCopilot reads and adds calendar events when you ask Jarvis about your schedule.";
-				INFOPLIST_KEY_NSCameraUsageDescription = "JarvisCopilot uses the camera to scan the Jarvis Copilot pairing QR code.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "JarvisCopilot uses the camera to scan the pairing QR code, and as the camera of the simulated Meta glasses when you test them.";
 				INFOPLIST_KEY_NSContactsUsageDescription = "JarvisCopilot looks up contacts so Jarvis can address a text or call to the right person.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "JarvisCopilot reads steps, heart rate and sleep when you ask Jarvis about your health.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "JarvisCopilot saves your workouts and what your ring and scale measure — heart rate, steps, sleep, blood oxygen, weight — to Apple Health. Choose which in Health settings.";

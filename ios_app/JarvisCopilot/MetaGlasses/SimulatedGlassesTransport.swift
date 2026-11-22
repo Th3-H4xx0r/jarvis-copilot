@@ -1,76 +1,466 @@
-import Foundation
+import AVFoundation
+import UIKit
 
-/// An in-memory `GlassesTransport` that stands in for the glasses + their far-end assistant, so
-/// the whole `MetaGlassesSession` / `MetaGlassesDevice` lifecycle can be driven end-to-end with
-/// NO hardware and NO AirShield crypto. This is a simplified, already-trusted session — it does
-/// NOT reimplement the BLE L2CAP channel or the encrypted transport (those stay in
-/// `MetaGlassesTransport`'s skeleton). DEBUG-only, and never referenced by production paths.
-///
-/// A test feeds scripted interactions through the `script*` methods and asserts on the recorded
-/// outbound `sentFrames`.
-///
-/// Compiled into Release too: the Meta glasses page's "Run simulated glasses" drives a real Jarvis
-/// voice turn through it (`MetaGlassesSimRunner`). Nothing constructs it outside that page and the
-/// tests, and `MetaGlassesDevice.shared` keeps the real transport.
+/// Something that can say text out loud — the glasses' open-ear speakers.
 @MainActor
-final class SimulatedGlassesTransport: GlassesTransport {
-    private(set) var linkState: GlassesLinkState = .disconnected
-    let inbound: AsyncStream<GlassesInboundEvent>
-    private let continuation: AsyncStream<GlassesInboundEvent>.Continuation
+protocol MetaSpeaker: AnyObject {
+    func say(_ text: String, volume: Int)
+}
+
+/// The phone speaker standing in for the glasses' speakers. Its own audio session, so it never
+/// fights `AudioSessionArbiter` (the only writer of the app's session).
+@MainActor
+final class MetaPhoneSpeaker: MetaSpeaker {
+    private let synthesizer: AVSpeechSynthesizer = {
+        let s = AVSpeechSynthesizer()
+        s.usesApplicationAudioSession = false
+        return s
+    }()
+
+    func say(_ text: String, volume: Int) {
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
+        utterance.volume = Float(max(0, min(volume, 100))) / 100
+        synthesizer.speak(utterance)
+    }
+}
+
+/// One photo or clip in the simulated glasses' storage (or imported to the phone).
+struct MetaStoredMedia: Identifiable, Equatable, Sendable {
+    enum Kind: String, Sendable { case photo, video }
+    let id: UUID
+    let kind: Kind
+    let date: Date
+    let bytes: Int64
+    var fileURL: URL?
+    let thumbnail: Data?
+    var seconds: Double?
+    var mode: MetaVideoMode?
+    var source: String
+}
+
+/// The simulated Ray-Ban Meta (Gen 2): software glasses behind the same `GlassesTransport` the
+/// real ones use, so Jarvis's tools, the voice turn and the touch handling run the real code.
+///
+/// It emulates the hardware AND its limits (`MetaGen2Profile`, `MetaHardwareState`): every command
+/// is checked the way the glasses would — LED covered, too hot, battery low, storage full, folded,
+/// in the case, out of range — and refused with the glasses' reason (`MetaGlassesError.refused`);
+/// a recording or stream stops on its own when a limit hits mid-way. Battery and heat run on a
+/// 1 s tick (× sim speed). The camera is the iPhone's (ultra-wide when present) or drawn test
+/// scenes; the speakers are the phone's. Every command lands in the command feed.
+///
+/// It does NOT reimplement the BLE L2CAP channel or the AirShield crypto — those stay in
+/// `MetaGlassesTransport`'s hardware-gated skeleton.
+@MainActor
+final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
+    @Published private(set) var linkState: GlassesLinkState = .disconnected
+    /// The glasses' physical state. Change it through the sim controls below, not directly.
+    @Published private(set) var hw = MetaHardwareState()
+    /// Sim speed for battery and heat: 1×, 10× or 60×.
+    @Published var speed: Double = 1
+    @Published private(set) var storage: [MetaStoredMedia] = []
+    @Published private(set) var imported: [MetaStoredMedia] = []
+    @Published private(set) var latestLiveFrame: Data?
+    /// The capture LED is lit (recording, streaming, or a photo's blink).
+    @Published private(set) var ledLit = false
+    /// Media import / live view moved the phone onto the glasses' Wi-Fi (server traffic → cellular).
+    @Published private(set) var phoneOnGlassesWiFi = false
+    @Published private(set) var importProgress: Double?
+    var cameraName: String { camera.sourceName }
+
+    private(set) var inbound: AsyncStream<GlassesInboundEvent>
+    private var continuation: AsyncStream<GlassesInboundEvent>.Continuation
+    let feed: MetaCommandFeed
+    let camera: MetaCameraSource
+    var speaker: MetaSpeaker?
+    /// The glasses' touchpad defaults send media keys to the phone (AVRCP).
+    var mediaKeys: ((MetaMediaCommand) async -> Void)?
+    /// How long a Wi-Fi import really takes is scaled by this (tests use 0).
+    var transferTimeScale: Double = 1
 
     /// Every frame the session sent down, in order — the assertion surface for tests.
     private(set) var sentFrames: [GlassesFrame] = []
-
-    /// Called with every frame the session sends down (the sim page's log).
+    /// Called with every frame the session sends down.
     var onSent: ((GlassesFrame) -> Void)?
 
+    private let autoTick: Bool
+    private var tickTask: Task<Void, Never>?
     private var streamTask: Task<Void, Never>?
+    private var ledBlinkTask: Task<Void, Never>?
+    private let mediaDirectory: URL
     /// 40 ms of 16 kHz mono PCM16.
     static let frameBytes = 1_280
 
-    /// Synthetic JPEG bytes a capture returns (valid SOI…EOI markers; not a decodable image).
-    var cannedPhoto: Data = SimulatedGlassesTransport.makeSyntheticJPEG()
+    var hardware: MetaHardwareState? { hw }
 
-    init() {
-        var cont: AsyncStream<GlassesInboundEvent>.Continuation!
-        inbound = AsyncStream(bufferingPolicy: .unbounded) { cont = $0 }
-        continuation = cont
+    init(camera: MetaCameraSource? = nil, feed: MetaCommandFeed? = nil, autoTick: Bool = true,
+         mediaDirectory: URL? = nil) {
+        (inbound, continuation) = AsyncStream<GlassesInboundEvent>.makeStream(bufferingPolicy: .unbounded)
+        self.camera = camera ?? MetaTestSceneCamera(photoSize: CGSize(width: 302, height: 403))
+        self.feed = feed ?? MetaCommandFeed()
+        self.autoTick = autoTick
+        self.mediaDirectory = mediaDirectory
+            ?? FileManager.default.temporaryDirectory.appendingPathComponent("meta-sim-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: self.mediaDirectory, withIntermediateDirectories: true)
     }
 
     // MARK: GlassesTransport
 
     func connect() async throws {
-        linkState = .ready   // already-trusted in-memory session
+        if let reason = hw.unreachableReason {
+            linkState = .failed(reason)
+            throw MetaGlassesError.refused(reason)
+        }
+        linkState = .ready   // an already-trusted in-memory session
+        if autoTick { startTicking() }
+    }
+
+    func disconnect() async {
+        stopStreaming()
+        tickTask?.cancel(); tickTask = nil
+        camera.stopLive()
+        if hw.recording != nil { await endRecording(reason: "Disconnected") }
+        hw.streaming = false
+        ledLit = false
+        phoneOnGlassesWiFi = false
+        linkState = .disconnected
+        continuation.finish()
     }
 
     func send(_ frame: GlassesFrame) async throws {
         sentFrames.append(frame)
         onSent?(frame)
-        // Act as the glasses camera: a capture request yields a still.
-        if case .capturePhoto = frame {
-            continuation.yield(.photo(cannedPhoto))
+        if let reason = hw.unreachableReason, frame != .closeAssistant {
+            throw refuse(frame, reason)
+        }
+        switch frame {
+        case .enableWakeWord:
+            feed.log(.glasses, "Wake word armed", detail: "“Hey Jarvis” · \(MetaGen2Profile.wakeLanguages.joined()) only", outcome: .info)
+        case .showTranscript, .showAnswer:
+            break      // Gen 2 has no display: the assistant state rides the session, nothing to draw
+        case .setSpeaking(let on):
+            hw.voiceActive = on
+        case .closeAssistant:
+            hw.voiceActive = false
+        case .capturePhoto(let question):
+            try await takePhoto(source: .jarvis, question: question, emit: true)
+        case .startVideo(let seconds):
+            try await beginRecording(seconds: seconds, source: .jarvis)
+        case .stopVideo:
+            if hw.recording != nil { await endRecording(reason: nil) }
+        case .startLiveStream:
+            try await beginLive()
+        case .stopLiveStream:
+            endLive(reason: nil)
+        case .speak(let text):
+            if let reason = hw.audioRefusal() { throw refuse(frame, reason) }
+            speaker?.say(text, volume: hw.volume)
+            feed.log(.jarvis, "Spoke on the glasses", detail: "“\(text)”")
+        case .setVolume(let level):
+            if let reason = hw.audioRefusal() { throw refuse(frame, reason) }
+            hw.volume = max(0, min(level, 100))
+            feed.log(.jarvis, "Volume \(hw.volume)%")
+        case .setClipLength(let seconds):
+            guard MetaGen2Profile.clipLengths.contains(seconds) else {
+                throw refuse(frame, "Clip length must be one of \(MetaGen2Profile.clipLengths.map { "\($0) s" }.joined(separator: ", "))")
+            }
+            hw.clipLength = seconds
+            feed.log(.sim, "Clip length \(seconds) s")
+        case .setVideoMode(let mode):
+            if hw.recording != nil { throw refuse(frame, "Can't change the video mode while recording") }
+            hw.videoMode = mode
+            feed.log(.sim, "Video mode \(mode.label)")
         }
     }
 
-    func disconnect() async {
-        stopStreaming()
-        linkState = .disconnected
-        continuation.finish()
+    // MARK: Camera
+
+    private func takePhoto(source: MetaCommandFeed.Source, question: String?, emit: Bool) async throws {
+        if let reason = hw.captureRefusal() { throw refuse(.capturePhoto(question: question), reason, source: source) }
+        blinkLED()
+        let jpeg = try await camera.capturePhoto()
+        hw.storePhoto()
+        let thumb = Self.thumbnail(jpeg)
+        let url = mediaDirectory.appendingPathComponent("photo-\(UUID().uuidString).jpg")
+        try? jpeg.write(to: url)
+        storage.insert(MetaStoredMedia(id: UUID(), kind: .photo, date: Date(), bytes: MetaGen2Profile.photoBytes,
+                                       fileURL: url, thumbnail: thumb, source: camera.sourceName), at: 0)
+        feed.log(source, "Photo", detail: [question.map { "“\($0)”" }, "\(MetaGen2Profile.photoWidth)×\(MetaGen2Profile.photoHeight) · \(camera.sourceName)"]
+                    .compactMap { $0 }.joined(separator: " · "), thumbnail: thumb)
+        if emit { continuation.yield(.photo(jpeg)) }
     }
 
-    // MARK: Scripting (the glasses / far-end assistant side)
+    private func beginRecording(seconds requested: Int?, source: MetaCommandFeed.Source) async throws {
+        if let reason = hw.videoRefusal() { throw refuse(.startVideo(seconds: requested ?? hw.clipLength), reason, source: source) }
+        let seconds = hw.clipSeconds(requested: requested)
+        hw.startRecording(seconds: seconds)
+        ledLit = true
+        try? await camera.startRecording(mode: hw.videoMode, maxSeconds: seconds)
+        let capped = (requested ?? seconds) > seconds ? " (capped by the \(hw.clipLength) s clip length)" : ""
+        feed.log(source, "Recording started", detail: "\(hw.videoMode.label) · up to \(seconds) s\(capped) · \(camera.sourceName)")
+    }
+
+    /// Ends the clip in progress, stores it, and reports it up as `.video`.
+    private func endRecording(reason: String?) async {
+        guard let rec = hw.recording else { return }
+        let kept = hw.finishRecording()
+        if !hw.streaming { ledLit = false }
+        let url = await camera.stopRecording()
+        let bytes = Int64(rec.mode.bytesPerSecond * kept)
+        storage.insert(MetaStoredMedia(id: UUID(), kind: .video, date: Date(), bytes: bytes, fileURL: url,
+                                       thumbnail: nil, seconds: kept, mode: rec.mode, source: camera.sourceName), at: 0)
+        let clip = MetaClip(seconds: kept, mode: rec.mode, bytes: bytes, fileURL: url, stopReason: reason)
+        feed.log(.glasses, "Recording saved", detail: "\(Int(kept.rounded())) s · \(rec.mode.label)" + (reason.map { " · stopped: \($0)" } ?? ""),
+                 outcome: reason == nil ? .done : .info)
+        continuation.yield(.video(clip))
+    }
+
+    private func beginLive() async throws {
+        if hw.streaming { return }
+        if let reason = hw.captureRefusal(bytesNeeded: 0) { throw refuse(.startLiveStream, reason) }
+        hw.streaming = true
+        ledLit = true
+        phoneOnGlassesWiFi = true
+        try? await camera.startLive { [weak self] frame in
+            guard let self, self.hw.streaming else { return }
+            self.latestLiveFrame = frame
+            self.continuation.yield(.liveFrame(frame))
+        }
+        feed.log(.jarvis, "Live stream started", detail: "≤\(MetaGen2Profile.liveWidth)×\(MetaGen2Profile.liveHeight) @\(MetaGen2Profile.liveFPS) · phone joins the glasses' Wi-Fi")
+    }
+
+    private func endLive(reason: String?) {
+        guard hw.streaming || reason != nil else { return }
+        hw.streaming = false
+        camera.stopLive()
+        latestLiveFrame = nil
+        phoneOnGlassesWiFi = false
+        if hw.recording == nil { ledLit = false }
+        feed.log(.glasses, "Live stream stopped", detail: reason, outcome: reason == nil ? .done : .info)
+    }
+
+    private func blinkLED() {
+        ledLit = true
+        ledBlinkTask?.cancel()
+        ledBlinkTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(700))
+            guard let self, !Task.isCancelled, self.hw.recording == nil, !self.hw.streaming else { return }
+            self.ledLit = false
+        }
+    }
+
+    private func refuse(_ frame: GlassesFrame, _ reason: String, source: MetaCommandFeed.Source = .jarvis) -> MetaGlassesError {
+        feed.log(source, Self.describe(frame), detail: reason, outcome: .refused(reason))
+        return .refused(reason)
+    }
+
+    /// A fresh event stream for the next session (a stopped session finishes the old one).
+    func renewInbound() {
+        (inbound, continuation) = AsyncStream<GlassesInboundEvent>.makeStream(bufferingPolicy: .unbounded)
+    }
+
+    // MARK: Time
+
+    private var pausedAt: Date?
+
+    /// The app went to the background: stop the 1 s tick (no wakeups), remember when.
+    func pauseTicking() {
+        guard tickTask != nil else { return }
+        tickTask?.cancel(); tickTask = nil
+        pausedAt = Date()
+    }
+
+    /// Back in front: catch up the time that passed, then tick again.
+    func resumeTicking() async {
+        guard let pausedAt else { return }
+        self.pausedAt = nil
+        await advance(seconds: Date().timeIntervalSince(pausedAt))
+        if autoTick { startTicking() }
+    }
+
+    private func startTicking() {
+        tickTask?.cancel()
+        tickTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard let self, !Task.isCancelled else { return }
+                await self.advance(seconds: 1)
+            }
+        }
+    }
+
+    /// Advance real time (the tick; tests call it directly).
+    func advance(seconds: Double) async {
+        let wasReachable = hw.unreachableReason == nil
+        let before = hw.recording
+        let events = hw.tick(seconds, speed: speed)
+        await handle(events, recordingBefore: before)
+        reconcileLink(wasReachable: wasReachable)
+    }
+
+    private func handle(_ events: [MetaHardwareState.Event], recordingBefore: MetaHardwareState.Recording?) async {
+        for event in events {
+            switch event {
+            case .recordingStopped(let seconds, let reason):
+                // The hardware model already closed and stored the recording; report the clip.
+                await reportFinishedRecording(seconds: seconds, mode: recordingBefore?.mode ?? hw.videoMode, reason: reason)
+            case .streamStopped(let reason):
+                endLive(reason: reason)
+            case .cameraTooHot:
+                feed.log(.glasses, "Too hot — camera off", detail: "Back on once the glasses cool down", outcome: .info)
+            case .cameraCooled:
+                feed.log(.glasses, "Cooled down — camera back on", outcome: .info)
+            case .poweredOff:
+                feed.log(.glasses, "Battery empty — glasses off", outcome: .info)
+            case .charged:
+                feed.log(.glasses, "Fully charged", outcome: .info)
+            }
+        }
+    }
+
+    /// `MetaHardwareState` stores the clip when it stops a recording itself; mirror it here.
+    private func reportFinishedRecording(seconds: Double, mode: MetaVideoMode, reason: String) async {
+        if !hw.streaming { ledLit = false }
+        let url = await camera.stopRecording()
+        let bytes = Int64(mode.bytesPerSecond * seconds)
+        storage.insert(MetaStoredMedia(id: UUID(), kind: .video, date: Date(), bytes: bytes, fileURL: url,
+                                       thumbnail: nil, seconds: seconds, mode: mode, source: camera.sourceName), at: 0)
+        feed.log(.glasses, "Recording saved", detail: "\(Int(seconds.rounded())) s · \(mode.label) · stopped: \(reason)", outcome: .info)
+        continuation.yield(.video(MetaClip(seconds: seconds, mode: mode, bytes: bytes, fileURL: url,
+                                           stopReason: reason.hasPrefix("Reached") ? nil : reason)))
+    }
+
+    /// Apply a change to the physical state and whatever it forces: covering the LED stops capture,
+    /// folding ends audio and capture, leaving range drops the link.
+    private func change(_ label: String, _ mutate: (inout MetaHardwareState) -> Void) async {
+        let wasReachable = hw.unreachableReason == nil
+        let before = hw.recording
+        mutate(&hw)
+        feed.log(.sim, label, outcome: .info)
+        let events = hw.applyPhysicalChange()
+        await handle(events, recordingBefore: before)
+        reconcileLink(wasReachable: wasReachable)
+    }
+
+    private func reconcileLink(wasReachable: Bool) {
+        let reachable = hw.unreachableReason == nil
+        guard reachable != wasReachable, linkState != .disconnected || reachable else { return }
+        if reachable {
+            linkState = .ready
+            continuation.yield(.linkState(.ready))
+            feed.log(.glasses, "Link back", outcome: .info)
+        } else {
+            linkState = .disconnected
+            continuation.yield(.linkState(.disconnected))
+            feed.log(.glasses, "Link lost", detail: hw.unreachableReason, outcome: .info)
+        }
+    }
+
+    // MARK: Sim controls (the glasses in your hand)
+
+    func setWorn(_ on: Bool) async { await change(on ? "Put the glasses on" : "Took the glasses off") { $0.worn = on } }
+    func setFolded(_ on: Bool) async { await change(on ? "Folded the glasses" : "Unfolded the glasses") { $0.folded = on; if !on { $0.inCase = false } } }
+    func setInCase(_ on: Bool) async { await change(on ? "Put in the case" : "Took out of the case") { $0.inCase = on; if on { $0.folded = true } else { $0.folded = false } } }
+    func setLEDCovered(_ on: Bool) async { await change(on ? "Covered the capture LED" : "Uncovered the capture LED") { $0.ledCovered = on } }
+    func setInRange(_ on: Bool) async { await change(on ? "Back in range" : "Walked out of range") { $0.inRange = on } }
+    func setMusicPlaying(_ on: Bool) async { await change(on ? "Music playing" : "Music stopped") { $0.musicPlaying = on } }
+    func overrideBattery(_ percent: Double) async { await change("Battery set to \(Int(percent))%") { $0.battery = max(0, min(percent, 100)) } }
+    func overrideHeat(_ value: Double) async {
+        await change("Heat set to \(Int(value * 100))%") { $0.heat = max(0, min(value, 1)) }
+        await advance(seconds: 0.001)    // let the too-hot / cooled rules react now
+    }
+
+    /// A touchpad gesture. The glasses act on it themselves first (defaults can't be suppressed),
+    /// then report it up so the session starts Jarvis (hold) or runs a bound action.
+    func touch(_ gesture: MetaTouchGesture) async {
+        if let reason = hw.audioRefusal() {
+            feed.log(.touch, MetaTouchBinding.label(gesture), detail: reason, outcome: .refused(reason))
+            return
+        }
+        let action = MetaTouchBinding.defaultAction(for: gesture)
+        switch action {
+        case .playPause:
+            hw.musicPlaying.toggle()
+            await mediaKeys?(.playPause)
+        case .nextTrack: await mediaKeys?(.next)
+        case .previousTrack: await mediaKeys?(.previous)
+        case .volumeUp: hw.volume = min(100, hw.volume + 10)
+        case .volumeDown: hw.volume = max(0, hw.volume - 10)
+        case .startAssistant, .endAssistant, .capturePhoto, .none: break
+        }
+        let detail = action == .volumeUp || action == .volumeDown ? "Volume \(hw.volume)%" : nil
+        feed.log(.touch, "\(MetaTouchBinding.label(gesture)) → \(MetaTouchBinding.label(action))", detail: detail)
+        continuation.yield(.touch(gesture))
+    }
+
+    /// The capture button on the right arm: a press takes a photo, a hold starts or stops a clip.
+    /// The glasses do this themselves — the capture lands in glasses storage, not with Jarvis.
+    func pressCaptureButton(hold: Bool) async {
+        do {
+            if hold {
+                if hw.recording != nil {
+                    await endRecording(reason: nil)
+                } else {
+                    try await beginRecording(seconds: nil, source: .captureButton)
+                }
+            } else {
+                try await takePhoto(source: .captureButton, question: nil, emit: false)
+            }
+        } catch {
+            // refuse() already logged it
+        }
+    }
+
+    /// The glasses fire "Hey Jarvis" (the on-glasses detector heard it).
+    func wake() {
+        if let reason = hw.voiceRefusal() {
+            feed.log(.voice, "“Hey Jarvis”", detail: reason, outcome: .refused(reason))
+            return
+        }
+        feed.log(.voice, "“Hey Jarvis”", detail: "Wake word heard on the glasses")
+        continuation.yield(.wake)
+    }
+
+    /// Import everything in glasses storage to the phone over the glasses' Wi-Fi — ~10 MB/s, and
+    /// the phone leaves home Wi-Fi while it runs.
+    func importAll() async {
+        guard !storage.isEmpty else { return }
+        if let reason = hw.unreachableReason ?? (hw.folded ? "The glasses are folded" : nil) {
+            feed.log(.sim, "Import", detail: reason, outcome: .refused(reason))
+            return
+        }
+        let items = storage
+        let bytes = items.reduce(Int64(0)) { $0 + $1.bytes }
+        let seconds = MetaGen2Profile.wifiJoinSeconds + Double(bytes) / MetaGen2Profile.wifiBytesPerSecond
+        phoneOnGlassesWiFi = true
+        hw.wifiBusyFor = seconds
+        feed.log(.sim, "Importing \(items.count) item\(items.count == 1 ? "" : "s")",
+                 detail: "\(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)) over the glasses' Wi-Fi ≈ \(Int(seconds.rounded())) s", outcome: .info)
+        let steps = 20
+        for step in 1 ... steps {
+            importProgress = Double(step) / Double(steps)
+            if transferTimeScale > 0 { try? await Task.sleep(for: .seconds(seconds * transferTimeScale / Double(steps))) }
+        }
+        importProgress = nil
+        imported.insert(contentsOf: items, at: 0)
+        storage.removeAll { item in items.contains { $0.id == item.id } }
+        hw.freeStorage(bytes: bytes, photos: items.filter { $0.kind == .photo }.count,
+                       videos: items.filter { $0.kind == .video }.count)
+        if !hw.streaming { phoneOnGlassesWiFi = false }
+        feed.log(.glasses, "Imported \(items.count) item\(items.count == 1 ? "" : "s") to the phone")
+    }
+
+    // MARK: Scripting (tests, the typed-prompt runner)
 
     func emit(_ event: GlassesInboundEvent) { continuation.yield(event) }
-
-    /// "Hey Jarvis" fired on the glasses.
     func scriptWake() { emit(.wake) }
-
-    /// A spoken prompt: an on-device transcript plus an optional raw PCM follow-up (the task's
-    /// "PCM or text stand-in").
     func scriptSpokenPrompt(transcript: String, pcm: Data? = nil) {
         if let pcm { emit(.userAudio(pcm)) }
         emit(.userTranscript(text: transcript, isFinal: true))
     }
+    func scriptCannedReply(_ text: String) { emit(.assistantAnswer(text: text, isFinal: true)) }
+    func scriptTouch(_ gesture: MetaTouchGesture) { emit(.touch(gesture)) }
+    func scriptLinkState(_ state: GlassesLinkState) { emit(.linkState(state)) }
 
     /// Stream spoken audio from the glasses mic the way real glasses do: `pcm` (16 kHz mono PCM16)
     /// in 40 ms frames at real-time pace, then silence — the mic stays open, and the voice engine's
@@ -99,29 +489,44 @@ final class SimulatedGlassesTransport: GlassesTransport {
         }
     }
 
-    /// Stop the mic stream (idempotent).
     func stopStreaming() {
         streamTask?.cancel()
         streamTask = nil
     }
 
-    /// The assistant's canned reply, to be rendered back onto the lens.
-    func scriptCannedReply(_ text: String) {
-        emit(.assistantAnswer(text: text, isFinal: true))
+    // MARK: Helpers
+
+    static func thumbnail(_ jpeg: Data, maxEdge: CGFloat = 160) -> Data? {
+        downscaled(jpeg, maxEdge: maxEdge, quality: 0.7)
     }
 
-    /// A touchpad gesture.
-    func scriptTouch(_ gesture: MetaTouchGesture) { emit(.touch(gesture)) }
+    static func downscaled(_ jpeg: Data, maxEdge: CGFloat, quality: CGFloat = 0.8) -> Data? {
+        guard let image = UIImage(data: jpeg) else { return nil }
+        let scale = min(1, maxEdge / max(image.size.width, image.size.height))
+        let size = CGSize(width: (image.size.width * scale).rounded(), height: (image.size.height * scale).rounded())
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }.jpegData(compressionQuality: quality)
+    }
 
-    /// A runtime link-state change (e.g. a simulated drop).
-    func scriptLinkState(_ state: GlassesLinkState) { emit(.linkState(state)) }
-
-    static func makeSyntheticJPEG() -> Data {
-        // SOI, APP0/JFIF header, a scrap of payload, EOI — enough to read as a JPEG by its magic.
-        var bytes: [UInt8] = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46,
-                              0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00]
-        bytes.append(contentsOf: [0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77])
-        bytes.append(contentsOf: [0xFF, 0xD9])
-        return Data(bytes)
+    static func describe(_ frame: GlassesFrame) -> String {
+        switch frame {
+        case .enableWakeWord: return "Arm wake word"
+        case .showTranscript: return "Transcript"
+        case .showAnswer: return "Answer"
+        case .setSpeaking: return "Speaking"
+        case .capturePhoto: return "Photo"
+        case .closeAssistant: return "Close assistant"
+        case .startVideo(let s): return "Record \(s) s"
+        case .stopVideo: return "Stop recording"
+        case .startLiveStream: return "Start live stream"
+        case .stopLiveStream: return "Stop live stream"
+        case .speak: return "Speak"
+        case .setVolume(let v): return "Volume \(v)%"
+        case .setClipLength(let s): return "Clip length \(s) s"
+        case .setVideoMode(let m): return "Video mode \(m.label)"
+        }
     }
 }

@@ -1,0 +1,562 @@
+import AVKit
+import SwiftUI
+
+/// The Sim tab: the glasses in your hand. Hero + status, talk to them, their touchpad and capture
+/// button, their physical state, the live command feed, the camera/live view, storage and settings.
+struct MetaSimScreen: View {
+    @ObservedObject var sim: SimulatedGlassesTransport
+    @ObservedObject var hub: MetaGlassesHub
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            MetaSimHero(sim: sim)
+            MetaTalkCard(sim: sim)
+            MetaTouchpadCard(sim: sim)
+            MetaGlassesStateCard(sim: sim)
+            MetaFeedCard(feed: hub.feed, emptyText: "Ask Jarvis something about your glasses, or use the controls above.")
+            MetaLiveCard(sim: sim, hub: hub)
+            MetaStorageCard(sim: sim)
+            MetaSimSettingsCard(sim: sim)
+            MetaTouchSettingsCard(hub: hub)
+            MetaLimitsCard()
+        }
+        .task { _ = await MetaPhoneCamera.requestAccess() }
+    }
+}
+
+private struct MetaSimHero: View {
+    @ObservedObject var sim: SimulatedGlassesTransport
+
+    var body: some View {
+        VStack(spacing: 10) {
+            MetaGlassesSceneView(spin: true, ledOn: sim.ledLit, folded: sim.hw.folded)
+                .frame(maxWidth: .infinity)
+                .frame(height: 200)
+            HStack(spacing: 8) {
+                chip(sim.hw.charging ? "battery.100.bolt" : "battery.75", "\(Int(sim.hw.battery.rounded()))%",
+                     sim.hw.battery <= 20 ? JcTheme.danger : JcTheme.text)
+                chip("thermometer.medium", sim.hw.heatLabel, sim.hw.cameraTooHot ? JcTheme.danger : JcTheme.text)
+                chip("internaldrive", "\(sim.hw.storageFree / 1_000_000_000) GB free", JcTheme.text)
+                chip(sim.hw.worn ? "eyeglasses" : "eyeglasses.slash", sim.hw.inCase ? "In case" : sim.hw.folded ? "Folded" : sim.hw.worn ? "Worn" : "Off face", JcTheme.text)
+            }
+            if sim.phoneOnGlassesWiFi {
+                Label("Phone on the glasses' Wi-Fi — Jarvis traffic goes over cellular", systemImage: "wifi")
+                    .font(.system(size: 12))
+                    .foregroundStyle(JcTheme.muted)
+            }
+            if sim.hw.recording != nil || sim.hw.streaming {
+                Label(sim.hw.streaming ? "Live streaming · LED on" : "Recording \(Int(sim.hw.recording?.elapsed ?? 0)) s · LED on",
+                      systemImage: "record.circle")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(JcTheme.danger)
+            }
+        }
+    }
+
+    private func chip(_ symbol: String, _ text: String, _ tint: Color) -> some View {
+        Label(text, systemImage: symbol)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(tint)
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Capsule().fill(JcButton.fill))
+    }
+}
+
+/// Talk to the glasses: hold to talk with your own voice (the one white button), or type it.
+private struct MetaTalkCard: View {
+    @ObservedObject var sim: SimulatedGlassesTransport
+    @StateObject private var runner = MetaGlassesSimRunner(target: {
+        guard let glasses = MetaGlassesHub.shared.device,
+              let sim = glasses.transport as? SimulatedGlassesTransport else { return nil }
+        return (glasses.session, sim)
+    })
+    @StateObject private var mic = MetaSimMic()
+    @State private var micError: String?
+    @FocusState private var typing: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            JcSectionLabel("Hey Jarvis")
+            JcCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    holdToTalk
+                    HStack(spacing: 8) {
+                        TextField("Or type what you'd say", text: $runner.prompt)
+                            .font(.system(size: 15))
+                            .focused($typing)
+                            .submitLabel(.go)
+                            .onSubmit(runTyped)
+                            .disabled(runner.isRunning)
+                        Button(action: runner.isRunning ? stop : runTyped) {
+                            Image(systemName: runner.isRunning ? "stop.fill" : "arrow.up")
+                        }
+                        .buttonStyle(.jcGlass)
+                    }
+                    if let why = failure {
+                        Label(why, systemImage: "exclamationmark.triangle")
+                            .font(.system(size: 13))
+                            .foregroundStyle(JcTheme.muted)
+                    }
+                }
+            }
+            if !runner.rows.isEmpty || runner.isRunning {
+                JcSectionLabel("Last turn")
+                JcCard(padding: 0) {
+                    VStack(spacing: 0) {
+                        ForEach(runner.rows) { row in turnRow(row) }
+                        if let latency = runner.wakeToAnswer, !runner.isRunning {
+                            JcRow(symbol: "timer", title: "Wake → Jarvis speaking", value: MetaGlassesView.seconds(latency), last: true)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var failure: String? {
+        if let micError { return micError }
+        if case .failed(let why) = runner.phase { return why }
+        return nil
+    }
+
+    private var holdToTalk: some View {
+        HStack(spacing: 8) {
+            Image(systemName: mic.recording ? "waveform" : "mic.fill")
+            Text(mic.recording ? "Listening — release to send" : runner.isRunning ? "Jarvis is answering…" : "Hold to talk to the glasses")
+                .font(.system(size: 16, weight: .semibold))
+        }
+        .foregroundStyle(JcAccent.onFill)
+        .frame(maxWidth: .infinity)
+        .frame(height: 50)
+        .background(RoundedRectangle(cornerRadius: 14).fill(JcAccent.fill.opacity(runner.isRunning ? 0.5 : 1)))
+        .gesture(DragGesture(minimumDistance: 0)
+            .onChanged { _ in startMic() }
+            .onEnded { _ in stopMic() })
+        .allowsHitTesting(!runner.isRunning)
+    }
+
+    private func startMic() {
+        guard !mic.recording, !runner.isRunning else { return }
+        micError = nil
+        Task {
+            do { try await mic.start() } catch { micError = error.localizedDescription }
+        }
+    }
+
+    private func stopMic() {
+        guard mic.recording else { return }
+        let pcm = mic.stop()
+        Task { await runner.run(recorded: pcm) }
+    }
+
+    private func runTyped() {
+        guard !runner.isRunning, !runner.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        typing = false
+        micError = nil
+        Task { await runner.run() }
+    }
+
+    private func stop() { Task { await runner.stop() } }
+
+    private func turnRow(_ row: MetaGlassesSimRunner.Row) -> some View {
+        let time: String = MetaGlassesView.seconds(row.at)
+        return JcRow(symbol: row.symbol, title: row.title, subtitle: row.detail, value: time)
+    }
+}
+
+/// The right arm: the touchpad gestures and the capture button.
+private struct MetaTouchpadCard: View {
+    @ObservedObject var sim: SimulatedGlassesTransport
+    private let gestures: [MetaTouchGesture] = [.tap, .doubleTap, .tripleTap, .hold, .swipeBackward, .swipeForward]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            JcSectionLabel("Touchpad & capture button")
+            JcCard {
+                VStack(spacing: 10) {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                        ForEach(gestures, id: \.self) { gesture in
+                            Button { Task { await sim.touch(gesture) } } label: {
+                                VStack(spacing: 2) {
+                                    Text(MetaTouchBinding.label(gesture)).font(.system(size: 13, weight: .semibold))
+                                    Text(MetaTouchBinding.label(MetaTouchBinding.defaultAction(for: gesture)))
+                                        .font(.system(size: 11)).foregroundStyle(JcTheme.muted)
+                                }
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                            }
+                            .buttonStyle(.jcGlass)
+                        }
+                    }
+                    HStack(spacing: 8) {
+                        Button { Task { await sim.pressCaptureButton(hold: false) } } label: {
+                            Label("Press · photo", systemImage: "camera").frame(maxWidth: .infinity, minHeight: 40)
+                        }
+                        .buttonStyle(.jcGlass)
+                        Button { Task { await sim.pressCaptureButton(hold: true) } } label: {
+                            Label(sim.hw.recording == nil ? "Hold · video" : "Hold · stop",
+                                  systemImage: sim.hw.recording == nil ? "video" : "stop.circle")
+                                .frame(maxWidth: .infinity, minHeight: 40)
+                        }
+                        .buttonStyle(.jcGlass)
+                    }
+                    Text("The glasses do these themselves; a Jarvis action you bind below runs too.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(JcTheme.muted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+}
+
+/// The physical state you'd change by hand: worn, folded, case, LED, range, music, sim speed.
+private struct MetaGlassesStateCard: View {
+    @ObservedObject var sim: SimulatedGlassesTransport
+    @State private var battery: Double = 100
+    @State private var heat: Double = 0.1
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            JcSectionLabel("The glasses")
+            JcCard(padding: 0) {
+                VStack(spacing: 0) {
+                    toggle("eyeglasses", "Wearing them", sim.hw.worn) { await sim.setWorn($0) }
+                    toggle("arrow.down.right.and.arrow.up.left", "Folded", sim.hw.folded) { await sim.setFolded($0) }
+                    toggle("case", "In the charging case", sim.hw.inCase) { await sim.setInCase($0) }
+                    toggle("light.beacon.max", "Capture LED covered", sim.hw.ledCovered) { await sim.setLEDCovered($0) }
+                    toggle("antenna.radiowaves.left.and.right", "In range", sim.hw.inRange) { await sim.setInRange($0) }
+                    toggle("music.note", "Music playing", sim.hw.musicPlaying) { await sim.setMusicPlaying($0) }
+                    JcRow(symbol: "speaker.wave.2", title: "Volume", value: "\(sim.hw.volume)%")
+                    JcRow(symbol: "battery.50", title: "Case battery", value: "\(Int(sim.hw.caseBattery.rounded()))%", last: true)
+                }
+            }
+            JcSectionLabel("Sim speed & overrides")
+            JcCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    JcSegmentedPicker([(value: 1.0, label: "1×"), (value: 10.0, label: "10×"), (value: 60.0, label: "60×")],
+                                      selection: $sim.speed)
+                    Text("Speeds up battery and heat only — clips still record in real time.")
+                        .font(.system(size: 12)).foregroundStyle(JcTheme.muted)
+                    slider("Battery", value: $battery, range: 0 ... 100, text: "\(Int(battery))%") { await sim.overrideBattery(battery) }
+                    slider("Heat", value: $heat, range: 0 ... 1, text: "\(Int(heat * 100))%") { await sim.overrideHeat(heat) }
+                }
+            }
+            .onAppear { battery = sim.hw.battery; heat = sim.hw.heat }
+        }
+    }
+
+    private func toggle(_ symbol: String, _ title: String, _ value: Bool, _ set: @escaping (Bool) async -> Void) -> some View {
+        JcRow(symbol: symbol, title: title, trailing: {
+            Toggle("", isOn: Binding(get: { value }, set: { apply(set, $0) })).labelsHidden()
+        })
+    }
+
+    private func apply(_ set: @escaping (Bool) async -> Void, _ value: Bool) {
+        Task { @MainActor in await set(value) }
+    }
+
+    private func slider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, text: String,
+                        commit: @escaping () async -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title).font(.system(size: 14, weight: .medium))
+                Spacer()
+                Text(text).font(.system(size: 13)).foregroundStyle(JcTheme.muted)
+            }
+            Slider(value: value, in: range, onEditingChanged: { editing in if !editing { Task { await commit() } } })
+                .tint(JcAccent.color)
+        }
+    }
+}
+
+/// Every command the glasses received and what happened.
+struct MetaFeedCard: View {
+    @ObservedObject var feed: MetaCommandFeed
+    let emptyText: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            JcSectionLabel("Commands received") {
+                if !feed.entries.isEmpty {
+                    Button("Clear") { feed.clear() }.font(.system(size: 12)).foregroundStyle(JcTheme.muted)
+                }
+            }
+            JcCard(padding: 0) {
+                VStack(spacing: 0) {
+                    if feed.entries.isEmpty {
+                        Text(emptyText)
+                            .font(.system(size: 13))
+                            .foregroundStyle(JcTheme.muted)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(JcUnified.cardPadding)
+                    }
+                    ForEach(Array(feed.entries.prefix(40))) { entry in
+                        MetaFeedRow(entry: entry, last: entry.id == feed.entries.prefix(40).last?.id)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct MetaFeedRow: View {
+    let entry: MetaCommandFeed.Entry
+    let last: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                if let data = entry.thumbnail, let image = UIImage(data: data) {
+                    Image(uiImage: image).resizable().scaledToFill()
+                        .frame(width: 36, height: 36).clipShape(RoundedRectangle(cornerRadius: 8))
+                } else {
+                    JcIconSquare(symbol: symbol)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text(entry.title).font(.system(size: 14, weight: .medium)).foregroundStyle(JcTheme.text).lineLimit(2)
+                        Spacer(minLength: 6)
+                        Text(entry.date, format: .dateTime.hour().minute().second())
+                            .font(.system(size: 11)).foregroundStyle(JcTheme.muted)
+                    }
+                    Text(caption).font(.system(size: 12)).foregroundStyle(refused ? JcTheme.danger : JcTheme.muted).lineLimit(3)
+                }
+            }
+            .padding(.horizontal, JcUnified.cardPadding)
+            .padding(.vertical, 10)
+            if !last { JcRowSeparator(inset: 64) }
+        }
+    }
+
+    private var refused: Bool { if case .refused = entry.outcome { return true }; return false }
+
+    private var caption: String {
+        var parts = [entry.source.rawValue]
+        if refused { parts.append("Refused") }
+        if let detail = entry.detail, !detail.isEmpty { parts.append(detail) }
+        return parts.joined(separator: " · ")
+    }
+
+    private var symbol: String {
+        switch entry.source {
+        case .jarvis: return "sparkle"
+        case .touch: return "hand.tap"
+        case .captureButton: return "camera"
+        case .voice: return "waveform"
+        case .sim: return "slider.horizontal.3"
+        case .glasses: return "eyeglasses"
+        }
+    }
+}
+
+/// What the glasses' camera streams to the phone.
+private struct MetaLiveCard: View {
+    @ObservedObject var sim: SimulatedGlassesTransport
+    @ObservedObject var hub: MetaGlassesHub
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            JcSectionLabel("Live view") {
+                Text(sim.cameraName).font(.system(size: 12)).foregroundStyle(JcTheme.muted)
+            }
+            JcCard {
+                VStack(spacing: 10) {
+                    if let data = sim.latestLiveFrame, let image = UIImage(data: data) {
+                        Image(uiImage: image).resizable().scaledToFit()
+                            .frame(maxWidth: .infinity).frame(maxHeight: 360)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    } else {
+                        Text(sim.hw.streaming ? "Waiting for frames…" : "Not streaming. Ask Jarvis to go live, or start it here.")
+                            .font(.system(size: 13)).foregroundStyle(JcTheme.muted)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    Button {
+                        Task {
+                            guard let session = hub.device?.session else { return }
+                            if sim.hw.streaming { try? await session.stopLive() } else { try? await session.startLive() }
+                        }
+                    } label: {
+                        Label(sim.hw.streaming ? "Stop live" : "Start live", systemImage: sim.hw.streaming ? "stop.fill" : "dot.radiowaves.forward")
+                            .frame(maxWidth: .infinity, minHeight: 40)
+                    }
+                    .buttonStyle(.jcGlass)
+                }
+            }
+        }
+    }
+}
+
+/// The glasses' storage (captures wait here) and what's been imported to the phone.
+private struct MetaStorageCard: View {
+    @ObservedObject var sim: SimulatedGlassesTransport
+    @State private var open: MetaStoredMedia?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            JcSectionLabel("Storage")
+            JcCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("\(sim.hw.photoCount) photos · \(sim.hw.videoCount) videos on the glasses")
+                            .font(.system(size: 14, weight: .medium))
+                        Spacer()
+                        Text(ByteCountFormatter.string(fromByteCount: sim.hw.storageUsed, countStyle: .file) + " of 32 GB")
+                            .font(.system(size: 12)).foregroundStyle(JcTheme.muted)
+                    }
+                    if let progress = sim.importProgress {
+                        ProgressView(value: progress).tint(JcAccent.color)
+                    }
+                    Button { Task { await sim.importAll() } } label: {
+                        Label("Import to phone", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity, minHeight: 40)
+                    }
+                    .buttonStyle(.jcGlass)
+                    .disabled(sim.storage.isEmpty || sim.importProgress != nil)
+                    let items = sim.storage + sim.imported
+                    if !items.isEmpty {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
+                            ForEach(items.prefix(24)) { item in
+                                Button { open = item } label: { tile(item, onGlasses: sim.storage.contains(item)) }
+                                    .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .sheet(item: $open) { item in MetaMediaViewer(item: item) }
+    }
+
+    private func tile(_ item: MetaStoredMedia, onGlasses: Bool) -> some View {
+        ZStack(alignment: .bottomLeading) {
+            RoundedRectangle(cornerRadius: 8).fill(JcButton.fill)
+            if let data = item.thumbnail, let image = UIImage(data: data) {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                Image(systemName: item.kind == .video ? "video" : "photo").foregroundStyle(JcTheme.muted)
+            }
+            HStack(spacing: 3) {
+                Image(systemName: onGlasses ? "eyeglasses" : "iphone")
+                if let seconds = item.seconds { Text("\(Int(seconds.rounded())) s") }
+            }
+            .font(.system(size: 10, weight: .semibold))
+            .padding(4)
+            .background(Capsule().fill(.black.opacity(0.55)))
+            .padding(4)
+        }
+        .aspectRatio(3.0 / 4.0, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct MetaMediaViewer: View {
+    let item: MetaStoredMedia
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if item.kind == .video, let url = item.fileURL {
+                    VideoPlayer(player: AVPlayer(url: url))
+                } else if let url = item.fileURL, let image = UIImage(contentsOfFile: url.path) {
+                    Image(uiImage: image).resizable().scaledToFit()
+                } else {
+                    Text(item.kind == .video ? "A test-scene clip has no video file." : "No image")
+                        .foregroundStyle(JcTheme.muted)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.black)
+            .navigationTitle(item.kind == .video ? "Video" : "Photo")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+/// Camera source, video mode and clip length.
+private struct MetaSimSettingsCard: View {
+    @ObservedObject var sim: SimulatedGlassesTransport
+
+    private func send(_ frame: GlassesFrame) {
+        let sim = self.sim
+        Task { @MainActor in try? await sim.send(frame) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            JcSectionLabel("Capture settings")
+            JcCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Video mode").font(.system(size: 13, weight: .medium)).foregroundStyle(JcTheme.muted)
+                    JcSegmentedPicker(MetaVideoMode.allCases.map { (value: $0, label: $0.label) },
+                                      selection: Binding(get: { sim.hw.videoMode }, set: { send(.setVideoMode($0)) }))
+                    Text("Clip length").font(.system(size: 13, weight: .medium)).foregroundStyle(JcTheme.muted)
+                    JcSegmentedPicker(MetaGen2Profile.clipLengths.map { (value: $0, label: $0 == 180 ? "3 min" : "\($0) s") },
+                                      selection: Binding(get: { sim.hw.clipLength }, set: { send(.setClipLength($0)) }))
+                    if let camera = sim.camera as? MetaSimCamera {
+                        Toggle("Use the iPhone camera (else test scenes)", isOn: Binding(get: { camera.preferPhone },
+                                                                                         set: { camera.preferPhone = $0; sim.objectWillChange.send() }))
+                            .font(.system(size: 14))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Jarvis actions bound to touch gestures, on top of the glasses' own defaults.
+struct MetaTouchSettingsCard: View {
+    @ObservedObject var hub: MetaGlassesHub
+    @State private var editing: MetaTouchGesture?
+    private let gestures: [MetaTouchGesture] = [.tap, .doubleTap, .tripleTap, .hold, .swipeForward, .swipeBackward, .capture]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            JcSectionLabel("Touch → Jarvis")
+            JcCard(padding: 0) {
+                VStack(spacing: 0) {
+                    ForEach(gestures, id: \.self) { gesture in
+                        JcRow(symbol: "hand.tap", title: MetaTouchBinding.label(gesture),
+                              subtitle: "Glasses: \(MetaTouchBinding.label(MetaTouchBinding.defaultAction(for: gesture))) · Jarvis: \(hub.binding(for: gesture).summary)",
+                              last: gesture == gestures.last, action: { editing = gesture })
+                    }
+                }
+            }
+        }
+        .sheet(item: $editing) { gesture in
+            NavigationStack {
+                RingActionPicker(title: MetaTouchBinding.label(gesture), current: hub.binding(for: gesture)) { action in
+                    hub.setBinding(action, for: gesture)
+                }
+            }
+        }
+    }
+}
+
+extension MetaTouchGesture: Identifiable {
+    var id: String { rawValue }
+}
+
+/// The Gen 2 limits the simulator enforces.
+struct MetaLimitsCard: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            JcSectionLabel("Hardware limits (Gen 2)")
+            JcCard(padding: 0) {
+                VStack(spacing: 0) {
+                    JcRow(symbol: "camera", title: "Photo", value: "12 MP · 3024×4032")
+                    JcRow(symbol: "video", title: "Video", value: "3K30 · 1080p30/60 · 720p120")
+                    JcRow(symbol: "timer", title: "Clip length", value: "30 s · 60 s · 3 min max")
+                    JcRow(symbol: "internaldrive", title: "Storage", value: "32 GB")
+                    JcRow(symbol: "battery.75", title: "Battery", value: "8 h · case +48 h")
+                    JcRow(symbol: "bolt", title: "Charging", value: "50% in 20 min")
+                    JcRow(symbol: "dot.radiowaves.forward", title: "Live stream", value: "720×1280 @30")
+                    JcRow(symbol: "wifi", title: "Import", value: "Wi-Fi ≈10 MB/s")
+                    JcRow(symbol: "light.beacon.max", title: "Capture LED", value: "Always on · covered = no camera")
+                    JcRow(symbol: "thermometer.medium", title: "Heat", value: "Camera off when too hot")
+                    JcRow(symbol: "waveform.badge.mic", title: "Wake word", value: "US English", last: true)
+                }
+            }
+        }
+    }
+}
