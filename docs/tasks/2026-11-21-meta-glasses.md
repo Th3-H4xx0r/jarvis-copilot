@@ -55,7 +55,7 @@ His asks: a full simulator he uses until the glasses arrive. Jarvis drives it li
     - His add (2026-11-22): "pans and zooms into the element and shows an indicator there when that part of the glasses is being simulated… hold to talk… pulsing blue… speaking → speakers… photo, button clicks". Plan: camera glides (0.8 s ease) to the part plus a pulsing marker. Listening = mics, blue breathing; speaking/volume = speakers, blue ripples; photo = white flash at the lens; video/live = steady white at the lens; touch/button = ripple; back to the turntable after ~1.5 s idle. Sim side done (MetaGlassesFocus + simulator focus state + test). ✅ Model done by the helper agent: outline matches Ray-Ban's RW7002 Shiny Black catalogue shots within ~1 mm front / 0.5 mm side; glide 0.8 s + markers; 13 render tests
 13. [x] "Hey Jarvis" wake word, for the real glasses + sim (his ask). Shared enrolment flow (3 samples, US English) → GlassesFrame.enrolWakeWord → sim builds/remembers it; real glasses: same flow, the on-glasses enrolment message waits for the hardware. Sim: "Listen for Hey Jarvis" switch, on-device recognition while the Sim screen is open, words after the phrase go to Jarvis. ✅ 44 tests; shipped in build 263260801 (6988ee4155). To verify on his phone: enrol, then say it hands-free
 14. [x] His add: "make the textures and resolution of the glasses a little bit better so that it looks like the scriber one that I got" — his pair is **Shiny Black** with clear lenses. Sent to the helper agent: physically based glossy acetate with a clear-coat sheen, studio environment light + rim light, metal hinges/button/rings, clear lenses with reflections, smoother geometry, 4× MSAA, colourway in one place. ✅ Done (MetaGlassesModel.colourway = .shinyBlack)
-15. [ ] Drop 3 (3D model + materials + focus animations)
+15. [x] Drop 3 (3D model + materials + focus animations). ✅ build 263260829 (d870531bc5), 57 tests
 
 ## Hardware-gated remainder (needs the physical Gen 2 — no simulator can prove these)
 - Real CoreBluetooth L2CAP bring-up + AirShield P-256/HKDF/AES handshake + owner trust (§5.1/§5.2) — skeleton in MetaGlassesTransport.connect()/send().
@@ -71,3 +71,17 @@ His asks: a full simulator he uses until the glasses arrive. Jarvis drives it li
 - [ ] Gen-2-specific unknown (REAL BLOCKER, needs the physical glasses): cipher982 is proven only on the audio-only "orca" model; Gen 2 is a camera model with a different (Thrift svc15) assistant path documented only in Visor (AGPL). Simulator can't prove this.
 - [ ] iOS side: MetaGlassesDevice (WearableKind.metaGlasses), CoreBluetooth L2CAP transport, wake→VoiceStore, photo→vision, touch→RingActionRunner, Power integration — per plan §6. Hard to test without glasses; can unit-test logic against a mock transport.
 - [ ] Ownership/change-owner: user-performed one-time step (Meta login + receipts); Jarvis won't extract/embed tokens. Only needed on real hardware.
+
+
+## Shipped (2026-11-22)
+- build 263260740 (94118210d0): full Gen 2 simulator, 7 meta_glasses_* tools, Device | Sim page
+- build 263260753 (8117642c6b): touchpad stays in the sim; hold to talk fixed; one Heard row
+- build 263260801 (6988ee4155): "Hey Jarvis" enrolment (glasses + sim) + hands-free listening in the sim
+- build 263260829 (d870531bc5): 3D Shiny Black Scriber model + focus animations
+- Mac: scripts/glasses-sim.sh (d075a60d2e)
+
+## For you
+- Update the app, then Devices → Wearables → Meta glasses → Sim
+- Try "Hey Jarvis, what am I looking at?" (hold to talk, or set up the wake word and just say it)
+- Your voice model hit its usage limit in your first run: switch the voice model if answers say so
+- When the glasses arrive: the Device tab is where the real link, ownership and on-glasses wake enrolment get finished
