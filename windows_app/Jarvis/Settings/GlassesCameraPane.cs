@@ -17,7 +17,6 @@ public static class GlassesCameraPane
         // Rows re-built in place (already Form rows inside).
         var cameraRow = new ContentControl { Tag = SettingsForm.RowTag };
         var nowRow = new ContentControl { Tag = SettingsForm.RowTag };
-        var actionsRow = new ContentControl { Tag = SettingsForm.RowTag };
         var note = Th.Text("", 12, "JcSetSecondary", wrap: true);
 
         void Render()
@@ -25,15 +24,16 @@ public static class GlassesCameraPane
             var state = installer.State;
             var installed = state is GlassesCamInstallState.Installed;
             var working = state is GlassesCamInstallState.Working;
-            cameraRow.Content = Pane.Labeled("Camera",
-                Th.Text(state.Text, 13, state is GlassesCamInstallState.Failed ? "JcAmber" : "JcSetSecondary", wrap: true));
-            nowRow.Content = Pane.Labeled("Right now", Th.Text(service.PhaseText, 13, "JcSetSecondary", wrap: true));
+            var status = Th.Text(state.Text, 13, state is GlassesCamInstallState.Failed ? "JcAmber" : "JcSetSecondary", wrap: true);
+            status.MaxWidth = 360;
+            status.VerticalAlignment = VerticalAlignment.Center;
             var install = Th.Button(installed ? "Reinstall" : "Install camera", () => _ = installer.InstallAsync(), primary: !installed && !working);
             install.IsEnabled = !working;
             var remove = Th.Button("Remove", () => _ = installer.RemoveAsync());
             remove.IsEnabled = !working;
-            actionsRow.Content = Pane.Labeled("Jarvis Glasses camera", installed ? Th.Row(8, install, remove) : install,
+            cameraRow.Content = Pane.Labeled("Camera", installed ? Th.Row(10, status, install, remove) : Th.Row(10, status, install),
                 "Installing asks Face ID on your iPhone, then Windows' Yes, once: the camera stays after restarts.");
+            nowRow.Content = Pane.Labeled("Right now", Th.Text(service.PhaseText, 13, "JcSetSecondary", wrap: true));
             note.Text = installer.Note ?? "";
         }
 
@@ -49,7 +49,6 @@ public static class GlassesCameraPane
         p.Children.Add(Pane.Section("Jarvis Glasses camera"));
         p.Children.Add(cameraRow);
         p.Children.Add(nowRow);
-        p.Children.Add(actionsRow);
         p.Children.Add(note);
         p.Children.Add(Pane.Section("On your iPhone"));
         p.Children.Add(Th.Text("Meta glasses → Watch live → Send to computer camera.", 13, "JcSetLabel", wrap: true));
