@@ -29,9 +29,10 @@ private struct MetaSimHero: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            MetaGlassesSceneView(spin: true, ledOn: sim.ledLit, folded: sim.hw.folded)
+            MetaGlassesSceneView(spin: true, ledOn: sim.ledLit, folded: sim.hw.folded, focus: sim.focus)
                 .frame(maxWidth: .infinity)
-                .frame(height: 200)
+                .frame(height: 220)
+                .animation(.easeInOut(duration: 0.3), value: sim.focus)
             HStack(spacing: 8) {
                 chip(sim.hw.charging ? "battery.100.bolt" : "battery.75", "\(Int(sim.hw.battery.rounded()))%",
                      sim.hw.battery <= 20 ? JcTheme.danger : JcTheme.text)

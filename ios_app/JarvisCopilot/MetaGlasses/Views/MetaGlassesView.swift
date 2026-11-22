@@ -26,7 +26,7 @@ private struct MetaGlassesSimCard: View {
 
     var body: some View {
         DeviceCard(name: "Meta glasses", subtitle: "\(MetaGlassesDevice.model) · Simulated") {
-            MetaGlassesSceneView(spin: true, ledOn: sim.ledLit, folded: sim.hw.folded)
+            MetaGlassesSceneView(spin: true, ledOn: sim.ledLit, folded: sim.hw.folded, focus: sim.focus)
                 .frame(width: 124, height: 124)
                 .padding(.trailing, 12)
                 .allowsHitTesting(false)
