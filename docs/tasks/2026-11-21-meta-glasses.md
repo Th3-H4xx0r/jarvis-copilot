@@ -127,3 +127,7 @@ His asks: a full simulator he uses until the glasses arrive. Jarvis drives it li
 - Try "Hey Jarvis, what am I looking at?" (hold to talk, or set up the wake word and just say it)
 - Your voice model hit its usage limit in your first run: switch the voice model if answers say so
 - When the glasses arrive: the Device tab is where the real link, ownership and on-glasses wake enrolment get finished
+
+26. [ ] Windows "Jarvis Glasses" camera (his ask 2026-11-22; picked: Windows 11 virtual camera). Design + plan (local, gitignored): docs/superpowers/specs/2026-11-22-windows-glasses-camera-design.md, docs/superpowers/plans/2026-11-22-windows-glasses-camera.md. .NET media source in Frame Server (adapted from smourier/VCamNetSample, MIT) + Jarvis PC app receiver (VP8 via SIPSorcery/vpxmd) + Settings pane; install needs his Face ID + UAC once. Opus helper building Tasks 1-5, 7; iPhone wording "Send to computer camera" done (0d1846fab7), ships with it.
+27. [x] His ask: glasses as the camera in an iPhone FaceTime call. iOS has no camera API for apps; the route is FaceTime Share My Screen + Jarvis FaceTime call view (shipped 263261934).
+28. [x] Mac picture blurry → raw 30 fps frames into WebRTC, maintain resolution, 4 Mbps (6f7529a60a, iPhone 263262238). He confirmed "It worked on mac well".
