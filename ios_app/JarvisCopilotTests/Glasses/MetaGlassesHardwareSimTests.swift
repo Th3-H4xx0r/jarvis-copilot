@@ -1,3 +1,4 @@
+import AVFoundation
 import XCTest
 @testable import JarvisCopilot
 
@@ -189,11 +190,21 @@ final class MetaGlassesSimulatorHardwareTests: XCTestCase {
         await sim.touch(.swipeForward)
         XCTAssertEqual(sim.hw.volume, before + 10)
         await sim.touch(.tap)
+        XCTAssertTrue(sim.hw.musicPlaying)
         await sim.touch(.doubleTap)
         XCTAssertEqual(keys, [.playPause, .next])
+        XCTAssertEqual(sim.track, 2, "the simulated music moves on — nothing leaves the sim")
+        await sim.touch(.tripleTap)
+        XCTAssertEqual(sim.track, 1)
+        keys.removeAll()
+        sim.mediaKeys = nil                              // the hub sets none: no phone media / Shortcuts
+        await sim.touch(.doubleTap)
+        XCTAssertEqual(sim.track, 2)
+        XCTAssertTrue(keys.isEmpty)
         await sim.setFolded(true)
-        await sim.touch(.tap)
-        XCTAssertEqual(keys.count, 2, "folded glasses ignore the touchpad")
+        let track = sim.track
+        await sim.touch(.doubleTap)
+        XCTAssertEqual(sim.track, track, "folded glasses ignore the touchpad")
     }
 
     func testWakeNeedsTheGlassesOn() async throws {
@@ -223,6 +234,28 @@ final class MetaGlassesSimulatorHardwareTests: XCTestCase {
         XCTAssertEqual(sim.imported.count, 2)
         XCTAssertEqual(sim.hw.storageUsed, 0)
         XCTAssertFalse(sim.phoneOnGlassesWiFi)
+    }
+}
+
+/// Hold to talk: whatever rate the phone recorded at, the glasses path gets 16 kHz mono PCM16.
+final class MetaSimMicConversionTests: XCTestCase {
+    func testRecordingAt44kConvertsTo16kPCM() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("mic-\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let settings: [String: Any] = [AVFormatIDKey: Int(kAudioFormatLinearPCM), AVSampleRateKey: 44_100.0,
+                                       AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16,
+                                       AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false]
+        do {
+            let file = try AVAudioFile(forWriting: url, settings: settings)
+            let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 44_100))
+            buffer.frameLength = 44_100                                    // one second of a 440 Hz tone
+            let samples = try XCTUnwrap(buffer.floatChannelData)[0]
+            for i in 0 ..< 44_100 { samples[i] = Float(sin(Double(i) * 2 * .pi * 440 / 44_100)) * 0.3 }
+            try file.write(from: buffer)
+        }
+        let pcm = try XCTUnwrap(MetaSimMic.pcm16k(from: url))
+        XCTAssertEqual(Double(pcm.count), 32_000, accuracy: 1_600, "≈ one second of 16 kHz mono Int16")
+        XCTAssertEqual(pcm.count % 2, 0)
     }
 }
 

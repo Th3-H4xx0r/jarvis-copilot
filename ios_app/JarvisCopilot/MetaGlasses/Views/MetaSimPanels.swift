@@ -74,6 +74,8 @@ private struct MetaTalkCard: View {
     })
     @StateObject private var mic = MetaSimMic()
     @State private var micError: String?
+    /// The finger is down: the gesture reports every movement, so start the mic once per press.
+    @State private var pressing = false
     @FocusState private var typing: Bool
 
     var body: some View {
@@ -138,16 +140,27 @@ private struct MetaTalkCard: View {
     }
 
     private func startMic() {
-        guard !mic.recording, !runner.isRunning else { return }
+        guard !pressing, !runner.isRunning else { return }
+        pressing = true
         micError = nil
         Task {
-            do { try await mic.start() } catch { micError = error.localizedDescription }
+            do {
+                try await mic.start()
+                // Lifted while the recorder was still coming up: send what there is (likely too short).
+                if !pressing, mic.recording { send(mic.stop()) }
+            } catch {
+                micError = error.localizedDescription
+            }
         }
     }
 
     private func stopMic() {
-        guard mic.recording else { return }
-        let pcm = mic.stop()
+        guard pressing else { return }
+        pressing = false
+        if let pcm = mic.finishPress() { send(pcm) }
+    }
+
+    private func send(_ pcm: Data) {
         Task { await runner.run(recorded: pcm) }
     }
 
@@ -227,7 +240,7 @@ private struct MetaGlassesStateCard: View {
                     toggle("case", "In the charging case", sim.hw.inCase) { await sim.setInCase($0) }
                     toggle("light.beacon.max", "Capture LED covered", sim.hw.ledCovered) { await sim.setLEDCovered($0) }
                     toggle("antenna.radiowaves.left.and.right", "In range", sim.hw.inRange) { await sim.setInRange($0) }
-                    toggle("music.note", "Music playing", sim.hw.musicPlaying) { await sim.setMusicPlaying($0) }
+                    toggle("music.note", sim.hw.musicPlaying ? "Music · track \(sim.track) playing" : "Music · track \(sim.track) paused", sim.hw.musicPlaying) { await sim.setMusicPlaying($0) }
                     JcRow(symbol: "speaker.wave.2", title: "Volume", value: "\(sim.hw.volume)%")
                     JcRow(symbol: "battery.50", title: "Case battery", value: "\(Int(sim.hw.caseBattery.rounded()))%", last: true)
                 }

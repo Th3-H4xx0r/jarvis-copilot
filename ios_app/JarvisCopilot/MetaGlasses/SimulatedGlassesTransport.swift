@@ -66,6 +66,8 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
     /// Media import / live view moved the phone onto the glasses' Wi-Fi (server traffic → cellular).
     @Published private(set) var phoneOnGlassesWiFi = false
     @Published private(set) var importProgress: Double?
+    /// The simulated music the touchpad controls (track number in a pretend playlist).
+    @Published private(set) var track = 1
     var cameraName: String { camera.sourceName }
 
     private(set) var inbound: AsyncStream<GlassesInboundEvent>
@@ -378,17 +380,32 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
             return
         }
         let action = MetaTouchBinding.defaultAction(for: gesture)
+        var detail: String?
         switch action {
         case .playPause:
             hw.musicPlaying.toggle()
+            detail = hw.musicPlaying ? "Playing track \(track)" : "Paused track \(track)"
             await mediaKeys?(.playPause)
-        case .nextTrack: await mediaKeys?(.next)
-        case .previousTrack: await mediaKeys?(.previous)
-        case .volumeUp: hw.volume = min(100, hw.volume + 10)
-        case .volumeDown: hw.volume = max(0, hw.volume - 10)
-        case .startAssistant, .endAssistant, .capturePhoto, .none: break
+        case .nextTrack:
+            track += 1
+            hw.musicPlaying = true
+            detail = "Playing track \(track)"
+            await mediaKeys?(.next)
+        case .previousTrack:
+            track = max(1, track - 1)
+            hw.musicPlaying = true
+            detail = "Playing track \(track)"
+            await mediaKeys?(.previous)
+        case .volumeUp:
+            hw.volume = min(100, hw.volume + 10)
+            detail = "Volume \(hw.volume)%"
+        case .volumeDown:
+            hw.volume = max(0, hw.volume - 10)
+            detail = "Volume \(hw.volume)%"
+        case .startAssistant, .endAssistant, .capturePhoto, .none:
+            break
         }
-        let detail = action == .volumeUp || action == .volumeDown ? "Volume \(hw.volume)%" : nil
+        if let d = detail, action != .volumeUp, action != .volumeDown { detail = d + " (simulated music)" }
         feed.log(.touch, "\(MetaTouchBinding.label(gesture)) → \(MetaTouchBinding.label(action))", detail: detail)
         continuation.yield(.touch(gesture))
     }

@@ -26,15 +26,8 @@ final class MetaGlassesHub: ObservableObject {
             .appendingPathComponent("MetaGlassesSim", isDirectory: true)
         let sim = SimulatedGlassesTransport(camera: MetaSimCamera(), feed: feed, mediaDirectory: folder)
         sim.speaker = MetaPhoneSpeaker()
-        sim.mediaKeys = { command in
-            let id: String
-            switch command {
-            case .playPause: id = "play_pause"
-            case .next: id = "next_track"
-            case .previous: id = "previous_track"
-            }
-            _ = await RingActionRunner.run(.skill(id: id, arguments: [:]))
-        }
+        // No mediaKeys: the sim's touchpad drives the SIMULATED music only. Real media keys run
+        // through iOS Shortcuts on iOS 27 and yanked him into the Shortcuts app (2026-11-22).
         return sim
     }()
 

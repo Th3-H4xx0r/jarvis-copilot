@@ -176,7 +176,12 @@ final class MetaGlassesSimRunner: ObservableObject {
     private func record(_ event: MetaSessionEvent) {
         switch event {
         case .heard(let text):
-            add("ear", "Heard", "“\(text)”")
+            // The engine refines a final transcript ("What's 7 times 8?" → …): update, don't repeat.
+            if let last = rows.last, last.title == "Heard" {
+                rows[rows.count - 1] = Row(id: last.id, at: last.at, symbol: last.symbol, title: last.title, detail: "“\(text)”")
+            } else {
+                add("ear", "Heard", "“\(text)”")
+            }
         case .answer(let text):
             answered = true
             add("text.bubble", "Jarvis", text)

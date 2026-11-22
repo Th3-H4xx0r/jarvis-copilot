@@ -42,14 +42,17 @@ His asks: a full simulator he uses until the glasses arrive. Jarvis drives it li
 1. [x] Relay logs each turn's heard/said. ✅ 8 relay tests pass
 2. [x] `scripts/glasses-sim.sh`: one Mac command. ✅ Verified on his Mac: "What is 7 times 8?" → "7 times 8 is 56." (3.0 s), PASS. Found: no Jarvis model configured on the Mac → the script now says so and uses local Claude Code (haiku); relay failures are now reported instead of a silent "something went wrong"
 3. [x] v1 voice pieces (voice→glasses relay, session watch, prompt voice, runner) green in XCTest. ✅ 17 tests pass; committed d075a60d2e
-4. [ ] Gen 2 hardware profile + battery/heat/storage model (real limits). Written: MetaGen2Profile (sourced, "assumed" marked) + MetaHardwareState (drain per activity, case charge 50 %/20 min, 3K overheats ~15 min and cools in 3–5 min, LED/fold/case/range/low-battery/storage refusals, clip cap). Testing now
-5. [ ] Simulator engine: enforces limits, answers every command, command feed. Written: SimulatedGlassesTransport is now the full simulator (1 s tick, paused in the background), touchpad defaults + capture button, Wi-Fi import, MetaCommandFeed
-6. [ ] 7 Jarvis tools + Device/Sim registration ("what am I looking at" end to end). Written: meta_glasses_status/look/photo/video/live/speak/volume; MetaGlassesHub registers the sim while Sim is selected
-7. [ ] iPhone camera as the glasses camera (photo/video/live) + hold-to-talk. Written: MetaPhoneCamera (ultra-wide, 3024×4032 portrait, clips capped, live frames) + test-scene fallback; MetaSimMic
-8. [ ] Page: Device | Sim toggle, controls, feed, live view, gallery, settings, limits. Written; building
-9. [ ] Drop 1 to his phone (release.sh)
-10. [ ] 3D Ray-Ban Meta model on the card + page (helper agent)
-11. [ ] Drop 2 (video/live/gallery polish + 3D model)
+4. [x] Gen 2 hardware profile + battery/heat/storage model (real limits). ✅ 8 limit tests pass (streaming 1.2–2 %/min, case 50 % in 20 min, 3K overheats ~15 min and cools in 3–5 min, storage full, clip cap, refusal order)
+5. [x] Simulator engine: enforces limits, answers every command, command feed. ✅ 8 simulator tests (each limit refuses with the glasses' reason, LED cover / cap stop a recording, touch defaults, wake needs worn, range drop + return, Wi-Fi import)
+6. [x] 7 Jarvis tools + Device/Sim registration. ✅ 7 tool tests (fixed catalogue, photo vision copy + LED refusal, video capped, look returns the live frame, status, speak/volume vs folded, hold → Jarvis turn)
+7. [x] iPhone camera as the glasses camera (ultra-wide, 3024×4032 portrait, clips, live frames) + test-scene fallback + hold-to-talk
+8. [x] Page: Device | Sim toggle, controls, glasses state, sim speed/overrides, feed, live view, storage, capture settings, touch → Jarvis, limits
+9. [x] Drop 1 to his phone. ✅ release.sh build 263260740 (commit 94118210d0) published 2026-11-22 07:46 UTC
+10. [ ] Touchpad buttons opened iOS Shortcuts (his screenshot: Tap / Double tap / Triple tap → "◀ Shortcuts"). Found: the sim's media defaults called the phone's real media_control, which runs JC Shortcuts on iOS 27. Fix: the sim drives its own simulated music (play/pause, track N) and nothing leaves the sim; the refined transcript no longer shows "Heard" twice. Testing.
+    - Also seen in his run: "That model's usage limit is reached" was his voice model's quota, not the glasses (wake → mic → heard → speaking → closed all worked)
+11. [ ] Hold to talk showed "Meta glasses transport unavailable: the recorder refused to start" while the typed prompt worked (his screenshot). Found: the press gesture fires on every finger movement, so the mic recorder was started several times; the second start failed while the first held the mic. Fix: one start per press, early-release handling, 16 kHz → 44.1 kHz fallback converted on read (+ conversion test). Testing.
+12. [ ] 3D Ray-Ban Meta model on the card + page (helper agent)
+13. [ ] Drop 2 (touchpad + hold-to-talk fixes + 3D model)
 
 ## Hardware-gated remainder (needs the physical Gen 2 — no simulator can prove these)
 - Real CoreBluetooth L2CAP bring-up + AirShield P-256/HKDF/AES handshake + owner trust (§5.1/§5.2) — skeleton in MetaGlassesTransport.connect()/send().

@@ -186,6 +186,7 @@ final class MetaGlassesSimRunnerTests: XCTestCase {
             XCTAssertTrue(titles.contains(expected), "missing row \(expected) in \(titles)")
         }
         XCTAssertEqual(runner.rows.first { $0.title == "Jarvis" }?.detail, "7 times 8 is 56.")
+        XCTAssertEqual(titles.filter { $0 == "Heard" }.count, 1, "a refined transcript updates the row")
         XCTAssertNotNil(runner.wakeToAnswer)
         XCTAssertFalse(voice.capturedAudio.isEmpty, "the voiced prompt reached the voice engine as glasses audio")
         XCTAssertGreaterThanOrEqual(voice.cleared, 1)
