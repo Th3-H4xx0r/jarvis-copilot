@@ -18,7 +18,7 @@ public class SettingsTests
 
     [Fact]
     public void Panes_HaveMacNativeIdsInOrder() =>
-        Assert.Equal(new[] { "general", "agents", "pc-power", "talk", "flow", "shortcuts", "power" },
+        Assert.Equal(new[] { "general", "agents", "pc-power", "talk", "flow", "shortcuts", "power", "glasses-camera" },
             SettingsPanes.All.Where(p => p.ServerSection is null).Select(p => p.Id));
 
     [Fact]

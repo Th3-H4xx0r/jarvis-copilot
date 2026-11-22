@@ -156,6 +156,7 @@
   <Color x:Key="JcTint.flow">#FF9B6BFF</Color>
   <Color x:Key="JcTint.shortcuts">#FF6B7280</Color>
   <Color x:Key="JcTint.power">#FF5B6CF0</Color>
+  <Color x:Key="JcTint.glasses-camera">#FF8E8E93</Color>
   <Color x:Key="JcTint.voice">#FF2F8CFF</Color>
   <Color x:Key="JcTint.live">#FFFF4D5A</Color>
   <Color x:Key="JcTint.speech">#FF9B6BFF</Color>

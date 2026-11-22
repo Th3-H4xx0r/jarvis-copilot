@@ -18,6 +18,7 @@ public static class SettingsPanes
         new SettingsPane("flow", "Flow", "", true, null),
         new SettingsPane("shortcuts", "Shortcuts", "", true, null),
         new SettingsPane("power", "Power integrations", "", true, null),
+        new SettingsPane("glasses-camera", "Glasses camera", "\uE714", true, null),
         new SettingsPane("voice", "Voice", "", false, "voice"),
         new SettingsPane("live", "Live", "", false, "live"),
         new SettingsPane("speech", "Speech", "", false, "speech"),

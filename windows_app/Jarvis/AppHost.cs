@@ -400,6 +400,7 @@ public sealed class AppHost : IAsyncDisposable
         GlassesCamInstaller = new GlassesCamInstaller(Admin, camLog);
         GlassesCamInstaller.Changed += GlassesCamera.Refresh;
         GlassesCamera.Start();
+        SettingsWindow.RegisterNative("glasses-camera", () => GlassesCameraPane.Build(GlassesCamInstaller, GlassesCamera));
 
         // ── Task 19: in-app updates ──
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
