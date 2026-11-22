@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import re
 import threading
 import time
 
@@ -214,3 +216,89 @@ def test_stop_drops_in_flight_reply(stop_type):
             await server.wait_closed()
 
     _run(scenario())
+
+
+# ---------------------------------------------------------------------------
+# Each reply logs what was heard and said: scripts/glasses-sim.sh parses this
+# line to print "You: ... -> Jarvis: ..." (a contract, not a snapshot).
+# ---------------------------------------------------------------------------
+_TURN_LOG = re.compile(r'turn (r\d+) heard=(".*?") said=(".*") first_audio_ms=(\d+)$')
+APOSTROPHE_ANSWER = "It's \"almost\" noon."
+
+
+def test_reply_logs_heard_and_said(caplog):
+    async def scenario():
+        relay, server, uri = await _start_server(brain=lambda t: APOSTROPHE_ANSWER)
+        try:
+            async with websockets.connect(uri) as ws:
+                assert await _recv_json(ws) == {"type": "ready"}
+                await ws.send(json.dumps({"type": "turn.start", "interactionId": 4}))
+                await ws.send(MIC_AUDIO)
+                await ws.send(json.dumps({"type": "turn.commit", "interactionId": 4}))
+                while True:
+                    msg = await _recv(ws)
+                    if not isinstance(msg, (bytes, bytearray)) and json.loads(msg)["type"] == "reply.done":
+                        break
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    with caplog.at_level(logging.INFO, logger="glasses_relay"):
+        _run(scenario())
+    matches = [_TURN_LOG.search(r.getMessage()) for r in caplog.records]
+    matches = [m for m in matches if m]
+    assert matches, "no turn log line among: {}".format([r.getMessage() for r in caplog.records])
+    rid, heard, said, first_ms = matches[-1].groups()
+    assert rid == "r1"
+    assert json.loads(heard) == FAKE_TRANSCRIPT
+    assert json.loads(said) == APOSTROPHE_ANSWER  # quotes survive the round trip
+    assert int(first_ms) >= 1
+
+
+def test_nothing_said_turn_logs_empty_line(caplog):
+    async def scenario():
+        relay, server, uri = await _start_server(transcriber=lambda pcm: "")
+        try:
+            async with websockets.connect(uri) as ws:
+                assert await _recv_json(ws) == {"type": "ready"}
+                await ws.send(json.dumps({"type": "turn.start", "interactionId": 5}))
+                await ws.send(MIC_AUDIO)
+                await ws.send(json.dumps({"type": "turn.commit", "interactionId": 5}))
+                await _recv_json(ws)  # reply.start
+                await _recv_json(ws)  # reply.done
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    with caplog.at_level(logging.INFO, logger="glasses_relay"):
+        _run(scenario())
+    matches = [m for m in (_TURN_LOG.search(r.getMessage()) for r in caplog.records) if m]
+    assert matches
+    _, heard, said, first_ms = matches[-1].groups()
+    assert (json.loads(heard), json.loads(said), first_ms) == ("", "", "0")
+
+
+def test_failed_reply_logs_reason(caplog):
+    def broken_brain(transcript: str) -> str:
+        raise RuntimeError("No LLM provider configured")
+
+    async def scenario():
+        relay, server, uri = await _start_server(brain=broken_brain)
+        try:
+            async with websockets.connect(uri) as ws:
+                assert await _recv_json(ws) == {"type": "ready"}
+                await ws.send(json.dumps({"type": "turn.start", "interactionId": 6}))
+                await ws.send(MIC_AUDIO)
+                await ws.send(json.dumps({"type": "turn.commit", "interactionId": 6}))
+                done = await _recv_json(ws)
+                assert done["type"] == "reply.done"
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    with caplog.at_level(logging.INFO, logger="glasses_relay"):
+        _run(scenario())
+    reasons = [re.search(r"turn (r\d+) failed: (.*)$", r.getMessage()) for r in caplog.records]
+    reasons = [m for m in reasons if m]
+    assert reasons, [r.getMessage() for r in caplog.records]
+    assert reasons[-1].group(2) == "RuntimeError: No LLM provider configured"

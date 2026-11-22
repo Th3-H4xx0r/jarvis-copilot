@@ -11,6 +11,10 @@ final class FakeVoiceTurnController: MetaVoiceTurnController {
     private(set) var cleared = 0
     private(set) weak var boundInput: AudioInput?
     private(set) var capturedAudio: [Data] = []
+    /// What `snapshot()` reports before a turn begins (set non-idle to fake a busy voice chat).
+    var current = MetaVoiceSnapshot.idle
+    /// Played one per `snapshot()` call once a turn has begun; the last one sticks.
+    var script: [MetaVoiceSnapshot] = []
 
     func useExternalInput(_ input: AudioInput?, isCurrent: @escaping () -> Bool) async {
         useExternalInputCalls += 1
@@ -29,6 +33,11 @@ final class FakeVoiceTurnController: MetaVoiceTurnController {
         beginTurnCalls += 1
         guard isCurrent() else { return }
         try? await boundInput?.start(sampleRate: 16_000)
+    }
+
+    func snapshot() -> MetaVoiceSnapshot {
+        if beginTurnCalls > 0, !script.isEmpty { current = script.removeFirst() }
+        return current
     }
 }
 

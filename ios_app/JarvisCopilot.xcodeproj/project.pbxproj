@@ -1214,6 +1214,14 @@
 		5B0F79C550EFA5F4B5B71D6A /* MetaGlassesSimulatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3E5E3B84C066F922A4F562B /* MetaGlassesSimulatorTests.swift */; };
 		20E4AE11832860C85BC2F12B /* MetaGlassesTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A82195F4804E344800BBC2A /* MetaGlassesTransport.swift */; };
 		6D9A244A8A5EB5A936E838B3 /* MetaWakeChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF01D221F3E3D2B5377A59FF /* MetaWakeChannel.swift */; };
+		BE8DEF9EE040AFF0FFDCE263 /* MetaGlassesModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 294D5D61987F42AE9F6E4899 /* MetaGlassesModel.swift */; };
+		064AC2EB199E9C43AB50A49E /* MetaGlassesSceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D688F732E67C8E96EB671B0 /* MetaGlassesSceneView.swift */; };
+		9CC6C767BC5812E3CFAEF1E8 /* MetaGlassesModelRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C4E7C2C4423130E8AF5D814 /* MetaGlassesModelRenderTests.swift */; };
+		D6BEF2612322C09A5DB79374 /* MetaVoiceRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4036BA79703C3812C23AADA4 /* MetaVoiceRelay.swift */; };
+		764A7D8DD58728B00A4C8BC4 /* MetaPromptVoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4078FD4B7902ABA53639EB69 /* MetaPromptVoice.swift */; };
+		FD1BA137ED25F344B4148803 /* MetaGlassesSimRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10210EABAF1FFB3E5F015649 /* MetaGlassesSimRunner.swift */; };
+		118450C8FF785A7E1A37AFC9 /* MetaGlassesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 050B74AC490381D23136672A /* MetaGlassesView.swift */; };
+		61BA64EEE243B0A2892D3FCC /* MetaVoiceRelayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14A12097749B2421A6E6790B /* MetaVoiceRelayTests.swift */; };
 		D880D2B7A02B742003229EBA /* HoloDropModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E6B32B794E91C83AF7A1D7E /* HoloDropModels.swift */; };
 		D8B88663E19CB038E45E262D /* AgentsListPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D027CFC3776C8AC9A57126DF /* AgentsListPresentation.swift */; };
 		D8BF34C43E27FAE21057566B /* ChatMarkdownCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FE4EA7B8C34DDDB922C004 /* ChatMarkdownCache.swift */; };
@@ -2077,6 +2085,14 @@
 		C3E5E3B84C066F922A4F562B /* MetaGlassesSimulatorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaGlassesSimulatorTests.swift; sourceTree = "<group>"; };
 		0A82195F4804E344800BBC2A /* MetaGlassesTransport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaGlassesTransport.swift; sourceTree = "<group>"; };
 		DF01D221F3E3D2B5377A59FF /* MetaWakeChannel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaWakeChannel.swift; sourceTree = "<group>"; };
+		294D5D61987F42AE9F6E4899 /* MetaGlassesModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaGlassesModel.swift; sourceTree = "<group>"; };
+		0D688F732E67C8E96EB671B0 /* MetaGlassesSceneView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaGlassesSceneView.swift; sourceTree = "<group>"; };
+		8C4E7C2C4423130E8AF5D814 /* MetaGlassesModelRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaGlassesModelRenderTests.swift; sourceTree = "<group>"; };
+		4036BA79703C3812C23AADA4 /* MetaVoiceRelay.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaVoiceRelay.swift; sourceTree = "<group>"; };
+		4078FD4B7902ABA53639EB69 /* MetaPromptVoice.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaPromptVoice.swift; sourceTree = "<group>"; };
+		10210EABAF1FFB3E5F015649 /* MetaGlassesSimRunner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaGlassesSimRunner.swift; sourceTree = "<group>"; };
+		050B74AC490381D23136672A /* MetaGlassesView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaGlassesView.swift; sourceTree = "<group>"; };
+		14A12097749B2421A6E6790B /* MetaVoiceRelayTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaVoiceRelayTests.swift; sourceTree = "<group>"; };
 		6D6F7E8EC75E4B09BBBE69EC /* AppServices.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppServices.swift; sourceTree = "<group>"; };
 		6D935919738DF180D88482DF /* VoiceOrbGeometry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceOrbGeometry.swift; sourceTree = "<group>"; };
 		6DE0B32C4D56BB4B2FAE4D98 /* ButtonStatesTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ButtonStatesTests.swift; sourceTree = "<group>"; };
@@ -3459,9 +3475,23 @@
 				1841FE9B17461B0B137D5711 /* MetaGlassesSession.swift */,
 				52C38E39CCB51C0B23661499 /* SimulatedGlassesTransport.swift */,
 				0A82195F4804E344800BBC2A /* MetaGlassesTransport.swift */,
+				4036BA79703C3812C23AADA4 /* MetaVoiceRelay.swift */,
+				4078FD4B7902ABA53639EB69 /* MetaPromptVoice.swift */,
+				10210EABAF1FFB3E5F015649 /* MetaGlassesSimRunner.swift */,
+				671EA70B868E3B0070A09872 /* Views */,
+				45A987A539C2AA54CC79ED9A /* Model */,
 				29BCF9F0D7F500190F82358C /* Features */,
 			);
 			path = MetaGlasses;
+			sourceTree = "<group>";
+		};
+		45A987A539C2AA54CC79ED9A /* Model */ = {
+			isa = PBXGroup;
+			children = (
+				294D5D61987F42AE9F6E4899 /* MetaGlassesModel.swift */,
+				0D688F732E67C8E96EB671B0 /* MetaGlassesSceneView.swift */,
+			);
+			path = Model;
 			sourceTree = "<group>";
 		};
 		29BCF9F0D7F500190F82358C /* Features */ = {
@@ -3470,6 +3500,14 @@
 				DF01D221F3E3D2B5377A59FF /* MetaWakeChannel.swift */,
 			);
 			path = Features;
+			sourceTree = "<group>";
+		};
+		671EA70B868E3B0070A09872 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				050B74AC490381D23136672A /* MetaGlassesView.swift */,
+			);
+			path = Views;
 			sourceTree = "<group>";
 		};
 		3A59D4AB5DF52E59B854F235 /* Glasses */ = {
@@ -5201,6 +5239,8 @@
 				A531BBA711DF1B7C8D8A0E2E /* GlassesMusicRouteTests.swift */,
 				EF913AA82E6FB08A019A13CB /* InmoGalleryTests.swift */,
 				C3E5E3B84C066F922A4F562B /* MetaGlassesSimulatorTests.swift */,
+				8C4E7C2C4423130E8AF5D814 /* MetaGlassesModelRenderTests.swift */,
+				14A12097749B2421A6E6790B /* MetaVoiceRelayTests.swift */,
 			);
 			name = Glasses;
 			path = Glasses;
@@ -6130,6 +6170,8 @@
 				CA7CB59714C0D976F33A2F13 /* MemoryGraphTests.swift in Sources */,
 				07A0486E05360BD3ACD322B9 /* InmoGalleryTests.swift in Sources */,
 				5B0F79C550EFA5F4B5B71D6A /* MetaGlassesSimulatorTests.swift in Sources */,
+				9CC6C767BC5812E3CFAEF1E8 /* MetaGlassesModelRenderTests.swift in Sources */,
+				61BA64EEE243B0A2892D3FCC /* MetaVoiceRelayTests.swift in Sources */,
 				DBDCAD99A0E74629F5443D28 /* LiveOrbRenderTests.swift in Sources */,
 				E09F84D07AC0EF9AD7D11947 /* TalkHereTests.swift in Sources */,
 				2E1DCFDA332A6D5EDD90C937 /* IslandLiveProbeTests.swift in Sources */,
@@ -6708,6 +6750,12 @@
 				825D188B5D2F771A8CEC0BFC /* SimulatedGlassesTransport.swift in Sources */,
 				20E4AE11832860C85BC2F12B /* MetaGlassesTransport.swift in Sources */,
 				6D9A244A8A5EB5A936E838B3 /* MetaWakeChannel.swift in Sources */,
+				BE8DEF9EE040AFF0FFDCE263 /* MetaGlassesModel.swift in Sources */,
+				064AC2EB199E9C43AB50A49E /* MetaGlassesSceneView.swift in Sources */,
+				D6BEF2612322C09A5DB79374 /* MetaVoiceRelay.swift in Sources */,
+				764A7D8DD58728B00A4C8BC4 /* MetaPromptVoice.swift in Sources */,
+				FD1BA137ED25F344B4148803 /* MetaGlassesSimRunner.swift in Sources */,
+				118450C8FF785A7E1A37AFC9 /* MetaGlassesView.swift in Sources */,
 				87F48CAE3EE95A871DDF0ED2 /* InmoMediaTransfer.swift in Sources */,
 				39B7B450C7C03AA184E47CD1 /* InmoMediaWire.swift in Sources */,
 				4280C98253227B7412E5C2AC /* InmoBluetoothFrameCodec.swift in Sources */,

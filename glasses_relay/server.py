@@ -48,6 +48,20 @@ from .interfaces import Brain, Synthesizer, Transcriber
 logger = logging.getLogger("glasses_relay")
 
 
+def _log_turn(rid: str, heard: str, said: str, first_audio_ms: int) -> None:
+    """One INFO line per reply. ``scripts/glasses-sim.sh`` parses it to show
+    what the wearer said and what Jarvis answered, so keep the format: the two
+    texts are JSON strings (quotes/apostrophes survive), the line ends in the ms.
+    """
+    logger.info(
+        "turn %s heard=%s said=%s first_audio_ms=%d",
+        rid,
+        json.dumps(heard, ensure_ascii=False),
+        json.dumps(said, ensure_ascii=False),
+        first_audio_ms,
+    )
+
+
 class _ConnState:
     """Per-connection mic buffer + in-flight reply bookkeeping."""
 
@@ -124,6 +138,7 @@ class RelayServer:
                 await _send_json(ws, {"type": "reply.done", "replyId": rid, "kind": "turn",
                                       "interactionId": iid, "text": "", "nothingSaid": True,
                                       "firstAudioMs": 0})
+                _log_turn(rid, "", "", 0)
                 return
             if cancel.is_set():
                 return
@@ -151,10 +166,13 @@ class RelayServer:
             await _send_json(ws, {"type": "reply.done", "replyId": rid, "kind": "turn",
                                   "interactionId": iid, "text": reply_text,
                                   "nothingSaid": False, "firstAudioMs": first_audio_ms})
+            _log_turn(rid, transcript, reply_text, first_audio_ms)
         except asyncio.CancelledError:
             return
-        except Exception:
+        except Exception as exc:
             logger.warning("reply %s failed:\n%s", rid, traceback.format_exc())
+            # One line the sim script can show instead of a silent "Sorry, something went wrong."
+            logger.warning("turn %s failed: %s: %s", rid, type(exc).__name__, exc)
             await _send_json(ws, {"type": "reply.done", "replyId": rid, "kind": "turn",
                                   "interactionId": iid, "text": "Sorry, something went wrong.",
                                   "nothingSaid": False, "firstAudioMs": 0})

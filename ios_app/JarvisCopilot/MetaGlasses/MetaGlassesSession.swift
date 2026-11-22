@@ -1,5 +1,15 @@
 import Foundation
 
+/// What a glasses turn did, for the page and tests: final transcript, final answer, speaking
+/// on/off, the assistant closed, and how the turn ended.
+enum MetaSessionEvent: Equatable, Sendable {
+    case heard(String)
+    case answer(String)
+    case speaking(Bool)
+    case closed
+    case ended(MetaVoiceRelay.Outcome)
+}
+
 /// Drives one Meta glasses session on top of a `GlassesTransport`: brings the link up
 /// (connected → trusted(simulated) → ready), fans inbound events into the wake→turn lifecycle,
 /// streams glasses mic PCM into the voice engine, renders replies back to the lens, captures
@@ -33,6 +43,18 @@ final class MetaGlassesSession {
 
     /// Gesture→action bindings (plan §6.5); starts at the documented defaults.
     var touchBindings: [MetaTouchGesture: MetaTouchAction] = MetaTouchBinding.defaults
+
+    /// Every turn milestone, as it happens (the sim page's log).
+    var onEvent: ((MetaSessionEvent) -> Void)?
+    /// How often the voice engine is read during a turn (InmoAIChannel's cadence).
+    var pollInterval: Duration = .milliseconds(100)
+    /// A turn that hasn't finished by then is ended as failed.
+    var turnTimeout: Duration = .seconds(60)
+    /// A voice engine that never leaves idle (mic refused, engine down) fails this fast.
+    var startTimeout: Duration = .seconds(10)
+    /// How the last turn ended.
+    private(set) var lastOutcome: MetaVoiceRelay.Outcome?
+    private var watch: Task<Void, Never>?
 
     /// Bumped on each turn so a stale async step no-ops (the INMO generation guard).
     private var generation = 0
@@ -74,7 +96,7 @@ final class MetaGlassesSession {
 
     /// Close the session: end any live turn, drop the link, stop the pump. Idempotent.
     func stop() async {
-        await endTurn()
+        await endTurn(outcome: .failed("Stopped"))
         await transport.disconnect()
         pump?.cancel()
         pump = nil
@@ -137,6 +159,58 @@ final class MetaGlassesSession {
         await voice.useExternalInput(audioInput, isCurrent: { [weak self] in self?.generation == epoch })
         guard generation == epoch else { return }
         await voice.beginExternalTurn(isCurrent: { [weak self] in self?.generation == epoch })
+        guard generation == epoch, turnActive else { return }
+        startWatch(epoch: epoch)
+    }
+
+    /// Mirror the voice engine's turn back to the glasses until it finishes, fails, or times out.
+    private func startWatch(epoch: Int) {
+        watch?.cancel()
+        let baseline = voice.snapshot()
+        watch = Task { [weak self] in
+            var relay = MetaVoiceRelay(baseline: baseline)
+            let clock = ContinuousClock()
+            let began = clock.now
+            while !Task.isCancelled {
+                guard let self, self.generation == epoch, self.turnActive else { return }
+                let step = relay.step(self.voice.snapshot())
+                for frame in step.frames {
+                    guard self.generation == epoch else { return }
+                    try? await self.transport.send(frame)
+                    self.report(frame)
+                }
+                var outcome = step.outcome
+                if outcome == .running {
+                    let elapsed = clock.now - began
+                    if !relay.seenActive, elapsed > self.startTimeout {
+                        outcome = .failed("Jarvis voice didn't start (is the microphone allowed?)")
+                    } else if elapsed > self.turnTimeout {
+                        outcome = .failed("Timed out waiting for Jarvis")
+                    }
+                }
+                if outcome != .running {
+                    guard self.generation == epoch else { return }
+                    await self.endTurn(outcome: outcome)
+                    return
+                }
+                try? await Task.sleep(for: self.pollInterval)
+            }
+        }
+    }
+
+    private func report(_ frame: GlassesFrame) {
+        switch frame {
+        case .showTranscript(let text, true):
+            lastUserTranscript = text
+            onEvent?(.heard(text))
+        case .showAnswer(let text, true):
+            lastAnswer = text
+            onEvent?(.answer(text))
+        case .setSpeaking(let on):
+            onEvent?(.speaking(on))
+        default:
+            break
+        }
     }
 
     private func handleTranscript(_ text: String, isFinal: Bool) async {
@@ -157,16 +231,22 @@ final class MetaGlassesSession {
     }
 
     /// End the current turn: release the external input and tell the lens to close the assistant
-    /// surface. Idempotent.
-    func endTurn() async {
+    /// surface. Idempotent. `outcome` is what `.ended` reports (a touch or canned reply = finished).
+    func endTurn(outcome: MetaVoiceRelay.Outcome = .finished) async {
         guard turnActive else { return }
         generation += 1
         let epoch = generation
         turnActive = false
+        watch?.cancel()
+        watch = nil
+        lastOutcome = outcome
         await voice.useExternalInput(nil, isCurrent: { [weak self] in self?.generation == epoch })
         await audioInput.stop()
-        guard generation == epoch else { return }
-        try? await transport.send(.closeAssistant)
+        if generation == epoch {
+            try? await transport.send(.closeAssistant)
+            onEvent?(.closed)
+        }
+        onEvent?(.ended(outcome))
     }
 
     // MARK: Photo capture (plan §6.2)

@@ -40,6 +40,7 @@ struct ScanView: View {
                     && esp32Manager.discovered.isEmpty && ringManager.discovered.isEmpty && x5Manager.discovered.isEmpty && bandManager.discovered.isEmpty && absent.isEmpty
                     && JarvisPodStore.shared.pods.isEmpty {
                     glassesCard(entries)
+                    metaGlassesCard
                     carCards
                     emptyState
                 } else {
@@ -126,6 +127,7 @@ struct ScanView: View {
                 }
             }
             glassesCard(entries)
+            metaGlassesCard
             carCards
             ForEach(absent) { entry in
                 AbsentDeviceCard(entry: entry, busy: connecting == entry.deviceID) {
@@ -178,6 +180,18 @@ struct ScanView: View {
         }
         .buttonStyle(.plain)
         .zoomSource(id: WearableKeepAlive.glasses, in: cardNamespace)
+    }
+
+    /// Ray-Ban Meta: always here, like the INMO card — Simulated until the real link exists.
+    private var metaGlassesCard: some View {
+        NavigationLink {
+            MetaGlassesView()
+                .zoomTransition(id: "meta-glasses", in: cardNamespace)
+        } label: {
+            MetaGlassesCard()
+        }
+        .buttonStyle(.plain)
+        .zoomSource(id: "meta-glasses", in: cardNamespace)
     }
 
     /// The car, then any linkable wearable that isn't linked to anything (the dashcam, once

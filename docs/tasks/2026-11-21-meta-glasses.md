@@ -37,6 +37,20 @@ Server→relay: `{"type":"ready"}`, `{"type":"reply.start","replyId":X,"kind":"t
   - Still runtime-inert: no refs to MetaGlassesDevice/metaGlasses outside MetaGlasses/ dir; not in WearablesHub/DeviceRegistry/UI. Simulator is #if DEBUG only.
   - Uncommitted (pbxproj, MetaGlasses/, WearableKind.swift from earlier scaffold, test file).
 
+## Full glasses simulator (2026-11-22). Design v2: docs/superpowers/specs/2026-11-22-meta-glasses-sim-design.md
+His asks: a full simulator he uses until the glasses arrive. Jarvis drives it like the real glasses ("Hey Jarvis, what am I looking at" → sim camera → vision). It simulates touch, audio, video and live, enforces the real Gen 2 limits, puts a 3D model on Wearables, and has a Device | Sim toggle (the Device screen is built now for the hardware). His picks: a real Jarvis voice turn, prompt as spoken audio, the iPhone camera as the glasses camera (test scenes as fallback).
+1. [x] Relay logs each turn's heard/said. ✅ 8 relay tests pass
+2. [x] `scripts/glasses-sim.sh`: one Mac command. ✅ Verified on his Mac: "What is 7 times 8?" → "7 times 8 is 56." (3.0 s), PASS. Found: no Jarvis model configured on the Mac → the script now says so and uses local Claude Code (haiku); relay failures are now reported instead of a silent "something went wrong"
+3. [ ] v1 voice pieces (voice→glasses relay, session watch, prompt voice, runner) green in XCTest
+4. [ ] Gen 2 hardware profile + battery/heat/storage model (real limits)
+5. [ ] Simulator engine: enforces limits, answers every command, command feed
+6. [ ] 7 Jarvis tools + Device/Sim registration ("what am I looking at" end to end)
+7. [ ] iPhone camera as the glasses camera (photo/video/live) + hold-to-talk
+8. [ ] Page: Device | Sim toggle, controls, feed, live view, gallery, settings, limits
+9. [ ] Drop 1 to his phone (release.sh)
+10. [ ] 3D Ray-Ban Meta model on the card + page (helper agent)
+11. [ ] Drop 2 (video/live/gallery polish + 3D model)
+
 ## Hardware-gated remainder (needs the physical Gen 2 — no simulator can prove these)
 - Real CoreBluetooth L2CAP bring-up + AirShield P-256/HKDF/AES handshake + owner trust (§5.1/§5.2) — skeleton in MetaGlassesTransport.connect()/send().
 - One-time change-owner / Meta-login prerequisite (§5.3) — user-performed, never automated.
