@@ -74,6 +74,8 @@ enum GlassesFrame: Equatable, Sendable {
     case setVolume(Int)
     case setClipLength(Int)
     case setVideoMode(MetaVideoMode)
+    /// Enrol a custom wake phrase from recorded samples (16 kHz PCM16); the glasses build the model.
+    case enrolWakeWord(phrase: String, samples: [Data])
 }
 
 /// A touchpad gesture on the glasses arm.

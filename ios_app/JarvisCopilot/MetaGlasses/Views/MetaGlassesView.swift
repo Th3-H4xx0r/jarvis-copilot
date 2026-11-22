@@ -80,6 +80,7 @@ struct MetaGlassesView: View {
 
 private struct MetaDeviceScreen: View {
     @ObservedObject var hub: MetaGlassesHub
+    @State private var enrolling = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -105,10 +106,25 @@ private struct MetaDeviceScreen: View {
             }
             GradientButton("Pair glasses", symbol: "link", full: true, action: nil)
                 .padding(.top, 12)
+            Button { enrolling = true } label: {
+                Label("Set up “Hey Jarvis” on the glasses", systemImage: "waveform.badge.mic")
+                    .frame(maxWidth: .infinity, minHeight: 40)
+            }
+            .buttonStyle(.jcGlass)
+            .padding(.top, 8)
 
             MetaTouchSettingsCard(hub: hub)
             MetaFeedCard(feed: hub.feed, emptyText: "Commands to the real glasses show here.")
             MetaLimitsCard()
+        }
+        .sheet(isPresented: $enrolling) {
+            MetaWakeEnrolmentView(phrase: "Hey Jarvis") { samples in
+                // The real glasses build the detector from these once the link exists.
+                guard let session = hub.device?.session else {
+                    throw MetaGlassesError.transportUnavailable("Pair your glasses first — the samples go to the glasses, which build “Hey Jarvis” themselves")
+                }
+                try await session.enrolWakeWord(phrase: "Hey Jarvis", samples: samples)
+            }
         }
     }
 }

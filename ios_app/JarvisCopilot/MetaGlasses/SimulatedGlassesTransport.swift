@@ -68,6 +68,17 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
     @Published private(set) var importProgress: Double?
     /// The simulated music the touchpad controls (track number in a pretend playlist).
     @Published private(set) var track = 1
+    /// The part being exercised right now, for the 3D model's glide-and-pulse (nil = idle turntable).
+    @Published private(set) var focus: MetaGlassesFocus?
+    /// The enrolled custom wake phrase (nil = not set up; the touch-and-hold / button wake still works).
+    @Published private(set) var wakePhrase: String?
+    /// Where the enrolled phrase is remembered (the glasses keep it across power cycles).
+    var wakeDefaults: UserDefaults? {
+        didSet { wakePhrase = wakeDefaults?.string(forKey: "meta.sim.wakePhrase") }
+    }
+    private var focusTask: Task<Void, Never>?
+    private var listening = false
+    private var speaking = false
     var cameraName: String { camera.sourceName }
 
     private(set) var inbound: AsyncStream<GlassesInboundEvent>
@@ -142,8 +153,13 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
             break      // Gen 2 has no display: the assistant state rides the session, nothing to draw
         case .setSpeaking(let on):
             hw.voiceActive = on
+            speaking = on
+            if on { listening = false; show(.speakers, .speaking, for: nil) } else { settleFocus() }
         case .closeAssistant:
             hw.voiceActive = false
+            listening = false
+            speaking = false
+            settleFocus()
         case .capturePhoto(let question):
             try await takePhoto(source: .jarvis, question: question, emit: true)
         case .startVideo(let seconds):
@@ -157,10 +173,12 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
         case .speak(let text):
             if let reason = hw.audioRefusal() { throw refuse(frame, reason) }
             speaker?.say(text, volume: hw.volume)
+            show(.speakers, .speaking, for: max(2, Double(text.count) / 14))
             feed.log(.jarvis, "Spoke on the glasses", detail: "“\(text)”")
         case .setVolume(let level):
             if let reason = hw.audioRefusal() { throw refuse(frame, reason) }
             hw.volume = max(0, min(level, 100))
+            show(.speakers, .touch, for: 1.2)
             feed.log(.jarvis, "Volume \(hw.volume)%")
         case .setClipLength(let seconds):
             guard MetaGen2Profile.clipLengths.contains(seconds) else {
@@ -172,6 +190,17 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
             if hw.recording != nil { throw refuse(frame, "Can't change the video mode while recording") }
             hw.videoMode = mode
             feed.log(.sim, "Video mode \(mode.label)")
+        case .enrolWakeWord(let phrase, let samples):
+            if let reason = hw.voiceRefusal() { throw refuse(frame, reason) }
+            guard samples.count == MetaGen2Profile.wakeEnrolSamples else {
+                throw refuse(frame, "The glasses need exactly \(MetaGen2Profile.wakeEnrolSamples) samples of the phrase")
+            }
+            if let short = samples.firstIndex(where: { $0.count < 9_600 }) {
+                throw refuse(frame, "Sample \(short + 1) is too short — say the whole phrase")
+            }
+            wakePhrase = phrase
+            wakeDefaults?.set(phrase, forKey: "meta.sim.wakePhrase")
+            feed.log(.glasses, "Wake word enrolled", detail: "“\(phrase)” · \(samples.count) samples · built on the glasses (US English)")
         }
     }
 
@@ -180,6 +209,15 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
     private func takePhoto(source: MetaCommandFeed.Source, question: String?, emit: Bool) async throws {
         if let reason = hw.captureRefusal() { throw refuse(.capturePhoto(question: question), reason, source: source) }
         blinkLED()
+        if source == .captureButton {
+            // The button press shows first, then the lens.
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(700))
+                self?.show(.camera, .capture, for: 1.3)
+            }
+        } else {
+            show(.camera, .capture, for: 1.5)
+        }
         let jpeg = try await camera.capturePhoto()
         hw.storePhoto()
         let thumb = Self.thumbnail(jpeg)
@@ -197,6 +235,7 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
         let seconds = hw.clipSeconds(requested: requested)
         hw.startRecording(seconds: seconds)
         ledLit = true
+        show(.camera, .recording, for: nil)
         try? await camera.startRecording(mode: hw.videoMode, maxSeconds: seconds)
         let capped = (requested ?? seconds) > seconds ? " (capped by the \(hw.clipLength) s clip length)" : ""
         feed.log(source, "Recording started", detail: "\(hw.videoMode.label) · up to \(seconds) s\(capped) · \(camera.sourceName)")
@@ -211,6 +250,7 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
         let bytes = Int64(rec.mode.bytesPerSecond * kept)
         storage.insert(MetaStoredMedia(id: UUID(), kind: .video, date: Date(), bytes: bytes, fileURL: url,
                                        thumbnail: nil, seconds: kept, mode: rec.mode, source: camera.sourceName), at: 0)
+        settleFocus()
         let clip = MetaClip(seconds: kept, mode: rec.mode, bytes: bytes, fileURL: url, stopReason: reason)
         feed.log(.glasses, "Recording saved", detail: "\(Int(kept.rounded())) s · \(rec.mode.label)" + (reason.map { " · stopped: \($0)" } ?? ""),
                  outcome: reason == nil ? .done : .info)
@@ -223,6 +263,7 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
         hw.streaming = true
         ledLit = true
         phoneOnGlassesWiFi = true
+        show(.camera, .recording, for: nil)
         try? await camera.startLive { [weak self] frame in
             guard let self, self.hw.streaming else { return }
             self.latestLiveFrame = frame
@@ -238,6 +279,7 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
         latestLiveFrame = nil
         phoneOnGlassesWiFi = false
         if hw.recording == nil { ledLit = false }
+        settleFocus()
         feed.log(.glasses, "Live stream stopped", detail: reason, outcome: reason == nil ? .done : .info)
     }
 
@@ -323,6 +365,7 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
     /// `MetaHardwareState` stores the clip when it stops a recording itself; mirror it here.
     private func reportFinishedRecording(seconds: Double, mode: MetaVideoMode, reason: String) async {
         if !hw.streaming { ledLit = false }
+        settleFocus()
         let url = await camera.stopRecording()
         let bytes = Int64(mode.bytesPerSecond * seconds)
         storage.insert(MetaStoredMedia(id: UUID(), kind: .video, date: Date(), bytes: bytes, fileURL: url,
@@ -363,7 +406,10 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
     func setWorn(_ on: Bool) async { await change(on ? "Put the glasses on" : "Took the glasses off") { $0.worn = on } }
     func setFolded(_ on: Bool) async { await change(on ? "Folded the glasses" : "Unfolded the glasses") { $0.folded = on; if !on { $0.inCase = false } } }
     func setInCase(_ on: Bool) async { await change(on ? "Put in the case" : "Took out of the case") { $0.inCase = on; if on { $0.folded = true } else { $0.folded = false } } }
-    func setLEDCovered(_ on: Bool) async { await change(on ? "Covered the capture LED" : "Uncovered the capture LED") { $0.ledCovered = on } }
+    func setLEDCovered(_ on: Bool) async {
+        await change(on ? "Covered the capture LED" : "Uncovered the capture LED") { $0.ledCovered = on }
+        show(.led, .touch, for: 1.5)
+    }
     func setInRange(_ on: Bool) async { await change(on ? "Back in range" : "Walked out of range") { $0.inRange = on } }
     func setMusicPlaying(_ on: Bool) async { await change(on ? "Music playing" : "Music stopped") { $0.musicPlaying = on } }
     func overrideBattery(_ percent: Double) async { await change("Battery set to \(Int(percent))%") { $0.battery = max(0, min(percent, 100)) } }
@@ -407,12 +453,14 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
         }
         if let d = detail, action != .volumeUp, action != .volumeDown { detail = d + " (simulated music)" }
         feed.log(.touch, "\(MetaTouchBinding.label(gesture)) → \(MetaTouchBinding.label(action))", detail: detail)
+        show(.touchpad, .touch, for: 1.2)
         continuation.yield(.touch(gesture))
     }
 
     /// The capture button on the right arm: a press takes a photo, a hold starts or stops a clip.
     /// The glasses do this themselves — the capture lands in glasses storage, not with Jarvis.
     func pressCaptureButton(hold: Bool) async {
+        show(.captureButton, .touch, for: 1.0)
         do {
             if hold {
                 if hw.recording != nil {
@@ -435,6 +483,8 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
             return
         }
         feed.log(.voice, "“Hey Jarvis”", detail: "Wake word heard on the glasses")
+        listening = true
+        show(.mic, .listening, for: nil)
         continuation.yield(.wake)
     }
 
@@ -465,6 +515,37 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
                        videos: items.filter { $0.kind == .video }.count)
         if !hw.streaming { phoneOnGlassesWiFi = false }
         feed.log(.glasses, "Imported \(items.count) item\(items.count == 1 ? "" : "s") to the phone")
+    }
+
+    // MARK: Focus (what the 3D model glides to)
+
+    /// Hold to talk: your phone mic is the glasses' mics while you hold.
+    func setHoldToTalk(_ on: Bool) {
+        listening = on
+        if on { show(.mic, .listening, for: nil) } else { settleFocus() }
+    }
+
+    /// Mark `part` for `seconds` (nil = until something settles it), then fall back to whatever is
+    /// still going on.
+    func show(_ part: MetaGlassesPart, _ pulse: MetaGlassesPulse, for seconds: Double?) {
+        focus = MetaGlassesFocus(part: part, pulse: pulse)
+        focusTask?.cancel()
+        guard let seconds else { focusTask = nil; return }
+        focusTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled else { return }
+            self?.settleFocus()
+        }
+    }
+
+    /// The longest-running activity wins once a moment's mark ends.
+    private func settleFocus() {
+        focusTask?.cancel()
+        focusTask = nil
+        if hw.recording != nil || hw.streaming { focus = MetaGlassesFocus(part: .camera, pulse: .recording) }
+        else if speaking { focus = MetaGlassesFocus(part: .speakers, pulse: .speaking) }
+        else if listening { focus = MetaGlassesFocus(part: .mic, pulse: .listening) }
+        else { focus = nil }
     }
 
     // MARK: Scripting (tests, the typed-prompt runner)
@@ -544,6 +625,7 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
         case .setVolume(let v): return "Volume \(v)%"
         case .setClipLength(let s): return "Clip length \(s) s"
         case .setVideoMode(let m): return "Video mode \(m.label)"
+        case .enrolWakeWord(let phrase, _): return "Enrol “\(phrase)”"
         }
     }
 }

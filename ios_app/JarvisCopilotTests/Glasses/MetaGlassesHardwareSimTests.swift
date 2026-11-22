@@ -224,6 +224,26 @@ final class MetaGlassesSimulatorHardwareTests: XCTestCase {
         XCTAssertEqual(sim.linkState, .ready)
     }
 
+    func testFocusFollowsWhatTheGlassesAreDoing() async throws {
+        let sim = try await makeSim()
+        XCTAssertNil(sim.focus)
+        sim.wake()
+        XCTAssertEqual(sim.focus, MetaGlassesFocus(part: .mic, pulse: .listening))
+        try await sim.send(.setSpeaking(true))
+        XCTAssertEqual(sim.focus, MetaGlassesFocus(part: .speakers, pulse: .speaking))
+        try await sim.send(.setSpeaking(false))
+        try await sim.send(.closeAssistant)
+        XCTAssertNil(sim.focus)
+        try await sim.send(.startVideo(seconds: 30))
+        XCTAssertEqual(sim.focus, MetaGlassesFocus(part: .camera, pulse: .recording))
+        await sim.touch(.swipeForward)
+        XCTAssertEqual(sim.focus?.part, .touchpad, "a moment's mark shows over the recording")
+        try await sim.send(.stopVideo)
+        XCTAssertNil(sim.focus, "settles to idle once nothing is going on")
+        try await sim.send(.capturePhoto(question: nil))
+        XCTAssertEqual(sim.focus, MetaGlassesFocus(part: .camera, pulse: .capture))
+    }
+
     func testImportMovesMediaToThePhoneAndFreesStorage() async throws {
         let sim = try await makeSim()
         try await sim.send(.capturePhoto(question: nil))
@@ -256,6 +276,39 @@ final class MetaSimMicConversionTests: XCTestCase {
         let pcm = try XCTUnwrap(MetaSimMic.pcm16k(from: url))
         XCTAssertEqual(Double(pcm.count), 32_000, accuracy: 1_600, "≈ one second of 16 kHz mono Int16")
         XCTAssertEqual(pcm.count % 2, 0)
+    }
+}
+
+/// "Hey Jarvis": the forgiving phrase match and the glasses' enrolment rules.
+@MainActor
+final class MetaWakeWordTests: XCTestCase {
+    func testWakeEndFindsThePhraseHoweverItIsSpelled() {
+        let segs: [(text: String, end: TimeInterval)] = [("Hey", 0.4), ("Jarvis", 0.9), ("what", 1.2), ("time", 1.5)]
+        XCTAssertEqual(MetaSimWakeListener.wakeEnd(in: segs), 0.9)
+        XCTAssertEqual(MetaSimWakeListener.wakeEnd(in: [("a", 0.3), ("Jervis,", 0.8), ("hi", 1.0)]), 0.8)
+        XCTAssertNil(MetaSimWakeListener.wakeEnd(in: [("Jarvis", 0.5)]), "the greeting is part of the phrase")
+        XCTAssertNil(MetaSimWakeListener.wakeEnd(in: [("hey", 0.3), ("there", 0.6)]))
+        XCTAssertNil(MetaSimWakeListener.wakeEnd(in: [("hey", 0.3), ("jar", 0.6)]), "too short to be the name")
+    }
+
+    func testEnrolmentNeedsThreeSamplesAndTheGlassesOn() async throws {
+        let sim = SimulatedGlassesTransport(autoTick: false)
+        try await sim.connect()
+        let sample = Data(count: 16_000 * 2)           // 1 s
+        do {
+            try await sim.send(.enrolWakeWord(phrase: "Hey Jarvis", samples: [sample, sample]))
+            XCTFail("two samples must be refused")
+        } catch MetaGlassesError.refused(let why) {
+            XCTAssertTrue(why.contains("exactly 3"), why)
+        }
+        XCTAssertNil(sim.wakePhrase)
+        try await sim.send(.enrolWakeWord(phrase: "Hey Jarvis", samples: [sample, sample, sample]))
+        XCTAssertEqual(sim.wakePhrase, "Hey Jarvis")
+        await sim.setWorn(false)
+        do {
+            try await sim.send(.enrolWakeWord(phrase: "Hey Jarvis", samples: [sample, sample, sample]))
+            XCTFail("enrolment needs the glasses on")
+        } catch MetaGlassesError.refused {}
     }
 }
 

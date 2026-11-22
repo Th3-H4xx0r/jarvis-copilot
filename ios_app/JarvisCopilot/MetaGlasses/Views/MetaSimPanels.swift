@@ -76,6 +76,10 @@ private struct MetaTalkCard: View {
     @State private var micError: String?
     /// The finger is down: the gesture reports every movement, so start the mic once per press.
     @State private var pressing = false
+    @StateObject private var listener = MetaSimWakeListener()
+    @AppStorage("meta.sim.listenWake") private var listenWake = false
+    @State private var enrolling = false
+    @State private var visible = false
     @FocusState private var typing: Bool
 
     var body: some View {
@@ -83,6 +87,7 @@ private struct MetaTalkCard: View {
             JcSectionLabel("Hey Jarvis")
             JcCard {
                 VStack(alignment: .leading, spacing: 12) {
+                    wakeRow
                     holdToTalk
                     HStack(spacing: 8) {
                         TextField("Or type what you'd say", text: $runner.prompt)
@@ -115,6 +120,66 @@ private struct MetaTalkCard: View {
                 }
             }
         }
+        .onAppear {
+            visible = true
+            listener.onWake = { pcm in Task { await runner.run(recorded: pcm) } }
+            updateListener()
+        }
+        .onDisappear { visible = false; listener.stop() }
+        .onChange(of: listenWake) { _, _ in updateListener() }
+        .onChange(of: runner.isRunning) { _, _ in updateListener() }
+        .onChange(of: sim.wakePhrase) { _, _ in updateListener() }
+        .onChange(of: pressing) { _, _ in updateListener() }
+        .sheet(isPresented: $enrolling) {
+            MetaWakeEnrolmentView(phrase: "Hey Jarvis") { samples in
+                listener.stop()
+                guard let session = MetaGlassesHub.shared.device?.session else {
+                    throw MetaGlassesError.notReady
+                }
+                try await session.enrolWakeWord(phrase: "Hey Jarvis", samples: samples)
+            }
+        }
+    }
+
+    /// Hands-free "Hey Jarvis": set it up once, then the switch listens while this screen is open.
+    @ViewBuilder private var wakeRow: some View {
+        if let phrase = sim.wakePhrase {
+            Toggle(isOn: $listenWake) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Listen for “\(phrase)”").font(.system(size: 15, weight: .medium))
+                    Text(listenerStatus).font(.system(size: 12)).foregroundStyle(JcTheme.muted)
+                }
+            }
+            Button("Set up “\(phrase)” again") { enrolling = true }
+                .font(.system(size: 12))
+                .foregroundStyle(JcTheme.muted)
+        } else {
+            Button { enrolling = true } label: {
+                Label("Set up “Hey Jarvis” on the glasses", systemImage: "waveform.badge.mic")
+                    .frame(maxWidth: .infinity, minHeight: 40)
+            }
+            .buttonStyle(.jcGlass)
+        }
+    }
+
+    private var listenerStatus: String {
+        switch listener.state {
+        case .off: return listenWake ? "Paused" : "Off — Hold to talk still works"
+        case .listening: return "Listening on the phone mic (stands in for the glasses)"
+        case .heard: return "Heard it — sending what you said to Jarvis"
+        case .failed(let why): return why
+        }
+    }
+
+    /// Listen only while this screen shows, the switch is on, and no turn or press is using the mic.
+    private func updateListener() {
+        let want = visible && listenWake && sim.wakePhrase != nil && !runner.isRunning && !pressing
+        if want, !listener.isListening {
+            let phrase = sim.wakePhrase ?? "Hey Jarvis"
+            Task { await listener.start(phrase: phrase) }
+        } else if !want, listener.state == .listening {
+            listener.stop()
+        }
     }
 
     private var failure: String? {
@@ -142,7 +207,9 @@ private struct MetaTalkCard: View {
     private func startMic() {
         guard !pressing, !runner.isRunning else { return }
         pressing = true
+        listener.stop()
         micError = nil
+        sim.setHoldToTalk(true)
         Task {
             do {
                 try await mic.start()
@@ -157,6 +224,7 @@ private struct MetaTalkCard: View {
     private func stopMic() {
         guard pressing else { return }
         pressing = false
+        sim.setHoldToTalk(false)
         if let pcm = mic.finishPress() { send(pcm) }
     }
 

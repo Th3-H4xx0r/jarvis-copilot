@@ -338,6 +338,12 @@ final class MetaGlassesSession {
         try await transport.send(.speak(text: text))
     }
 
+    /// Enrol the custom wake phrase on the glasses (they build the detector themselves).
+    func enrolWakeWord(phrase: String, samples: [Data]) async throws {
+        guard isReady else { throw MetaGlassesError.notReady }
+        try await transport.send(.enrolWakeWord(phrase: phrase, samples: samples))
+    }
+
     func setVolume(_ level: Int) async throws {
         guard isReady else { throw MetaGlassesError.notReady }
         try await transport.send(.setVolume(level))
