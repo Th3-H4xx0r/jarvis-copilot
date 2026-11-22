@@ -498,6 +498,7 @@ private struct MetaFeedRow: View {
 private struct MetaLiveCard: View {
     @ObservedObject var sim: SimulatedGlassesTransport
     @ObservedObject var hub: MetaGlassesHub
+    @State private var watching = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -515,17 +516,36 @@ private struct MetaLiveCard: View {
                             .font(.system(size: 13)).foregroundStyle(JcTheme.muted)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    Button {
-                        Task {
-                            guard let session = hub.device?.session else { return }
-                            if sim.hw.streaming { try? await session.stopLive() } else { try? await session.startLive() }
+                    HStack(spacing: 8) {
+                        Button {
+                            Task {
+                                guard let session = hub.device?.session else { return }
+                                if sim.hw.streaming {
+                                    try? await session.stopLive()
+                                } else {
+                                    try? await session.startLive()
+                                    if sim.hw.streaming { watching = true }
+                                }
+                            }
+                        } label: {
+                            Label(sim.hw.streaming ? "Stop live" : "Start live", systemImage: sim.hw.streaming ? "stop.fill" : "dot.radiowaves.forward")
+                                .frame(maxWidth: .infinity, minHeight: 40)
                         }
-                    } label: {
-                        Label(sim.hw.streaming ? "Stop live" : "Start live", systemImage: sim.hw.streaming ? "stop.fill" : "dot.radiowaves.forward")
-                            .frame(maxWidth: .infinity, minHeight: 40)
+                        .buttonStyle(.jcGlass)
+                        if sim.hw.streaming {
+                            Button { watching = true } label: {
+                                Label("Watch live", systemImage: "arrow.up.left.and.arrow.down.right")
+                                    .frame(maxWidth: .infinity, minHeight: 40)
+                            }
+                            .buttonStyle(.jcGlass)
+                        }
                     }
-                    .buttonStyle(.jcGlass)
                 }
+            }
+        }
+        .fullScreenCover(isPresented: $watching) {
+            MetaLiveViewer(sim: sim) {
+                Task { try? await hub.device?.session.stopLive() }
             }
         }
     }

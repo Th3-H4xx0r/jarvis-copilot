@@ -15,6 +15,8 @@ protocol MetaCameraSource: AnyObject {
     /// Live frames (JPEG, ≤720×1280) until `stopLive()`.
     func startLive(onFrame: @escaping @MainActor (Data) -> Void) async throws
     func stopLive()
+    /// The running camera, for a smooth live preview of what the glasses stream (nil = test scenes).
+    var previewSession: AVCaptureSession? { get }
 }
 
 /// The fallback camera: drawn test scenes, so capture works with no camera (background, no
@@ -51,6 +53,7 @@ final class MetaTestSceneCamera: MetaCameraSource {
     }
 
     func stopLive() { liveTask?.cancel(); liveTask = nil }
+    var previewSession: AVCaptureSession? { nil }
 
     /// A simple, recognisable scene: a desk with a mug and a book under a window, a clock in the
     /// corner that moves with `frame`, and a caption — enough for vision to describe something.
@@ -202,8 +205,15 @@ final class MetaPhoneCamera: NSObject, MetaCameraSource {
         return url
     }
 
+    var previewSession: AVCaptureSession? { frameSink != nil ? session : nil }
+
     func startLive(onFrame: @escaping @MainActor (Data) -> Void) async throws {
         try await ensureRunning()
+        // The glasses stream 720×1280: hold the camera to that while live, so the preview is the
+        // stream, not the phone's full-quality camera.
+        session.beginConfiguration()
+        if session.canSetSessionPreset(.hd1280x720) { session.sessionPreset = .hd1280x720 }
+        session.commitConfiguration()
         let sink = FrameSink(onFrame: onFrame)
         frameSink = sink
         videoOutput.setSampleBufferDelegate(sink, queue: queue)
@@ -212,6 +222,11 @@ final class MetaPhoneCamera: NSObject, MetaCameraSource {
     func stopLive() {
         videoOutput.setSampleBufferDelegate(nil, queue: nil)
         frameSink = nil
+        if configured {
+            session.beginConfiguration()
+            if session.canSetSessionPreset(.photo) { session.sessionPreset = .photo }
+            session.commitConfiguration()
+        }
         stopIfIdle()
     }
 
@@ -294,4 +309,5 @@ final class MetaSimCamera: MetaCameraSource {
     }
 
     func stopLive() { liveWith?.stopLive(); liveWith = nil }
+    var previewSession: AVCaptureSession? { liveWith?.previewSession }
 }

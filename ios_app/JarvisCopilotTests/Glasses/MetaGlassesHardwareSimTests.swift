@@ -389,6 +389,42 @@ final class MetaGlassesAssistantTests: XCTestCase {
                       "the done chime plays BEFORE the mic is released — releasing the session cut it off (2026-11-22)")
     }
 
+    func testTheAssistantHoldsTheBackgroundSafeSessionThroughTheTurn() async throws {
+        // Same plan as the record-ready keepalive, so a ring press from the background switches
+        // nothing, and it outranks the turn's playback claim.
+        XCTAssertEqual(AudioSessionArbiter.plan(for: [.glassesSim]), AudioSessionArbiter.mixedVoicePlan)
+        XCTAssertEqual(AudioSessionArbiter.plan(for: [.glassesSim, .externalVoice, .keepalive]), AudioSessionArbiter.mixedVoicePlan)
+        XCTAssertEqual(AudioSessionArbiter.keepaliveRecordReadyPlan.category, AudioSessionArbiter.mixedVoicePlan.category)
+        XCTAssertEqual(AudioSessionArbiter.keepaliveRecordReadyPlan.options, AudioSessionArbiter.mixedVoicePlan.options)
+
+        let sim = SimulatedGlassesTransport(autoTick: false)
+        try await sim.connect()
+        var claims: [Bool] = []
+        sim.assistantSession = { claims.append($0) }
+        sim.earcon = FakeEarcon()
+        sim.questionCapture = FakeCapture(Data(count: 32_000))
+        try await sim.openAssistant(source: .touch)
+        XCTAssertEqual(claims, [true], "held through the turn, not released when the question is captured")
+        try await sim.send(.closeAssistant)
+        XCTAssertEqual(claims, [true, false], "released once the turn closes")
+    }
+
+    func testARefusedMicClaimReportsInsteadOfCuttingTheChime() async throws {
+        let sim = SimulatedGlassesTransport(autoTick: false)
+        try await sim.connect()
+        let chime = FakeEarcon()
+        sim.earcon = chime
+        sim.questionCapture = FakeCapture(Data(count: 32_000))
+        sim.assistantSession = { hold in if hold { throw NSError(domain: "AVAudioSession", code: 560557684) } }
+        do {
+            try await sim.openAssistant(source: .touch)
+            XCTFail("a refused session must surface")
+        } catch MetaGlassesError.refused(let why) {
+            XCTAssertTrue(why.contains("Couldn't open the microphone"), why)
+        }
+        XCTAssertEqual(chime.played, [], "no chime into a session that was refused")
+    }
+
     func testNoQuestionClosesTheAssistantWithoutATurn() async throws {
         let sim = SimulatedGlassesTransport(autoTick: false)
         try await sim.connect()

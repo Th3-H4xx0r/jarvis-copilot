@@ -638,7 +638,7 @@
 		6D66B9555A176C2465EFB313 /* CodingModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE2C930EE26524211A99CB60 /* CodingModelsTests.swift */; };
 		6D76F7332ADAE58646AFF8F2 /* HealthOutbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3E804F54FD960243693BFCF /* HealthOutbox.swift */; };
 		6D9A244A8A5EB5A936E838B3 /* MetaWakeChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF01D221F3E3D2B5377A59FF /* MetaWakeChannel.swift */; };
-		7F95D69EFD7F906FAD1013BE /* MetaSimQuestionCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 809B77ED3B76C35D25044E96 /* MetaSimQuestionCapture.swift */; };
+		FAAFD569DD6EC0F8DEF6C4D6 /* MetaLiveViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 636EB86F921F64FB7B06D567 /* MetaLiveViewer.swift */; };
 		6DAC47F07BFA8F679FA440C0 /* HoloDropIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 768C0BFB517B5A212496BBCD /* HoloDropIntents.swift */; };
 		6DCDE91F906558F0FE5D6489 /* JcRefreshLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC314DB579B933FC4D52806E /* JcRefreshLoaderTests.swift */; };
 		6E0CD5588652A4DF91BF504C /* ControlPushTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6DD83A867F696CE5B2005B8 /* ControlPushTokens.swift */; };
@@ -736,6 +736,7 @@
 		7F075BF1A809BE2EB56F9D66 /* JarvisAPITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE3C5004FED17ED37904FEF2 /* JarvisAPITests.swift */; };
 		7F0D1EC99BDAC02ED231AF9E /* CodeMasterSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C58855F644EDBACEFB94CCAF /* CodeMasterSettingsStore.swift */; };
 		7F7D175E2185C32746843217 /* CodingStreamReducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F378D5D8B36967174380748 /* CodingStreamReducer.swift */; };
+		7F95D69EFD7F906FAD1013BE /* MetaSimQuestionCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 809B77ED3B76C35D25044E96 /* MetaSimQuestionCapture.swift */; };
 		7F96BA9FD201B0D2AD964774 /* InmoVideoMerger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91EFB9FCA81411CA9AADAEE1 /* InmoVideoMerger.swift */; };
 		8035CBAC661097940B053C1E /* MetaGlassesSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1841FE9B17461B0B137D5711 /* MetaGlassesSession.swift */; };
 		8075F033A6C81EB43976A1F7 /* RingWorkoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05020FDF91A61E75B981519B /* RingWorkoutTests.swift */; };
@@ -2201,6 +2202,7 @@
 		8023D162C95F038AAE3D644A /* Composer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Composer.swift; sourceTree = "<group>"; };
 		80590D4742A1BA31D2A3DF28 /* LiveActivityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveActivityTests.swift; sourceTree = "<group>"; };
 		807497AB969C63BAC1B273F7 /* DoorApprovals.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DoorApprovals.swift; sourceTree = "<group>"; };
+		809B77ED3B76C35D25044E96 /* MetaSimQuestionCapture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaSimQuestionCapture.swift; sourceTree = "<group>"; };
 		81262E1F9AA52CFC4E1C3B27 /* AgentDecisionViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentDecisionViews.swift; sourceTree = "<group>"; };
 		816B30A855755443F38F842C /* MemoryNodeSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MemoryNodeSheet.swift; sourceTree = "<group>"; };
 		8177A1231175A9E0F4499261 /* LiveSpool.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveSpool.swift; sourceTree = "<group>"; };
@@ -2737,7 +2739,7 @@
 		DEAAD503A0211420989E05FC /* CostsCharts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CostsCharts.swift; sourceTree = "<group>"; };
 		DEF634F684255E22206A46C5 /* WearableControlsSection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableControlsSection.swift; sourceTree = "<group>"; };
 		DF01D221F3E3D2B5377A59FF /* MetaWakeChannel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaWakeChannel.swift; sourceTree = "<group>"; };
-		809B77ED3B76C35D25044E96 /* MetaSimQuestionCapture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaSimQuestionCapture.swift; sourceTree = "<group>"; };
+		636EB86F921F64FB7B06D567 /* MetaLiveViewer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaLiveViewer.swift; sourceTree = "<group>"; };
 		DF1C549B7CA16A17E29DE99C /* WidgetDesigns.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetDesigns.swift; sourceTree = "<group>"; };
 		DF1FC5DD16021AA9D36986EF /* TrainingSync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TrainingSync.swift; sourceTree = "<group>"; };
 		DF35BD612E7FA661FE43D21E /* OnDeviceAI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnDeviceAI.swift; sourceTree = "<group>"; };
@@ -3997,6 +3999,7 @@
 			children = (
 				050B74AC490381D23136672A /* MetaGlassesView.swift */,
 				69A99EDDAD2709D7C033BD96 /* MetaSimPanels.swift */,
+				636EB86F921F64FB7B06D567 /* MetaLiveViewer.swift */,
 				94FE1F357EFD70A0E8DF883B /* MetaGlassesHaptics.swift */,
 				75919F93003C9E4EB4F58857 /* MetaWakeEnrolmentView.swift */,
 			);
@@ -6798,6 +6801,7 @@
 				825D188B5D2F771A8CEC0BFC /* SimulatedGlassesTransport.swift in Sources */,
 				20E4AE11832860C85BC2F12B /* MetaGlassesTransport.swift in Sources */,
 				6D9A244A8A5EB5A936E838B3 /* MetaWakeChannel.swift in Sources */,
+				FAAFD569DD6EC0F8DEF6C4D6 /* MetaLiveViewer.swift in Sources */,
 				7F95D69EFD7F906FAD1013BE /* MetaSimQuestionCapture.swift in Sources */,
 				5AFF07F207A718160033800E /* MetaGlassesHaptics.swift in Sources */,
 				B75BC8DCED8ED18E2A8491A5 /* MetaSimWakeListener.swift in Sources */,

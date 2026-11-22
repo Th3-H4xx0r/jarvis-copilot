@@ -339,7 +339,11 @@ final class AppServices {
         // Once he uses it, the keepalive holds a recordable session so a press only has
         // to switch the mic on — the one thing iOS lets a backgrounded app do.
         let armedKey = "jc.talkHere.armed"
-        AudioSessionArbiter.keepaliveRecordReady = { UserDefaults.standard.bool(forKey: armedKey) }
+        // Also while the Meta glasses simulator is on: its assistant can open from a ring press with
+        // the phone locked, like the real glasses', and only a recordable session allows that.
+        AudioSessionArbiter.keepaliveRecordReady = {
+            UserDefaults.standard.bool(forKey: armedKey) || MetaGlassesHub.shared.device != nil
+        }
         // Never with CarPlay: a recordable session there opens the car's voice channel.
         AudioSessionArbiter.keepaliveAvoidsRecording = { CarPresence.carAudioRoute }
         let talkHere = TalkHere(voice: VoiceStore.shared,

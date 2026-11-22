@@ -14,16 +14,23 @@ protocol MetaQuestionCapturing: AnyObject {
 final class MetaPhoneQuestionCapture: MetaQuestionCapturing {
     /// Below this (dBFS) counts as quiet.
     static let speechThreshold: Float = -38
+    /// The simulator already holds `.glassesSim` for the whole assistant turn; a standalone capture
+    /// takes it itself.
+    let claimsSession: Bool
+
+    init(claimsSession: Bool = false) {
+        self.claimsSession = claimsSession
+    }
 
     func captureQuestion(beforeRelease: (() -> Int)?) async throws -> Data {
         guard await AVAudioApplication.requestRecordPermission() else {
             throw MetaGlassesError.transportUnavailable("microphone permission is off")
         }
-        try AudioSessionArbiter.shared.hold(.recording)
+        if claimsSession { try AudioSessionArbiter.shared.hold(.glassesSim) }
         MetaGlassesHaptics.allowWhileRecording(true)
         defer {
             MetaGlassesHaptics.allowWhileRecording(false)
-            try? AudioSessionArbiter.shared.release(.recording)
+            if claimsSession { try? AudioSessionArbiter.shared.release(.glassesSim) }
         }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("meta-sim-ask-\(UUID().uuidString).wav")
         defer { try? FileManager.default.removeItem(at: url) }

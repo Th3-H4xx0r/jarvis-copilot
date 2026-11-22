@@ -301,7 +301,13 @@ final class AudioSessionArbiterTests: XCTestCase {
         let withExternal = (expected + withPlayback + withMixed + withCar).map { holders, _ in
             (holders.union([AudioSessionClient.externalVoice]), AudioSessionArbiter.playbackPlan)
         }
-        let all = expected + withPlayback + withMixed + withCar + withExternal
+        // The Meta glasses simulator's assistant outranks everything: its plan is the record-ready
+        // keepalive's exactly, so a ring press from the background (and the turn after it) never
+        // switches the session — iOS refuses any switch there.
+        let withGlassesSim = (expected + withPlayback + withMixed + withCar + withExternal).map { holders, _ in
+            (holders.union([AudioSessionClient.glassesSim]), AudioSessionArbiter.mixedVoicePlan)
+        }
+        let all = expected + withPlayback + withMixed + withCar + withExternal + withGlassesSim
         XCTAssertEqual(all.count, 1 << AudioSessionClient.allCases.count, "a client was added without a row here")
         for (holders, plan) in all {
             XCTAssertEqual(AudioSessionArbiter.plan(for: holders), plan, "\(holders)")

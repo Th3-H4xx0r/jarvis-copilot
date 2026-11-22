@@ -65,6 +65,10 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
     @Published private(set) var storage: [MetaStoredMedia] = []
     @Published private(set) var imported: [MetaStoredMedia] = []
     @Published private(set) var latestLiveFrame: Data?
+    /// When the live stream started, and why it last ended (shown by the live viewer).
+    @Published private(set) var liveStartedAt: Date?
+    @Published private(set) var liveEndReason: String?
+    var livePreviewSession: AVCaptureSession? { camera.previewSession }
     /// The capture LED is lit (recording, streaming, or a photo's blink).
     @Published private(set) var ledLit = false
     /// Media import / live view moved the phone onto the glasses' Wi-Fi (server traffic → cellular).
@@ -102,6 +106,16 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
     var earcon: EarconPlaying?
     /// The assistant is open and listening for a question.
     @Published private(set) var capturingQuestion = false
+    /// Holds (true) / releases (false) the audio session the assistant turn runs in — the hub wires
+    /// it to `AudioSessionArbiter` `.glassesSim`; nil in tests.
+    var assistantSession: ((Bool) throws -> Void)?
+    private var holdsAssistantSession = false
+
+    private func releaseAssistantSession() {
+        guard holdsAssistantSession else { return }
+        holdsAssistantSession = false
+        try? assistantSession?(false)
+    }
 
     /// Every frame the session sent down, in order — the assertion surface for tests.
     private(set) var sentFrames: [GlassesFrame] = []
@@ -176,6 +190,7 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
             speaking = false
             stopStreaming()
             settleFocus()
+            releaseAssistantSession()          // the turn is over: let the session go back
         case .capturePhoto(let question):
             try await takePhoto(source: .jarvis, question: question, emit: true)
         case .startVideo(let seconds):
@@ -277,6 +292,8 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
         if hw.streaming { return }
         if let reason = hw.captureRefusal(bytesNeeded: 0) { throw refuse(.startLiveStream, reason) }
         hw.streaming = true
+        liveStartedAt = Date()
+        liveEndReason = nil
         ledLit = true
         phoneOnGlassesWiFi = true
         show(.camera, .recording, for: nil)
@@ -293,6 +310,8 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
         hw.streaming = false
         camera.stopLive()
         latestLiveFrame = nil
+        liveStartedAt = nil
+        liveEndReason = reason ?? "Stopped"
         phoneOnGlassesWiFi = false
         if hw.recording == nil { ledLit = false }
         settleFocus()
@@ -605,6 +624,18 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
             throw MetaGlassesError.refused(reason)
         }
         guard !capturingQuestion else { return }
+        // The session first (same plan as the record-ready keepalive: nothing switches, even from
+        // the background), then the chime in it — so neither the claim nor the turn cuts it off.
+        if let assistantSession, !holdsAssistantSession {
+            do {
+                try assistantSession(true)
+                holdsAssistantSession = true
+            } catch {
+                let why = "Couldn't open the microphone: \(error.localizedDescription)"
+                feed.log(source, "Assistant", detail: why, outcome: .refused(why))
+                throw MetaGlassesError.refused(why)
+            }
+        }
         earcon?.play(.listening)
         listening = true
         show(.mic, .listening, for: nil)
@@ -624,16 +655,19 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
                 self?.earcon?.play(.thinking) ?? 0
             })
         } catch {
-            earcon?.play(.thinking)
+            let holdMs = earcon?.play(.thinking) ?? 0
             listening = false
             settleFocus()
             feed.log(.glasses, "Assistant closed", detail: error.localizedDescription, outcome: .info)
+            try? await Task.sleep(for: .milliseconds(holdMs))     // let the chime finish first
+            releaseAssistantSession()
             throw error
         }
         guard pcm.count >= 3_200 else {
             listening = false
             settleFocus()
             feed.log(.glasses, "Assistant closed", detail: "Didn't hear a question", outcome: .info)
+            releaseAssistantSession()
             return
         }
         continuation.yield(.wake)

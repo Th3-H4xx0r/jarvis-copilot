@@ -48,6 +48,11 @@ enum AudioSessionClient: CaseIterable, Sendable {
     case ambient
     /// Playing a recording back (a Jarvis Pod clip).
     case playback
+    /// The Meta glasses simulator's assistant: its stand-in mics (the phone's) and the turn that
+    /// follows. `mixedVoicePlan` exactly — the record-ready keepalive's plan — so a ring press from
+    /// the background switches nothing (iOS refuses any switch there, '!int'), and it outranks
+    /// `.externalVoice` so the glasses turn doesn't switch to `playbackPlan` mid-way.
+    case glassesSim
 }
 
 #if os(iOS)
@@ -306,6 +311,7 @@ final class AudioSessionArbiter {
         sampleRate: liveSampleRate, ioBufferDuration: 0.1)
 
     static func plan(for holders: Set<AudioSessionClient>) -> AudioSessionPlan {
+        if holders.contains(.glassesSim) { return mixedVoicePlan }
         if holders.contains(.externalVoice) { return playbackPlan }
         if holders.contains(.carVoice) { return carVoicePlan }
         if holders.contains(.mixedVoice) { return mixedVoicePlan }

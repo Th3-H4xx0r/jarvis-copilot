@@ -30,6 +30,9 @@ final class MetaGlassesHub: ObservableObject {
         sim.wakeDefaults = .standard
         sim.saveToPhotos = { item in try await Self.addToPhotos(item) }
         sim.questionCapture = MetaPhoneQuestionCapture()
+        sim.assistantSession = { hold in
+            if hold { try AudioSessionArbiter.shared.hold(.glassesSim) } else { try AudioSessionArbiter.shared.release(.glassesSim) }
+        }
         sim.earcon = ToneEarconPlayer()
         // No mediaKeys: the sim's touchpad drives the SIMULATED music only. Real media keys run
         // through iOS Shortcuts on iOS 27 and yanked him into the Shortcuts app (2026-11-22).
@@ -71,6 +74,7 @@ final class MetaGlassesHub: ObservableObject {
                                              model: MetaGlassesDevice.model)
         do { try await glasses.session.start() }
         catch { feed.log(.glasses, "Couldn't start the simulated glasses", detail: error.localizedDescription, outcome: .info) }
+        armKeepaliveForTheAssistant()
         // A background launch gets no didEnterBackground: start paused, catch up on foreground.
         if UIApplication.shared.applicationState == .background { simulator.pauseTicking() }
     }
@@ -109,12 +113,22 @@ final class MetaGlassesHub: ObservableObject {
         observers.append(center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let sim = self?.simulatorIfStarted else { return }
+                self?.armKeepaliveForTheAssistant()
                 Task { await sim.resumeTicking() }
             }
         })
     }
 
     private var simulatorIfStarted: SimulatedGlassesTransport? { device?.transport as? SimulatedGlassesTransport }
+
+    /// While the app is in front, put the keepalive on its recordable plan (keepaliveRecordReady is
+    /// true while the sim is on): from the background iOS refuses that switch ('!pri'/'!int'), and
+    /// the ring's assistant needs it already in place. Re-claiming the keepalive re-applies its plan.
+    private func armKeepaliveForTheAssistant() {
+        guard UIApplication.shared.applicationState != .background,
+              AudioSessionArbiter.shared.holds(.keepalive) else { return }
+        try? AudioSessionArbiter.shared.hold(.keepalive)
+    }
 
     // MARK: Touch bindings (a Jarvis action on top of the glasses' own default)
 
