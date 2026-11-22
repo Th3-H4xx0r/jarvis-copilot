@@ -638,7 +638,6 @@
 		6D66B9555A176C2465EFB313 /* CodingModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE2C930EE26524211A99CB60 /* CodingModelsTests.swift */; };
 		6D76F7332ADAE58646AFF8F2 /* HealthOutbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3E804F54FD960243693BFCF /* HealthOutbox.swift */; };
 		6D9A244A8A5EB5A936E838B3 /* MetaWakeChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF01D221F3E3D2B5377A59FF /* MetaWakeChannel.swift */; };
-		FAAFD569DD6EC0F8DEF6C4D6 /* MetaLiveViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 636EB86F921F64FB7B06D567 /* MetaLiveViewer.swift */; };
 		6DAC47F07BFA8F679FA440C0 /* HoloDropIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 768C0BFB517B5A212496BBCD /* HoloDropIntents.swift */; };
 		6DCDE91F906558F0FE5D6489 /* JcRefreshLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC314DB579B933FC4D52806E /* JcRefreshLoaderTests.swift */; };
 		6E0CD5588652A4DF91BF504C /* ControlPushTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6DD83A867F696CE5B2005B8 /* ControlPushTokens.swift */; };
@@ -1419,6 +1418,7 @@
 		F9C0ADE306D91C71841AFE90 /* ActionPickerIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00AEAF03D07E3A83BB0A5E0 /* ActionPickerIndex.swift */; };
 		F9C22A26ABDAED60FA00A4E5 /* PhoneSkillsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7641CE63B1EC9EF88B73DBA1 /* PhoneSkillsTests.swift */; };
 		FAA13246D507952FFAC7EFC6 /* InmoAudioInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3771BFE92BFF9E51989080E6 /* InmoAudioInput.swift */; };
+		FAAFD569DD6EC0F8DEF6C4D6 /* MetaLiveViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 636EB86F921F64FB7B06D567 /* MetaLiveViewer.swift */; };
 		FAB223399DCA586D0D0FB081 /* CrashNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BE871907602BDD31622513 /* CrashNote.swift */; };
 		FAB461C2B9B4BB4CCD5E1530 /* ControlButtons.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF61F4EA6282E9423F771747 /* ControlButtons.swift */; };
 		FAF1DDCF607FE1998A28197B /* CarPlayVoiceScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6531F8C4C3530070F63F1369 /* CarPlayVoiceScreen.swift */; };
@@ -2051,6 +2051,7 @@
 		631EAF6F191E88C12F1527B6 /* IMessageChatMemoriesView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IMessageChatMemoriesView.swift; sourceTree = "<group>"; };
 		6351F42356D9E8EF6FBA3C3E /* RingMetricCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingMetricCard.swift; sourceTree = "<group>"; };
 		636315DA1BBAF9F563DF7781 /* RingSyncTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingSyncTests.swift; sourceTree = "<group>"; };
+		636EB86F921F64FB7B06D567 /* MetaLiveViewer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaLiveViewer.swift; sourceTree = "<group>"; };
 		63887C448399483B4F0D6B33 /* SpeechEngineAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpeechEngineAPI.swift; sourceTree = "<group>"; };
 		63C19CBD9D4779071594DC9E /* PcStatsHistory.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PcStatsHistory.swift; sourceTree = "<group>"; };
 		63EC0A1F1264D5B4FE16464F /* ChatAttachmentsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatAttachmentsTests.swift; sourceTree = "<group>"; };
@@ -2739,7 +2740,6 @@
 		DEAAD503A0211420989E05FC /* CostsCharts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CostsCharts.swift; sourceTree = "<group>"; };
 		DEF634F684255E22206A46C5 /* WearableControlsSection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableControlsSection.swift; sourceTree = "<group>"; };
 		DF01D221F3E3D2B5377A59FF /* MetaWakeChannel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaWakeChannel.swift; sourceTree = "<group>"; };
-		636EB86F921F64FB7B06D567 /* MetaLiveViewer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaLiveViewer.swift; sourceTree = "<group>"; };
 		DF1C549B7CA16A17E29DE99C /* WidgetDesigns.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetDesigns.swift; sourceTree = "<group>"; };
 		DF1FC5DD16021AA9D36986EF /* TrainingSync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TrainingSync.swift; sourceTree = "<group>"; };
 		DF35BD612E7FA661FE43D21E /* OnDeviceAI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnDeviceAI.swift; sourceTree = "<group>"; };
