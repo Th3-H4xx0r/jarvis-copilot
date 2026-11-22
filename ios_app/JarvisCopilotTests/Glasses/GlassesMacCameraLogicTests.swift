@@ -139,4 +139,42 @@ final class GlassesMacCameraLogicTests: XCTestCase {
         m.connected()
         return m
     }
+
+    // MARK: Raw frames (only WebRTC compresses them)
+
+    private func pixels() -> CVPixelBuffer {
+        var out: CVPixelBuffer?
+        CVPixelBufferCreate(nil, 720, 1280, kCVPixelFormatType_32BGRA, nil, &out)
+        return out!
+    }
+
+    func testRawFramesGoToTheConnectedMacAndMarkThemselvesRecent() {
+        let feed = GlassesRawFeed()
+        XCTAssertFalse(feed.recent)
+        var sent = 0
+        feed.setTarget { _ in sent += 1 }
+        feed.push(pixels())
+        feed.push(pixels())
+        XCTAssertEqual(sent, 2)
+        XCTAssertTrue(feed.recent, "raw frames flowing: the JPEG path stands aside")
+    }
+
+    func testRawFramesWithNoMacConnectedGoNowhereButStillCount() {
+        let feed = GlassesRawFeed()
+        var sent = 0
+        feed.setTarget { _ in sent += 1 }
+        feed.setTarget(nil)
+        feed.push(pixels())
+        XCTAssertEqual(sent, 0)
+        XCTAssertTrue(feed.recent)
+    }
+
+    func testTheLivePixelTapReachesItsHandlerAndCanBeCleared() {
+        var got = 0
+        MetaLivePixels.setHandler { _ in got += 1 }
+        MetaLivePixels.deliver(pixels())
+        MetaLivePixels.setHandler(nil)
+        MetaLivePixels.deliver(pixels())
+        XCTAssertEqual(got, 1)
+    }
 }

@@ -10,8 +10,10 @@ import WebRTC
 /// Mac screen sharing run in reverse, on the same Jarvis server signalling and Cloudflare TURN
 /// relay (so the phone can be on cellular or another Wi-Fi): the Mac app asks with a "glasses"
 /// share while an app there uses its camera; this phone finds the request, joins it as the
-/// viewer and OFFERS a send-only video track fed with the glasses' live frames. It is fed from
-/// `MetaGlassesSession.onLiveFrame` — the transport's frames, simulator or real glasses alike.
+/// viewer and OFFERS a send-only video track fed with the glasses' live frames: raw frames from
+/// `MetaLivePixels` when the transport has them (only WebRTC's codec compresses them; the Mac
+/// decodes back to full frames), else the JPEGs from `MetaGlassesSession.onLiveFrame`, which
+/// also keep the connection logic going (live / not live), simulator or real glasses alike.
 @MainActor
 final class GlassesMacCamera: ObservableObject {
     static let shared = GlassesMacCamera()
@@ -38,6 +40,7 @@ final class GlassesMacCamera: ObservableObject {
     private var loop: Task<Void, Never>?
     private var peer: GlassesMacCameraPeer?
     private let pump = GlassesFramePump()
+    private let raw = GlassesRawFeed()
 
     init(api: JarvisAPI = .shared, defaults: UserDefaults = .standard) {
         self.api = api
@@ -45,13 +48,15 @@ final class GlassesMacCamera: ObservableObject {
         enabled = defaults.bool(forKey: Self.enabledKey)
         machine.enabled = enabled
         phase = machine.phase
+        MetaLivePixels.setHandler { [raw] pixels in raw.push(pixels) }
     }
 
     /// The publisher hook: every live frame the glasses send (JPEG ≤720×1280).
     func liveFrame(_ jpeg: Data) {
         lastFrameAt = Date()
         guard enabled else { return }
-        if peer != nil { pump.push(jpeg) }
+        // Raw frames flowing: those feed the track; the JPEG copy would only be worse.
+        if peer != nil, !raw.recent { pump.push(jpeg) }
         if !machine.glassesLive {
             machine.glassesLive = true
             step()
@@ -115,6 +120,7 @@ final class GlassesMacCamera: ObservableObject {
         }
         self.peer = peer
         pump.start { [weak peer] pixels in peer?.send(pixels) }
+        raw.setTarget { [weak peer] pixels in peer?.send(pixels) }
         Task { await peer.start() }
     }
 
@@ -122,6 +128,7 @@ final class GlassesMacCamera: ObservableObject {
         guard let peer else { return }
         self.peer = nil
         pump.stop()
+        raw.setTarget(nil)
         Task { await peer.stop(sayBye: sayBye) }
     }
 }
@@ -148,8 +155,8 @@ final class GlassesMacCameraPeer: NSObject {
     private var pendingCandidates: [RTCIceCandidate] = []
     private var stopped = false
 
-    /// The glasses stream 720×1280; cap what goes up so cellular and TURN keep up.
-    static let maxBitrate = 2_500_000
+    /// The glasses stream 720×1280 at 30 fps; cap what goes up so cellular and TURN keep up.
+    static let maxBitrate = 4_000_000
 
     private static let factory: RTCPeerConnectionFactory = {
         RTCInitializeSSL()
@@ -192,6 +199,8 @@ final class GlassesMacCameraPeer: NSObject {
             video.streamIds = ["jarvis-glasses"]
             if let sender = pc.addTransceiver(with: track, init: video)?.sender {
                 let params = sender.parameters
+                // Short of bandwidth, drop frames rather than pixels: a sharp picture on the Mac.
+                params.degradationPreference = NSNumber(value: RTCDegradationPreference.maintainResolution.rawValue)
                 for encoding in params.encodings {
                     encoding.maxBitrateBps = NSNumber(value: Self.maxBitrate)
                     encoding.maxFramerate = NSNumber(value: MetaGen2Profile.liveFPS)
@@ -315,6 +324,31 @@ extension GlassesMacCameraPeer: RTCPeerConnectionDelegate {
     nonisolated func peerConnection(_ pc: RTCPeerConnection, didChange newState: RTCIceGatheringState) {}
     nonisolated func peerConnection(_ pc: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
     nonisolated func peerConnection(_ pc: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {}
+}
+
+/// Raw live frames (MetaLivePixels, the capture queue) → the open peer's track, as they come.
+/// `recent` says raw frames are flowing, so the JPEG path stands aside.
+final class GlassesRawFeed: @unchecked Sendable {
+    private let lock = NSLock()
+    private var target: ((CVPixelBuffer) -> Void)?
+    private var lastAt: CFTimeInterval = 0
+
+    func setTarget(_ next: ((CVPixelBuffer) -> Void)?) {
+        lock.lock(); target = next; lock.unlock()
+    }
+
+    func push(_ pixels: CVPixelBuffer) {
+        lock.lock()
+        lastAt = CACurrentMediaTime()
+        let send = target
+        lock.unlock()
+        send?(pixels)
+    }
+
+    var recent: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return lastAt > 0 && CACurrentMediaTime() - lastAt < 1
+    }
 }
 
 /// Live frames (JPEG) → 720×1280 BGRA pixel buffers for the WebRTC track, off the main thread.

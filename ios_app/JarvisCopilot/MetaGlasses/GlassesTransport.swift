@@ -1,4 +1,25 @@
+import CoreVideo
 import Foundation
+
+/// The glasses' live video as raw, uncompressed frames (720×1280), for consumers that re-encode
+/// it themselves — the Mac's Jarvis Glasses camera hands these straight to WebRTC, so the only
+/// compression on the way to the Mac is the video codec, decoded back to full frames there.
+/// Any transport that has raw frames delivers them here (the simulator's iPhone camera does, on
+/// its capture queue, every frame); the JPEG `liveFrame` events stay the path for everything else.
+enum MetaLivePixels {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var handler: (@Sendable (CVPixelBuffer) -> Void)?
+
+    static func setHandler(_ next: (@Sendable (CVPixelBuffer) -> Void)?) {
+        lock.lock(); handler = next; lock.unlock()
+    }
+
+    /// From any thread. Cheap when nobody listens.
+    static func deliver(_ pixels: CVPixelBuffer) {
+        lock.lock(); let h = handler; lock.unlock()
+        h?(pixels)
+    }
+}
 
 /// The lifecycle state of a glasses link, as the session sees it through a `GlassesTransport`.
 ///

@@ -230,7 +230,8 @@ final class MetaPhoneCamera: NSObject, MetaCameraSource {
         stopIfIdle()
     }
 
-    /// Turns camera frames into ~10 fps JPEGs at most 720 wide.
+    /// Every camera frame raw to `MetaLivePixels` (the Mac camera's WebRTC feed, 30 fps), and
+    /// ~10 fps JPEGs at most 720 wide for Jarvis's look and the screens.
     private final class FrameSink: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
         private let onFrame: @MainActor (Data) -> Void
         private let context = CIContext()
@@ -238,14 +239,16 @@ final class MetaPhoneCamera: NSObject, MetaCameraSource {
         init(onFrame: @escaping @MainActor (Data) -> Void) { self.onFrame = onFrame }
 
         func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+            guard let pixels = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+            MetaLivePixels.deliver(pixels)
             let now = Date()
-            guard now.timeIntervalSince(last) > 0.1, let pixels = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+            guard now.timeIntervalSince(last) > 0.1 else { return }
             last = now
             var image = CIImage(cvPixelBuffer: pixels)
             let scale = min(1, CGFloat(MetaGen2Profile.liveWidth) / image.extent.width)
             image = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
             guard let cg = context.createCGImage(image, from: image.extent),
-                  let jpeg = UIImage(cgImage: cg).jpegData(compressionQuality: 0.6) else { return }
+                  let jpeg = UIImage(cgImage: cg).jpegData(compressionQuality: 0.85) else { return }
             Task { @MainActor in self.onFrame(jpeg) }
         }
     }
