@@ -544,6 +544,7 @@
 		5BD75D6A19FB8522AEAED409 /* MLXEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25BC2D0813C28A68510582A0 /* MLXEngine.swift */; };
 		5C1C35ED7B8066DD08B04741 /* ExerciseDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB853687443BF6D01424F199 /* ExerciseDetailView.swift */; };
 		5C1EED087E29D3A73FCA220E /* LiveActivityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80590D4742A1BA31D2A3DF28 /* LiveActivityTests.swift */; };
+		5C20D484997CE3195A4D3405 /* MetaWakeEnrolmentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75919F93003C9E4EB4F58857 /* MetaWakeEnrolmentView.swift */; };
 		5C600257B309EB476B42CCEB /* DoorHubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9072B9A9E9BAF1EC1542C2B /* DoorHubView.swift */; };
 		5C674B727FFC931415A30AD6 /* SpotifyRemote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2131295D6C8DC5C1BF8B911B /* SpotifyRemote.swift */; };
 		5CBC0A873379960BE356096F /* HabitMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90434BA821E195A628F6EBA8 /* HabitMath.swift */; };
@@ -551,6 +552,7 @@
 		5CCAE536BF3E0C5DF43817F7 /* DashcamSyncAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF92DEBDA1CDCB88B6640D5B /* DashcamSyncAttributes.swift */; };
 		5D4629C3E9509FBD8063CB0D /* VoiceEarconSounds.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76731B2A41E4AC8774F702F3 /* VoiceEarconSounds.swift */; };
 		5DC3ACD77FC8018DB10408B9 /* StrengthSummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ABE242D91A7C647AC3E0274 /* StrengthSummaryView.swift */; };
+		5E1C0E3577C90D2ACA4C948B /* MetaGlassesFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 461727C0FB9725D55B8B9DA5 /* MetaGlassesFocus.swift */; };
 		5E82399C497FFA5F0FBB064F /* MemoryNodeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 816B30A855755443F38F842C /* MemoryNodeSheet.swift */; };
 		5EEE51CB407DD2E09584391A /* BackgroundLocationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BE58BC58204FA185D02F46C /* BackgroundLocationTests.swift */; };
 		5EF53A822CE4BC8B55A6D562 /* VoiceStoreTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F449B9A02840155A5FAD6C5 /* VoiceStoreTransportTests.swift */; };
@@ -635,9 +637,6 @@
 		6D66B9555A176C2465EFB313 /* CodingModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE2C930EE26524211A99CB60 /* CodingModelsTests.swift */; };
 		6D76F7332ADAE58646AFF8F2 /* HealthOutbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3E804F54FD960243693BFCF /* HealthOutbox.swift */; };
 		6D9A244A8A5EB5A936E838B3 /* MetaWakeChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF01D221F3E3D2B5377A59FF /* MetaWakeChannel.swift */; };
-		B75BC8DCED8ED18E2A8491A5 /* MetaSimWakeListener.swift in Sources */ = {isa = PBXBuildFile; fileRef = F399F3A2DFE44F21D1C7AC96 /* MetaSimWakeListener.swift */; };
-		5C20D484997CE3195A4D3405 /* MetaWakeEnrolmentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75919F93003C9E4EB4F58857 /* MetaWakeEnrolmentView.swift */; };
-		5E1C0E3577C90D2ACA4C948B /* MetaGlassesFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 461727C0FB9725D55B8B9DA5 /* MetaGlassesFocus.swift */; };
 		6DAC47F07BFA8F679FA440C0 /* HoloDropIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 768C0BFB517B5A212496BBCD /* HoloDropIntents.swift */; };
 		6DCDE91F906558F0FE5D6489 /* JcRefreshLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC314DB579B933FC4D52806E /* JcRefreshLoaderTests.swift */; };
 		6E0CD5588652A4DF91BF504C /* ControlPushTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6DD83A867F696CE5B2005B8 /* ControlPushTokens.swift */; };
@@ -1037,6 +1036,7 @@
 		B6DAE4A6340E0007944E594E /* CarLights.json in Resources */ = {isa = PBXBuildFile; fileRef = 68E47505B4129BAAF9A3D2A4 /* CarLights.json */; };
 		B6EEF3001FF1DA174A7C57E5 /* JarvisAlarmMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89F3F4C3C872FDEE46671EE6 /* JarvisAlarmMetadata.swift */; };
 		B702131C489F94D2E5DF658D /* AgentLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA3B787CD98A2B37225ADAD4 /* AgentLiveActivity.swift */; };
+		B75BC8DCED8ED18E2A8491A5 /* MetaSimWakeListener.swift in Sources */ = {isa = PBXBuildFile; fileRef = F399F3A2DFE44F21D1C7AC96 /* MetaSimWakeListener.swift */; };
 		B777422940BE057265208DDB /* X5Sync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A3A19FD77D7466DE72F90D /* X5Sync.swift */; };
 		B7855CFF3F28D8DE39AEDFB2 /* CarCardText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 132AAD600C97329A4954EDA6 /* CarCardText.swift */; };
 		B78D5B847FD1F3528F44C11E /* JarvisHoloShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DD80089930D4CB5A47021151 /* JarvisHoloShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -1905,6 +1905,7 @@
 		451350B37D84B249122DE911 /* DevicesModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicesModels.swift; sourceTree = "<group>"; };
 		45276929EF59EC622826D74A /* RestAlerts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RestAlerts.swift; sourceTree = "<group>"; };
 		453F1881C3D4B7E9F8509168 /* ScaleUploader.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScaleUploader.swift; sourceTree = "<group>"; };
+		461727C0FB9725D55B8B9DA5 /* MetaGlassesFocus.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaGlassesFocus.swift; sourceTree = "<group>"; };
 		46281B10334F79EC91894C69 /* QuotaModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuotaModels.swift; sourceTree = "<group>"; };
 		4677EEC94EFD9C78159311E7 /* DashcamShare.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamShare.swift; sourceTree = "<group>"; };
 		467C4CA86BD7FC595DAB93F1 /* JarvisDesignRenderer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisDesignRenderer.swift; sourceTree = "<group>"; };
@@ -2140,6 +2141,7 @@
 		7507DD7EB111403DAA984979 /* CarClimateScreen.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarClimateScreen.swift; sourceTree = "<group>"; };
 		7541361D0B163C7747D739AC /* PodVoiceChoice.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PodVoiceChoice.swift; sourceTree = "<group>"; };
 		757E6E4DC681F671F3A08667 /* PcLightingSection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PcLightingSection.swift; sourceTree = "<group>"; };
+		75919F93003C9E4EB4F58857 /* MetaWakeEnrolmentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaWakeEnrolmentView.swift; sourceTree = "<group>"; };
 		759B24B05CBEB87E6E16FFCA /* ControlPushTokenUploader.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ControlPushTokenUploader.swift; sourceTree = "<group>"; };
 		761F447336B9D6435436D928 /* ChatPageSmokeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatPageSmokeTests.swift; sourceTree = "<group>"; };
 		7641CE63B1EC9EF88B73DBA1 /* PhoneSkillsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhoneSkillsTests.swift; sourceTree = "<group>"; };
@@ -2732,9 +2734,6 @@
 		DEAAD503A0211420989E05FC /* CostsCharts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CostsCharts.swift; sourceTree = "<group>"; };
 		DEF634F684255E22206A46C5 /* WearableControlsSection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableControlsSection.swift; sourceTree = "<group>"; };
 		DF01D221F3E3D2B5377A59FF /* MetaWakeChannel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaWakeChannel.swift; sourceTree = "<group>"; };
-		F399F3A2DFE44F21D1C7AC96 /* MetaSimWakeListener.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaSimWakeListener.swift; sourceTree = "<group>"; };
-		75919F93003C9E4EB4F58857 /* MetaWakeEnrolmentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaWakeEnrolmentView.swift; sourceTree = "<group>"; };
-		461727C0FB9725D55B8B9DA5 /* MetaGlassesFocus.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaGlassesFocus.swift; sourceTree = "<group>"; };
 		DF1C549B7CA16A17E29DE99C /* WidgetDesigns.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetDesigns.swift; sourceTree = "<group>"; };
 		DF1FC5DD16021AA9D36986EF /* TrainingSync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TrainingSync.swift; sourceTree = "<group>"; };
 		DF35BD612E7FA661FE43D21E /* OnDeviceAI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnDeviceAI.swift; sourceTree = "<group>"; };
@@ -2841,6 +2840,7 @@
 		F31D99C4B49E168C0F57EB33 /* VaultBlocklist.generated.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VaultBlocklist.generated.swift; sourceTree = "<group>"; };
 		F3471BCE9CDA03A53E0C21E8 /* LensCaptionSurface.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LensCaptionSurface.swift; sourceTree = "<group>"; };
 		F3930D1FDDC8450259305F67 /* TestSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
+		F399F3A2DFE44F21D1C7AC96 /* MetaSimWakeListener.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaSimWakeListener.swift; sourceTree = "<group>"; };
 		F3BDE9ADEF6B1D97AC450859 /* ContextSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContextSnapshot.swift; sourceTree = "<group>"; };
 		F3E8F5991D4BD202A8734F02 /* RdpClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RdpClient.swift; sourceTree = "<group>"; };
 		F417A42373CEB73AA107565D /* ButtonKey.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ButtonKey.swift; sourceTree = "<group>"; };
