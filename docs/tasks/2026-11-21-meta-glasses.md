@@ -97,6 +97,14 @@ His asks: a full simulator he uses until the glasses arrive. Jarvis drives it li
 23. [x] His ask: "a live video stream as well on phone which emulates what the glasses sends". Fix: full-screen MetaLiveViewer: the iPhone camera held to the glasses' 720×1280 live format (session preset while live), smooth preview, LIVE + time, format, battery/heat, Wi-Fi note, Stop; shows why the stream ended (LED/heat/battery). Opens on Start live; "Watch live" whenever streaming. ✅ build 263261835
 24. [x] His hypothesis: "Maybe the mic issue has something to do with the wake word listening right after the mic stops". Confirmed, three windows: the hold-to-talk chime handoff (~0.35 s with nothing "busy"), Jarvis thinking after a ring press (the listener restarted mid-turn), and the background (going to the background isn't "leaving the screen", so the listener could keep the mic with the phone locked). Fix: one pure gate MetaSimWakeListener.shouldListen (on screen + app active + not pressing/handing off/capturing/assistant busy/turn running/Jarvis speaking) plus simulator.assistantBusy. Unit-tested per window. ✅ build 263261843 (987577ea58)
 
+25. [ ] His ask: "look into how the glasses camera can be live streamed and used as a camera input for FaceTime calls". Research:
+    - Meta's own route: video calls only in WhatsApp/Messenger/Instagram (double-press capture to switch); FaceTime is audio only; likely gone once Jarvis owns the glasses.
+    - iPhone: no third-party camera input for FaceTime at all (no UVC/virtual cameras on iOS, iPad only). The only route is FaceTime's Share My Screen.
+    - Mac: a CoreMediaIO camera extension shows up as a real camera in FaceTime/Zoom/Meet.
+    - His pick: BOTH.
+    a. [ ] iPhone call view: the live viewer's "Call view" (just the video, LIVE dot, screen kept awake) + a "FaceTime" guide (share-screen steps, cellular note, sim camera note). Built + compiled; shipping.
+    b. [ ] Mac "Jarvis Glasses" camera: design pending his OK. Recommended transport: reuse the Mac app's WebRTC pipeline (ScreenShareSession / FramePipeline + Cloudflare TURN) reversed, phone → Mac. LAN-direct breaks with the real glasses, because their stream puts the phone on the glasses' Wi-Fi. Camera extension in mac_app (XcodeGen project.yml). Signing: system extensions need Developer ID, or "systemextensionsctl developer on" with Apple Development.
+
 ## Shipped (2026-11-22)
 - build 263260740 (94118210d0): full Gen 2 simulator, 7 meta_glasses_* tools, Device | Sim page
 - build 263260753 (8117642c6b): touchpad stays in the sim; hold to talk fixed; one Heard row
