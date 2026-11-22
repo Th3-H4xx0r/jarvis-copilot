@@ -43,6 +43,7 @@ SKILLS = ("meta_glasses_status", "meta_glasses_look", "meta_glasses_photo", "met
 CLIP_LENGTHS = (30, 60, 180)
 VIDEO_MODES = ("3k30", "1080p30", "1080p60", "720p120")
 MEDIA_ACTIONS = ("list", "latest_photo", "import")
+VIDEO_ACTIONS = ("record", "start", "stop", "toggle")
 
 # The phone answers every skill within 25 s of receiving it; the rest covers waking a
 # backgrounded app by push before that clock starts.
@@ -236,12 +237,15 @@ class MetaGlasses:
         """A photo from the glasses camera for vision. Confirms the shutter (the capture LED lights)."""
         return self.invoke("meta_glasses_photo", {"question": question, "confirm": True})
 
-    def video(self, seconds: int | None = None) -> dict[str, Any]:
-        """A clip of up to ``seconds`` (capped by the glasses' clip length, 180 s max)."""
+    def video(self, seconds: int | None = None, action: str = "record") -> dict[str, Any]:
+        """``record`` a clip of up to ``seconds`` (waits for it), or ``start`` / ``stop`` / ``toggle``."""
+        if action not in VIDEO_ACTIONS:
+            raise MetaGlassesError(f"action must be one of {', '.join(VIDEO_ACTIONS)}")
         if seconds is not None and not 1 <= int(seconds) <= 180:
             raise MetaGlassesError("seconds must be 1-180")
-        wait = max(self.timeout, float(seconds or 30) + 30)
-        return self.invoke("meta_glasses_video", {"seconds": seconds, "confirm": True}, timeout=wait)
+        wait = max(self.timeout, float(seconds or 30) + 30) if action == "record" else self.timeout
+        args = {"action": action, "seconds": seconds, "confirm": True if action != "stop" else None}
+        return self.invoke("meta_glasses_video", args, timeout=wait)
 
     def live(self, action: str) -> dict[str, Any]:
         """Start or stop the live stream to the phone."""
@@ -292,7 +296,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("look", help="what the camera can do now; the live frame while streaming")
     p = sub.add_parser("photo", help="take a photo for vision (the capture LED lights)")
     p.add_argument("--question", help="what to look for in it")
-    p = sub.add_parser("video", help="record a clip")
+    p = sub.add_parser("video", help="record a clip, or start / stop / toggle recording")
+    p.add_argument("action", nargs="?", default="record", choices=VIDEO_ACTIONS)
     p.add_argument("--seconds", type=int, help="1-180 (capped by the glasses' clip length)")
     p = sub.add_parser("live", help="start or stop the live stream to the phone")
     p.add_argument("action", choices=("start", "stop"))
@@ -319,7 +324,7 @@ def _run(glasses: MetaGlasses, args: argparse.Namespace) -> dict[str, Any]:
     if command == "photo":
         return glasses.photo(question=args.question)
     if command == "video":
-        return glasses.video(seconds=args.seconds)
+        return glasses.video(seconds=args.seconds, action=args.action)
     if command == "live":
         return glasses.live(args.action)
     if command == "speak":

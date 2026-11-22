@@ -103,8 +103,19 @@ def test_video_waits_longer_than_the_clip(mod):
     transport = FakeTransport()
     mod.MetaGlasses(transport=transport, timeout=10).video(seconds=120)
     body = transport.invokes[-1]
-    assert body["args"] == {"seconds": 120, "confirm": True}
+    assert body["args"] == {"action": "record", "seconds": 120, "confirm": True}
     assert body["timeout"] >= 150
+
+
+def test_video_toggle_and_stop_for_a_ring_button(mod):
+    transport = FakeTransport()
+    glasses = mod.MetaGlasses(transport=transport)
+    glasses.video(action="toggle")
+    assert transport.invokes[-1]["args"] == {"action": "toggle", "confirm": True}
+    glasses.video(action="stop")
+    assert transport.invokes[-1]["args"] == {"action": "stop"}, "stopping needs no shutter confirm"
+    with pytest.raises(mod.MetaGlassesError):
+        glasses.video(action="pause")
 
 
 def test_local_validation_mirrors_the_glasses_limits(mod):

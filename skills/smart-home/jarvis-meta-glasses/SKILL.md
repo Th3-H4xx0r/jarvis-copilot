@@ -61,7 +61,7 @@ python3 "$MG" settings --clip-length 60 --video-mode 1080p60
 | `meta_glasses_status` | — | `battery_percent`, `charging`, `worn`, `folded`, `in_case`, `in_range`, `heat`, `camera_unavailable_because`, `storage_free_gb`, `photos_on_glasses`, `videos_on_glasses`, `streaming`, `recording_seconds`, `volume`, `video_mode`, `clip_length_seconds`. |
 | `meta_glasses_photo` | `question`, `confirm: true` | A still from the glasses camera (what the wearer sees), returned as an image for vision; the full 12 MP stays on the glasses. |
 | `meta_glasses_look` | — | Whether the camera can capture now and why not; while live streaming, the current frame as an image. |
-| `meta_glasses_video` | `seconds` (1–180), `confirm: true` | Records and waits for the clip; capped by the clip length setting; `stopped_early` says why one ended early. |
+| `meta_glasses_video` | `action`: `record` (default) \| `start` \| `stop` \| `toggle`; `seconds` (1–180); `confirm: true` to start | `record` waits for an N-second clip; `start` returns at once and records until `stop` or the clip length; `toggle` starts or stops (one ring button). Capped by the clip length setting; `stopped_early` says why one ended early. |
 | `meta_glasses_live` | `action`: `start` \| `stop` | Live view to the phone (≤720×1280 @30); the phone joins the glasses' Wi-Fi meanwhile. |
 | `meta_glasses_media` | `action`: `list` \| `latest_photo` \| `import`; `question` | What's on the glasses / phone; the newest photo as an image; import everything to the phone's Photos. |
 | `meta_glasses_speak` | `text` | Says it through the open-ear speakers. |
@@ -81,8 +81,9 @@ below 10 % battery; the wake word and assistant need them worn.
    `meta_glasses_look` gives the current frame without a new capture.
 2. **A refusal is the glasses talking.** Relay the reason plainly ("the capture LED is covered",
    "they're folded", "battery is at 8 %") and what fixes it; don't retry blindly.
-3. **Clips:** `meta_glasses_video` with `seconds`; report `seconds`, `mode` and any
-   `stopped_early`. For longer clips raise `clip_length_seconds` first (max 180).
+3. **Clips:** `meta_glasses_video` with `seconds` for a fixed clip; `action: start` / `stop`
+   for "start recording … stop"; report `seconds`, `mode` and any `stopped_early`. For longer
+   clips raise `clip_length_seconds` first (max 180).
 4. **Their captures:** `meta_glasses_media` `list` to see what's there, `latest_photo` to look at
    the last shot, `import` to move everything to the phone's Photos.
 5. **Speaking to the wearer:** `meta_glasses_speak` for short notices; keep it to a sentence.

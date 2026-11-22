@@ -232,9 +232,14 @@ private struct MetaTalkCard: View {
         guard pressing else { return }
         pressing = false
         MetaGlassesHaptics.micClosed()
-        sim.earcon?.play(.thinking)             // his "done" chime: the glasses stopped listening
         sim.setHoldToTalk(false)
-        if let pcm = mic.finishPress() { send(pcm) }
+        // His "done" chime while the mic is still held, then stop recording: releasing the session
+        // first cut the chime off (2026-11-22).
+        let holdMs = sim.earcon?.play(.thinking) ?? 0
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(holdMs))
+            if let pcm = mic.finishPress() { send(pcm) }
+        }
     }
 
     private func send(_ pcm: Data) {

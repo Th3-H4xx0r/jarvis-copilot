@@ -317,9 +317,51 @@ final class MetaGlassesSession {
         }
     }
 
+    /// Recording right now (the glasses' report, else what this session started).
+    private var recordingLocally = false
+    var isRecording: Bool { transport.hardware.map { $0.recording != nil } ?? recordingLocally }
+
+    /// Start a clip and return at once (it runs until stopped or the clip length).
+    func startVideo(seconds: Int) async throws {
+        guard isReady else { throw MetaGlassesError.notReady }
+        try await transport.send(.startVideo(seconds: seconds))
+        recordingLocally = true
+    }
+
+    /// Stop the clip in progress and wait for it. Nil when a `recordVideo` call is the one waiting
+    /// (it returns the clip itself).
+    func stopVideoAndWait() async throws -> MetaClip? {
+        guard isReady else { throw MetaGlassesError.notReady }
+        if videoWaiter != nil {
+            try await transport.send(.stopVideo)
+            recordingLocally = false
+            return nil
+        }
+        let clip: MetaClip = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<MetaClip, Error>) in
+            var resumed = false
+            let finish: (Result<MetaClip, Error>) -> Void = { [weak self] result in
+                guard !resumed else { return }
+                resumed = true
+                self?.videoWaiter = nil
+                cont.resume(with: result)
+            }
+            videoWaiter = finish
+            Task { @MainActor in
+                do { try await self.transport.send(.stopVideo) } catch { finish(.failure(error)) }
+            }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(10))
+                finish(.failure(MetaGlassesError.timedOut("stopping the recording")))
+            }
+        }
+        recordingLocally = false
+        return clip
+    }
+
     func stopVideo() async throws {
         guard isReady else { throw MetaGlassesError.notReady }
         try await transport.send(.stopVideo)
+        recordingLocally = false
     }
 
     func startLive() async throws {

@@ -352,8 +352,13 @@ final class MetaGlassesAssistantTests: XCTestCase {
     }
     final class FakeCapture: MetaQuestionCapturing {
         var pcm: Data
+        /// What the chime callback ran while the (fake) mic claim was still held.
+        var chimedWhileHolding = false
         init(_ pcm: Data) { self.pcm = pcm }
-        func captureQuestion() async throws -> Data { pcm }
+        func captureQuestion(beforeRelease: (() -> Int)?) async throws -> Data {
+            chimedWhileHolding = (beforeRelease?() ?? 0) >= 0 && beforeRelease != nil
+            return pcm
+        }
     }
 
     private func nextWake(_ sim: SimulatedGlassesTransport) async -> Bool {
@@ -380,6 +385,8 @@ final class MetaGlassesAssistantTests: XCTestCase {
         XCTAssertTrue(didWake, "the question goes to Jarvis")
         XCTAssertEqual(chime.played, [.listening, .thinking], "listening chime, then his done chime")
         XCTAssertFalse(sim.capturingQuestion)
+        XCTAssertTrue((sim.questionCapture as? FakeCapture)?.chimedWhileHolding == true,
+                      "the done chime plays BEFORE the mic is released — releasing the session cut it off (2026-11-22)")
     }
 
     func testNoQuestionClosesTheAssistantWithoutATurn() async throws {
@@ -532,6 +539,21 @@ final class MetaGlassesDeviceToolTests: XCTestCase {
             XCTAssertTrue(error.localizedDescription.contains("Clip length must be one of"), error.localizedDescription)
         }
         XCTAssertEqual(device.capabilities.map(\.name), MetaGlassesDevice.capabilityNames)
+    }
+
+    func testVideoToggleStartsThenStopsOnTheSameAction() async throws {
+        let (device, sim) = try await makeDevice()
+        let started = try await device.invoke("meta_glasses_video", args: ["action": "toggle", "confirm": true])
+        XCTAssertEqual(started["recording"] as? Bool, true)
+        XCTAssertNotNil(sim.hw.recording)
+        await sim.advance(seconds: 4)
+        let stopped = try await device.invoke("meta_glasses_video", args: ["action": "toggle", "confirm": true])
+        XCTAssertEqual(stopped["recording"] as? Bool, false)
+        XCTAssertEqual(stopped["seconds"] as? Int, 4)
+        XCTAssertNil(sim.hw.recording)
+        XCTAssertEqual(sim.hw.videoCount, 1)
+        let idle = try await device.invoke("meta_glasses_video", args: ["action": "stop"])
+        XCTAssertEqual(idle["note"] as? String, "The glasses weren't recording.")
     }
 
     func testSpeakAndVolumeRespectFolding() async throws {

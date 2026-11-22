@@ -150,8 +150,11 @@ final class MetaSimWakeListener: ObservableObject {
                 if !spoke, clock.now - began > .seconds(4) { break }
             }
             let pcm = self.capture.pcm(after: wakeEnd)
+            // His "done" chime while the mic is still held, then let go: releasing the session
+            // first cut the chime off before it was heard (2026-11-22).
+            let holdMs = self.earcon.play(.thinking)
+            try? await Task.sleep(for: .milliseconds(holdMs))
             self.stop()
-            self.earcon.play(.thinking)       // his "done" chime: the glasses stopped listening
             self.onWake?(pcm)
         }
     }

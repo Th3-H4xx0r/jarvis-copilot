@@ -4,8 +4,9 @@ import AVFoundation
 @MainActor
 protocol MetaQuestionCapturing: AnyObject {
     /// Records until the speaker stops (≈1 s quiet; waits ≤4 s for them to start, ≤10 s total).
-    /// 16 kHz mono PCM16; empty when nobody spoke.
-    func captureQuestion() async throws -> Data
+    /// 16 kHz mono PCM16; empty when nobody spoke. `beforeRelease` runs while the mic is still held
+    /// (the done chime) and returns how many ms to keep holding it so the sound isn't cut off.
+    func captureQuestion(beforeRelease: (() -> Int)?) async throws -> Data
 }
 
 /// The phone mic standing in for the glasses' mics, with a level meter to hear when you stop.
@@ -14,7 +15,7 @@ final class MetaPhoneQuestionCapture: MetaQuestionCapturing {
     /// Below this (dBFS) counts as quiet.
     static let speechThreshold: Float = -38
 
-    func captureQuestion() async throws -> Data {
+    func captureQuestion(beforeRelease: (() -> Int)?) async throws -> Data {
         guard await AVAudioApplication.requestRecordPermission() else {
             throw MetaGlassesError.transportUnavailable("microphone permission is off")
         }
@@ -49,6 +50,10 @@ final class MetaPhoneQuestionCapture: MetaQuestionCapturing {
             if !spoke, clock.now - began > .seconds(4) { break }
         }
         recorder.stop()
+        // Chime while the session is still ours: releasing it switches/deactivates the audio
+        // session, which stopped the done chime mid-play (2026-11-22).
+        let holdMs = beforeRelease?() ?? 0
+        if holdMs > 0 { try? await Task.sleep(for: .milliseconds(holdMs)) }
         guard spoke else { return Data() }
         return MetaSimMic.pcm16k(from: url) ?? Data()
     }

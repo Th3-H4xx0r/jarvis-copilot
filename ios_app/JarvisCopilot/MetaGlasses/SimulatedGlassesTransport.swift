@@ -619,7 +619,10 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
         try? await Task.sleep(for: .milliseconds(250))
         let pcm: Data
         do {
-            pcm = try await questionCapture.captureQuestion()
+            // The done chime plays inside the capture, before the mic is let go.
+            pcm = try await questionCapture.captureQuestion(beforeRelease: { [weak self] in
+                self?.earcon?.play(.thinking) ?? 0
+            })
         } catch {
             earcon?.play(.thinking)
             listening = false
@@ -627,7 +630,6 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
             feed.log(.glasses, "Assistant closed", detail: error.localizedDescription, outcome: .info)
             throw error
         }
-        earcon?.play(.thinking)                // his "done" chime: the glasses stopped listening
         guard pcm.count >= 3_200 else {
             listening = false
             settleFocus()

@@ -60,8 +60,9 @@ final class MetaGlassesDevice: ObservableObject, WearableDevice {
                 ])),
             DeviceCapability(
                 name: "meta_glasses_video",
-                description: "Record a video clip with the glasses (capped by the glasses' clip length, max 180 s). Needs confirm=true.",
+                description: "Glasses video: record a clip of N seconds, or start / stop / toggle recording (toggle suits one ring button). Starting needs confirm=true.",
                 inputSchema: DeviceCapability.schema([
+                    "action": ["type": "string", "enum": ["record", "start", "stop", "toggle"]],
                     "seconds": ["type": "integer", "minimum": 1, "maximum": 180],
                     "confirm": ["type": "boolean"],
                 ])),
@@ -193,8 +194,29 @@ final class MetaGlassesDevice: ObservableObject, WearableDevice {
             return result
 
         case "meta_glasses_video":
+            var action = (args["action"] as? String ?? "record").lowercased()
+            if action == "toggle" { action = session.isRecording ? "stop" : "start" }
+            if action == "stop" {
+                guard session.isRecording else { return ["recording": false, "note": "The glasses weren't recording."] }
+                guard let clip = try await session.stopVideoAndWait() else { return ["recording": false, "stopped": true] }
+                return [
+                    "recording": false,
+                    "seconds": Int(clip.seconds.rounded()),
+                    "mode": clip.mode.label,
+                    "bytes": clip.bytes,
+                    "saved_to": "glasses storage",
+                ]
+            }
             guard (args["confirm"] as? Bool) == true else { throw MetaGlassesError.shutterConfirmationRequired }
             let requested = (args["seconds"] as? Int) ?? (args["seconds"] as? Double).map { Int($0) }
+            if action == "start" {
+                let cap = session.hardware?.clipLength ?? MetaGen2Profile.defaultClipLength
+                let seconds = max(1, min(requested ?? cap, 180))
+                try await session.startVideo(seconds: seconds)
+                return ["recording": true, "max_seconds": min(seconds, cap),
+                        "note": "Recording until stopped or the \(cap) s clip length."]
+            }
+            guard action == "record" else { throw DeviceError.badArgument("action must be record, start, stop or toggle") }
             let seconds = max(1, min(requested ?? session.hardware?.clipLength ?? MetaGen2Profile.defaultClipLength, 180))
             let clip = try await session.recordVideo(seconds: seconds)
             var result: [String: Any] = [

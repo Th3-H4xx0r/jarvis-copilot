@@ -84,10 +84,13 @@ His asks: a full simulator he uses until the glasses arrive. Jarvis drives it li
     - Done chime: his Jarvis "done" earcon when listening ends (after the wake-word question, on hold-to-talk release, when the assistant stops listening); the listening chime on hold-to-talk press.
     - Ring: like the INMO, through the ring action picker: a "Meta glasses" section with the glasses icon and clean names (Talk, Photo, Video…), plus a new "Talk" tool that opens the glasses' assistant. Sim: chime → phone mic as the glasses mic until quiet → done chime → Jarvis. The Touch-and-hold tile now does the same (it used to start a turn with no audio).
     - ✅ 63 tests; shipped in build 263261808 (a482fb0b15)
-19. [ ] His ask: "make sure that Jarvis picks up all the tools exposed by the glasses and have a skill for meta glasses control… it shouldn't see a difference between the real glasses or the sim… it should be able to do everything on the glasses".
+19. [x] His ask: "make sure that Jarvis picks up all the tools exposed by the glasses and have a skill for meta glasses control… it shouldn't see a difference between the real glasses or the sim… it should be able to do everything on the glasses".
     - Found (server .devices.json on jc-hermes): the iPhone device already advertises the 7 meta_glasses_* tools, so Jarvis picks them up through the wearables route.
     - Done: the status has no "simulated" flag and the sim registers as plain "Ray-Ban Meta (Gen 2)", so Jarvis can't tell them apart. New tools meta_glasses_media (list / latest_photo / import) and meta_glasses_settings (clip length, video mode), 10 in total, with the same transport API for the real glasses (hardware-gated defaults). Skill skills/smart-home/jarvis-meta-glasses (SKILL.md + scripts/meta_glasses.py + 9 tests).
-    - Testing / deploying.
+    - ✅ Shipped in build 263261817 (10f0b5093f). The skill is installed on jc-hermes (~/.jarviscopilot/skills/smart-home/jarvis-meta-glasses; skills_list finds it); the server code wasn't touched or restarted.
+20. [ ] His report: "I don't hear the stop chime when it stops listening still" (on 263261808).
+    - Found: in all three paths the done chime started at the exact moment the sim released the mic; releasing switches/deactivates the audio session, which stops the player mid-sound. Fix: play it while the mic is still held, wait its length (ToneEarconPlayer returns it), then release. Red test first (the capture's beforeRelease hook), now green.
+21. [ ] His ask: "a toggle video setting since there's only video on, no video stop on the same action… on ring I can only set either video on or off, so have a toggle menu". Fix: meta_glasses_video gets an action menu (record / start / stop / toggle); one ring binding with toggle starts, then stops. Skill + script updated.
 
 ## Shipped (2026-11-22)
 - build 263260740 (94118210d0): full Gen 2 simulator, 7 meta_glasses_* tools, Device | Sim page
