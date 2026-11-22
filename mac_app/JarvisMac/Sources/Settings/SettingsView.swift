@@ -12,7 +12,7 @@ enum SettingsWindow {
     /// this app's panes in it). Set at launch; false when the library isn't there.
     static var openUnified: ((_ tab: String?) -> Bool)?
 
-    /// `tab`: "general", "agents", "mac-power", "voice", "flow" or "shortcuts".
+    /// `tab`: "general", "agents", "mac-power", "voice", "flow", "shortcuts" or "glasses-camera".
     static func show(model: AppModel, tab: String? = nil) {
         if let open = openUnified, open(tab) { return }
         if let tab { SettingsNav.shared.tab = tab }
@@ -45,7 +45,8 @@ func appSettingsPanes(model: AppModel) -> [[String: Any]] {
             // row with that id, and SwiftUI would draw one row's label on the other.
             pane("talk", "Talk & wake word", "mic.fill", 0x2F8CFF, VoiceSettings()),
             pane("flow", "Flow", "text.bubble.fill", 0x9B6BFF, FlowSettings()),
-            pane("shortcuts", "Shortcuts", "keyboard.fill", 0x6B7280, ShortcutsSettings())]
+            pane("shortcuts", "Shortcuts", "keyboard.fill", 0x6B7280, ShortcutsSettings()),
+            pane("glasses-camera", "Glasses camera", "video.fill", 0x8E8E93, GlassesCameraSettings())]
 }
 
 /// Which Settings tab shows (a jarvismac://settings/<tab> link can pick it).
@@ -68,6 +69,7 @@ struct SettingsView: View {
             VoiceSettings().tabItem { Label("Voice", systemImage: "waveform") }.tag("voice")
             FlowSettings().tabItem { Label("Flow", systemImage: "text.bubble") }.tag("flow")
             ShortcutsSettings().tabItem { Label("Shortcuts", systemImage: "keyboard") }.tag("shortcuts")
+            GlassesCameraSettings().tabItem { Label("Camera", systemImage: "video") }.tag("glasses-camera")
         }
         .padding(20)
         // wide enough for all six tabs: narrower, macOS tucks the last ones behind »

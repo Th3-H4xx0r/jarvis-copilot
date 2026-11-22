@@ -37,6 +37,8 @@
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Jarvis brings your terminal forward, reads what's playing in Music and Spotify, drafts emails in Mail, and reads the page or the Finder selection you send with Holo Drop.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Jarvis feeds your Meta glasses' live video into the Jarvis Glasses camera.</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Jarvis records the other side of a call when you ask it to take notes.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>

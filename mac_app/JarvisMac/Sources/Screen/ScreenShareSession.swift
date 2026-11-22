@@ -206,7 +206,12 @@ final class ScreenShareSession {
     }
 
     nonisolated private static func fetchIce(_ origin: String) async -> [RTCIceServer] {
-        let obj = await ScreenAPI.getJSON(origin, "/api/screen/ice", timeout: 10) ?? [:]
+        iceServers(from: await ScreenAPI.getJSON(origin, "/api/screen/ice", timeout: 10) ?? [:])
+    }
+
+    /// The ICE servers in a server reply's `ice_servers` (Cloudflare TURN when set up), STUN
+    /// at least. The glasses camera (GlassesCameraService) reads its share's the same way.
+    nonisolated static func iceServers(from obj: [String: Any]) -> [RTCIceServer] {
         var out: [RTCIceServer] = []
         for s in J.arr(obj["ice_servers"]) {
             let urls = (s["urls"] as? [String]) ?? ((s["urls"] as? String).map { [$0] } ?? [])

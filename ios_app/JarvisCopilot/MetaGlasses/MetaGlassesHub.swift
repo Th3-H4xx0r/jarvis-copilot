@@ -68,6 +68,8 @@ final class MetaGlassesHub: ObservableObject {
         simulator.renewInbound()
         let glasses = MetaGlassesDevice(transport: simulator, feed: feed)
         glasses.session.onTouchBinding = { [weak self] gesture in self?.runBinding(for: gesture) }
+        // The glasses' live frames feed the Mac's Jarvis Glasses camera when he's turned it on.
+        glasses.session.onLiveFrame = { GlassesMacCamera.shared.liveFrame($0) }
         device = glasses
         // The same name the real glasses will register under: Jarvis can't tell them apart.
         DeviceRegistry.shared.syncMembership(of: glasses, identity: MetaGlassesDevice.identityKey,

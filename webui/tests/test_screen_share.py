@@ -172,6 +172,37 @@ def test_an_anytime_share_nobody_watches_ends(reg, monkeypatch):
     assert share["status"] == "ended" and share["error"] == "no one is watching"
 
 
+def test_a_glasses_share_runs_the_same_signals_with_the_video_reversed(reg):
+    # The Mac asks for the glasses' video; the iPhone finds the request and offers send-only video.
+    share = _post("/api/screen/shares", {"reason": "glasses"}).json()
+    sid = share["id"]
+    assert share["reason"] == "glasses" and share["status"] == "requested"
+    found = [s for s in _get("/api/screen/shares?active=1").json()["shares"] if s["reason"] == "glasses"]
+    assert [s["id"] for s in found] == [sid]
+    reg.post_signal(sid, {"from": "viewer", "type": "offer", "sdp": "sendonly video", "viewer": "glasses-ab12"})
+    got = reg.wait_signal(sid, "mac", 0, timeout=0)
+    assert [m["sdp"] for m in got["messages"]] == ["sendonly video"]
+    assert reg.get(sid)["status"] == "live"
+    reg.post_signal(sid, {"from": "mac", "type": "answer", "sdp": "recvonly", "viewer": "glasses-ab12"})
+    phone = reg.wait_signal(sid, "viewer", 0, viewer="glasses-ab12", timeout=0)["messages"]
+    assert [m["sdp"] for m in phone] == ["recvonly"]
+
+
+def test_a_glasses_share_lives_while_the_mac_polls_and_ends_when_it_stops(reg, monkeypatch):
+    sid = reg.create("glasses")["id"]
+    t0 = time.time()
+    # Nobody watching is fine (anytime shares end at 90 s): the Mac is the side that wants it.
+    for step in range(1, 5):
+        at = t0 + step * 40
+        monkeypatch.setattr(ss, "_now", lambda at=at: at)
+        reg.wait_signal(sid, "mac", 0, timeout=0)
+        assert reg.get(sid)["status"] != "ended"
+    gone = t0 + 4 * 40 + ss.GLASSES_MAC_GONE + 1
+    monkeypatch.setattr(ss, "_now", lambda: gone)
+    share = reg.get(sid)
+    assert share["status"] == "ended" and share["error"] == "the Mac stopped asking"
+
+
 def test_mac_online_follows_its_list_polls(reg, monkeypatch):
     sid = reg.create("task", "x")["id"]
     assert reg.get(sid)["mac_online"] is False

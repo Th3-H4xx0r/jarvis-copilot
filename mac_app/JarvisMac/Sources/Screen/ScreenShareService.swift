@@ -66,7 +66,9 @@ final class ScreenShareService {
         polling = true
         defer { polling = false }
         guard let obj = await ScreenAPI.getJSON(origin, "/api/screen/shares?active=1&from=mac", timeout: 10) else { return }
-        let active = J.arr(obj["shares"]).filter { J.s($0["status"]) != "ended" }
+        // A "glasses" share is this Mac asking the iPhone for the glasses' video (the Jarvis
+        // Glasses camera, GlassesCameraService): nothing to capture here.
+        let active = J.arr(obj["shares"]).filter { J.s($0["status"]) != "ended" && J.s($0["reason"]) != "glasses" }
         let ids = Set(active.map { J.s($0["id"]) })
         // Ended on the server (a viewer's Stop, the task finished): wind down here.
         for (id, s) in sessions where !ids.contains(id) {

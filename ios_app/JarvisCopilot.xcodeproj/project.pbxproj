@@ -536,6 +536,7 @@
 		5AFF07F207A718160033800E /* MetaGlassesHaptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94FE1F357EFD70A0E8DF883B /* MetaGlassesHaptics.swift */; };
 		5B09A6943F64E1FFCB7A5E5C /* AttachmentViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F19D564471AA482DE4C614 /* AttachmentViewer.swift */; };
 		5B0F79C550EFA5F4B5B71D6A /* MetaGlassesSimulatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3E5E3B84C066F922A4F562B /* MetaGlassesSimulatorTests.swift */; };
+		5ED37101FB409911D7720DBD /* GlassesMacCameraLogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C08677E0D9A65C0A2B7CE9 /* GlassesMacCameraLogicTests.swift */; };
 		5B1E7C0A9D3F4A2B8C6E1D07 /* BackgroundKeepalive.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3C9E5F17B2D4E6A9F0C8B21 /* BackgroundKeepalive.swift */; };
 		5B4860CC2B2A9F407C16A2DD /* HarnessChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73D8E90823BB19C7D62C4729 /* HarnessChip.swift */; };
 		5B7D1AF12BB8AB5BB17CA63D /* WeSpeakerResNet34.mlpackage in Sources */ = {isa = PBXBuildFile; fileRef = 9962795C1818FB2FD99EE38E /* WeSpeakerResNet34.mlpackage */; };
@@ -1419,6 +1420,9 @@
 		F9C22A26ABDAED60FA00A4E5 /* PhoneSkillsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7641CE63B1EC9EF88B73DBA1 /* PhoneSkillsTests.swift */; };
 		FAA13246D507952FFAC7EFC6 /* InmoAudioInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3771BFE92BFF9E51989080E6 /* InmoAudioInput.swift */; };
 		FAAFD569DD6EC0F8DEF6C4D6 /* MetaLiveViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 636EB86F921F64FB7B06D567 /* MetaLiveViewer.swift */; };
+		4116533F218987D4FE66E2AA /* GlassesMacCameraMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B94124CEA5C50CA203514D1 /* GlassesMacCameraMachine.swift */; };
+		DBF31BAC65CB8519F6D0A372 /* GlassesMacCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98034E05CC66634FBC610AEB /* GlassesMacCamera.swift */; };
+		3746C0F6596610F323EB3F1A /* MetaMacCameraControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F4E98335D8D5B973CC7BFEE /* MetaMacCameraControl.swift */; };
 		FAB223399DCA586D0D0FB081 /* CrashNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BE871907602BDD31622513 /* CrashNote.swift */; };
 		FAB461C2B9B4BB4CCD5E1530 /* ControlButtons.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF61F4EA6282E9423F771747 /* ControlButtons.swift */; };
 		FAF1DDCF607FE1998A28197B /* CarPlayVoiceScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6531F8C4C3530070F63F1369 /* CarPlayVoiceScreen.swift */; };
@@ -2052,6 +2056,9 @@
 		6351F42356D9E8EF6FBA3C3E /* RingMetricCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingMetricCard.swift; sourceTree = "<group>"; };
 		636315DA1BBAF9F563DF7781 /* RingSyncTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingSyncTests.swift; sourceTree = "<group>"; };
 		636EB86F921F64FB7B06D567 /* MetaLiveViewer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaLiveViewer.swift; sourceTree = "<group>"; };
+		5B94124CEA5C50CA203514D1 /* GlassesMacCameraMachine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesMacCameraMachine.swift; sourceTree = "<group>"; };
+		98034E05CC66634FBC610AEB /* GlassesMacCamera.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesMacCamera.swift; sourceTree = "<group>"; };
+		7F4E98335D8D5B973CC7BFEE /* MetaMacCameraControl.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaMacCameraControl.swift; sourceTree = "<group>"; };
 		63887C448399483B4F0D6B33 /* SpeechEngineAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpeechEngineAPI.swift; sourceTree = "<group>"; };
 		63C19CBD9D4779071594DC9E /* PcStatsHistory.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PcStatsHistory.swift; sourceTree = "<group>"; };
 		63EC0A1F1264D5B4FE16464F /* ChatAttachmentsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatAttachmentsTests.swift; sourceTree = "<group>"; };
@@ -2593,6 +2600,7 @@
 		C3B4927D81BDA63DB89CB9EC /* VoiceLogFileTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceLogFileTests.swift; sourceTree = "<group>"; };
 		C3C9ED9005DA1A4A017DA098 /* InmoGallery.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoGallery.swift; sourceTree = "<group>"; };
 		C3E5E3B84C066F922A4F562B /* MetaGlassesSimulatorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaGlassesSimulatorTests.swift; sourceTree = "<group>"; };
+		66C08677E0D9A65C0A2B7CE9 /* GlassesMacCameraLogicTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesMacCameraLogicTests.swift; sourceTree = "<group>"; };
 		C41B5BF4138C691C3D494886 /* DoorAlarmCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DoorAlarmCard.swift; sourceTree = "<group>"; };
 		C41C5EDBC28E2E4F936EE5E0 /* DevicesFixtures.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicesFixtures.swift; sourceTree = "<group>"; };
 		C42BB511F105B4A0866399D9 /* CarCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarCard.swift; sourceTree = "<group>"; };
@@ -4388,6 +4396,16 @@
 			path = Integrations;
 			sourceTree = "<group>";
 		};
+		4EE384FF989A7C6D23991001 /* MacCamera */ = {
+			isa = PBXGroup;
+			children = (
+				5B94124CEA5C50CA203514D1 /* GlassesMacCameraMachine.swift */,
+				98034E05CC66634FBC610AEB /* GlassesMacCamera.swift */,
+				7F4E98335D8D5B973CC7BFEE /* MetaMacCameraControl.swift */,
+			);
+			path = MacCamera;
+			sourceTree = "<group>";
+		};
 		96330399B13DD6C9DC9546B2 /* MetaGlasses */ = {
 			isa = PBXGroup;
 			children = (
@@ -4407,6 +4425,7 @@
 				B8D752D5B118019D940E38A0 /* Sim */,
 				461727C0FB9725D55B8B9DA5 /* MetaGlassesFocus.swift */,
 				29BCF9F0D7F500190F82358C /* Features */,
+				4EE384FF989A7C6D23991001 /* MacCamera */,
 			);
 			path = MetaGlasses;
 			sourceTree = "<group>";
@@ -5288,6 +5307,7 @@
 				A531BBA711DF1B7C8D8A0E2E /* GlassesMusicRouteTests.swift */,
 				EF913AA82E6FB08A019A13CB /* InmoGalleryTests.swift */,
 				C3E5E3B84C066F922A4F562B /* MetaGlassesSimulatorTests.swift */,
+				66C08677E0D9A65C0A2B7CE9 /* GlassesMacCameraLogicTests.swift */,
 				CB511B2BCD6DEAC831FBDFF2 /* MetaGlassesHardwareSimTests.swift */,
 				8C4E7C2C4423130E8AF5D814 /* MetaGlassesModelRenderTests.swift */,
 				14A12097749B2421A6E6790B /* MetaVoiceRelayTests.swift */,
@@ -6220,6 +6240,7 @@
 				CA7CB59714C0D976F33A2F13 /* MemoryGraphTests.swift in Sources */,
 				07A0486E05360BD3ACD322B9 /* InmoGalleryTests.swift in Sources */,
 				5B0F79C550EFA5F4B5B71D6A /* MetaGlassesSimulatorTests.swift in Sources */,
+				5ED37101FB409911D7720DBD /* GlassesMacCameraLogicTests.swift in Sources */,
 				16354D0866358FC8F2692EE6 /* MetaGlassesHardwareSimTests.swift in Sources */,
 				9CC6C767BC5812E3CFAEF1E8 /* MetaGlassesModelRenderTests.swift in Sources */,
 				61BA64EEE243B0A2892D3FCC /* MetaVoiceRelayTests.swift in Sources */,
@@ -6802,6 +6823,9 @@
 				20E4AE11832860C85BC2F12B /* MetaGlassesTransport.swift in Sources */,
 				6D9A244A8A5EB5A936E838B3 /* MetaWakeChannel.swift in Sources */,
 				FAAFD569DD6EC0F8DEF6C4D6 /* MetaLiveViewer.swift in Sources */,
+				4116533F218987D4FE66E2AA /* GlassesMacCameraMachine.swift in Sources */,
+				DBF31BAC65CB8519F6D0A372 /* GlassesMacCamera.swift in Sources */,
+				3746C0F6596610F323EB3F1A /* MetaMacCameraControl.swift in Sources */,
 				7F95D69EFD7F906FAD1013BE /* MetaSimQuestionCapture.swift in Sources */,
 				5AFF07F207A718160033800E /* MetaGlassesHaptics.swift in Sources */,
 				B75BC8DCED8ED18E2A8491A5 /* MetaSimWakeListener.swift in Sources */,

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The Developer ID build (scripts/build-developer-id.sh): Jarvis-push.entitlements plus
+	     what the Jarvis Glasses camera and notarization need. Never used by build-app.sh: the
+	     system-extension entitlement is restricted, and a binary claiming it without its
+	     provisioning profile is killed at launch. -->
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
+	<!-- Wake Mac push. The export turns "development" into "production" for Developer ID. -->
+	<key>com.apple.developer.aps-environment</key>
+	<string>development</string>
+	<!-- Installs the Jarvis Glasses camera (OSSystemExtensionRequest). Needs the System
+	     Extension capability on the App ID, so a Developer ID provisioning profile. -->
+	<key>com.apple.developer.system-extension.install</key>
+	<true/>
+	<!-- Hardened runtime (required for notarization) blocks these unless declared. -->
+	<key>com.apple.security.device.camera</key>
+	<true/>
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+	<!-- The voice panel is jc-client's libJarvisVoiceUI.dylib (MenuBar.swift dlopen), signed apart from this app. -->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>

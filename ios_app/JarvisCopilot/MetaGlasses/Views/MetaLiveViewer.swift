@@ -7,6 +7,8 @@ import SwiftUI
 /// ends here the way it would on the real glasses.
 struct MetaLiveViewer: View {
     @ObservedObject var sim: SimulatedGlassesTransport
+    /// Open straight into Call view (the Live card's "FaceTime call view" button).
+    var startInCallView = false
     let stop: () -> Void
     @Environment(\.dismiss) private var dismiss
     /// Just the glasses' video, full screen — for FaceTime's Share My Screen. Tap to bring the controls back.
@@ -46,7 +48,10 @@ struct MetaLiveViewer: View {
         .onTapGesture { if callView { withAnimation(.easeInOut(duration: 0.2)) { callView = false } } }
         .statusBarHidden()
         .persistentSystemOverlays(callView ? .hidden : .automatic)
-        .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
+        .onAppear {
+            UIApplication.shared.isIdleTimerDisabled = true
+            if startInCallView { callView = true }
+        }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         .sheet(isPresented: $showingFaceTimeHelp) { MetaFaceTimeHelp() }
     }
@@ -106,6 +111,8 @@ struct MetaLiveViewer: View {
                 chip("thermometer.medium", sim.hw.heatLabel)
                 if sim.phoneOnGlassesWiFi { chip("wifi", "Phone on the glasses' Wi-Fi") }
             }
+            // The glasses' video as the Mac's "Jarvis Glasses" camera (FaceTime, Zoom, Meet there).
+            MetaMacCameraControl()
             HStack(spacing: 10) {
                 Button { showingFaceTimeHelp = true } label: {
                     Label("FaceTime", systemImage: "video.badge.waveform").frame(maxWidth: .infinity, minHeight: 44)
@@ -168,7 +175,7 @@ private struct MetaFaceTimeHelp: View {
                     note("Keep Jarvis open while sharing. FaceTime stays in picture-in-picture.")
                     note("With the real glasses, their live video moves your phone onto the glasses' Wi-Fi, so FaceTime runs over cellular.")
                     note("In the simulator the iPhone camera is the glasses camera, and FaceTime takes it during a call, so the sim's view may pause. The real glasses send their own video.")
-                    note("Want a true camera called “Jarvis Glasses”? That's coming on the Mac, where FaceTime, Zoom and Meet can pick it.")
+                    note("On a Mac there's a real camera called “Jarvis Glasses”: install it in Jarvis for Mac → Settings → Glasses camera, pick it in FaceTime, Zoom or Meet, then tap Send to Mac camera here.")
                 }
                 .padding(20)
             }

@@ -11,10 +11,10 @@ struct MetaSimScreen: View {
         VStack(alignment: .leading, spacing: 0) {
             MetaSimHero(sim: sim)
             MetaTouchpadCard(sim: sim)
+            MetaLiveCard(sim: sim, hub: hub)        // up here so Call view / FaceTime are easy to find
             MetaTalkCard(sim: sim)
             MetaGlassesStateCard(sim: sim)
             MetaFeedCard(feed: hub.feed, emptyText: "Ask Jarvis something about your glasses, or use the controls above.")
-            MetaLiveCard(sim: sim, hub: hub)
             MetaStorageCard(sim: sim)
             MetaSimSettingsCard(sim: sim)
             MetaTouchSettingsCard(hub: hub)
@@ -513,6 +513,7 @@ private struct MetaLiveCard: View {
     @ObservedObject var sim: SimulatedGlassesTransport
     @ObservedObject var hub: MetaGlassesHub
     @State private var watching = false
+    @State private var callViewFirst = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -547,18 +548,30 @@ private struct MetaLiveCard: View {
                         }
                         .buttonStyle(.jcGlass)
                         if sim.hw.streaming {
-                            Button { watching = true } label: {
+                            Button { callViewFirst = false; watching = true } label: {
                                 Label("Watch live", systemImage: "arrow.up.left.and.arrow.down.right")
                                     .frame(maxWidth: .infinity, minHeight: 40)
                             }
                             .buttonStyle(.jcGlass)
                         }
                     }
+                    // Straight to the clean view to share in a FaceTime call (starts live if needed).
+                    Button {
+                        Task {
+                            guard let session = hub.device?.session else { return }
+                            if !sim.hw.streaming { try? await session.startLive() }
+                            if sim.hw.streaming { callViewFirst = true; watching = true }
+                        }
+                    } label: {
+                        Label("FaceTime call view", systemImage: "video.badge.waveform")
+                            .frame(maxWidth: .infinity, minHeight: 40)
+                    }
+                    .buttonStyle(.jcGlass)
                 }
             }
         }
         .fullScreenCover(isPresented: $watching) {
-            MetaLiveViewer(sim: sim) {
+            MetaLiveViewer(sim: sim, startInCallView: callViewFirst) {
                 Task { try? await hub.device?.session.stopLive() }
             }
         }

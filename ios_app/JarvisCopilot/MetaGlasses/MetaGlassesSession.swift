@@ -58,6 +58,9 @@ final class MetaGlassesSession {
     private var videoWaiter: ((Result<MetaClip, Error>) -> Void)?
     /// The newest live-stream frame (JPEG) while streaming.
     private(set) var latestLiveFrame: Data?
+    /// Every live-stream frame (JPEG) as it arrives, whatever the transport (simulator or the real
+    /// glasses): the Mac camera publisher (`GlassesMacCamera`) listens here.
+    var onLiveFrame: ((Data) -> Void)?
     /// A Jarvis action bound to a touch gesture, run in addition to the glasses' own default.
     var onTouchBinding: ((MetaTouchGesture) -> Void)?
     /// What the glasses report about themselves (battery, heat, storage, worn…).
@@ -144,6 +147,7 @@ final class MetaGlassesSession {
             videoWaiter?(.success(clip))
         case .liveFrame(let jpeg):
             latestLiveFrame = jpeg
+            onLiveFrame?(jpeg)
         }
     }
 

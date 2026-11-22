@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Camera extensions run sandboxed. The app group prefixes the Mach service name in
+	     Info.plist (CMIOExtensionMachServiceName); team-ID groups need no profile on macOS. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>$(TeamIdentifierPrefix)com.jarviscopilot.mac.glassescamera</string>
+	</array>
+</dict>
+</plist>

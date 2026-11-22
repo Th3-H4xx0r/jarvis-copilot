@@ -19,6 +19,14 @@ Contract (docs/superpowers/plans/2026-11-03-live-browser-and-screen.md, Contract
   POST /api/screen/shares/<id>/replay (raw mp4)     → {"ok", "replay_url"}
   GET  /api/screen/replays/<id>.mp4                 → video/mp4, Range supported
 
+The same signalling also runs the other way for the Meta glasses: a share with
+``reason: "glasses"`` is the Mac app ASKING for the glasses' live video (an app on
+the Mac — FaceTime, Zoom, Meet — opened its "Jarvis Glasses" camera). The iPhone
+finds it in the active list and joins as the viewer, but its offer SENDS video
+(send-only) and the Mac's answer receives it; the message shapes don't change. The
+Mac long-polls the share while it wants the video, so a glasses share ends when the
+Mac goes quiet, not when no viewer watches.
+
 Additions that keep the contract's shapes: a signal message may carry
 ``"viewer": "<id>"`` (several viewers at once — the Mac echoes it on its answer and
 candidates; a viewer that sends none only receives messages that carry none), the
@@ -62,6 +70,8 @@ VIEWER_FRESH = 35.0          # a viewer whose last poll is older than this has l
 MAC_FRESH = 6.0              # the Mac polls the list every ~1-2 s
 ANYTIME_IDLE_END = 90.0      # an anytime share nobody watches ends after this
 MAX_SHARE_AGE = 2 * 3600.0   # nothing runs longer than this
+GLASSES_MAC_GONE = 60.0      # a glasses request whose Mac stopped polling (≤25 s apart) has gone
+GLASSES_MAX_AGE = 12 * 3600.0  # a glasses request lives as long as the call that asked for it
 RETENTION = 14 * 86400.0
 CLEANUP_EVERY = 3600.0
 MAX_MESSAGES = 600           # per share; old ones fall off the front
@@ -69,7 +79,7 @@ MAX_SDP = 200_000
 MAX_REPLAY_BYTES = 500 * 1024 * 1024
 _CHUNK = 1024 * 1024
 
-REASONS = ("anytime", "task")
+REASONS = ("anytime", "task", "glasses")
 SIGNAL_TYPES = ("offer", "answer", "candidate", "bye")
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,40}$")
 _VIEWER_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
@@ -373,7 +383,7 @@ class Registry:
     # lifecycle
     def create(self, reason: str, task: str = "", session_id: str = "", device_id: str = "") -> dict:
         if reason not in REASONS:
-            raise ValueError("reason must be anytime or task")
+            raise ValueError("reason must be anytime, task or glasses")
         sid = "scr_" + secrets.token_hex(8)
         with self._lock:
             self._ensure_loaded()
@@ -446,6 +456,13 @@ class Registry:
             if s.status == "ended":
                 continue
             age = now - s.created_at
+            if s.reason == "glasses":
+                # The Mac asked for the glasses' video and polls while it still wants it.
+                if age > GLASSES_MAX_AGE:
+                    changed |= self._end_locked(s, "the share ran too long")
+                elif now - max(s.mac_seen, s.created_at) > GLASSES_MAC_GONE:
+                    changed |= self._end_locked(s, "the Mac stopped asking")
+                continue
             if age > MAX_SHARE_AGE:
                 changed |= self._end_locked(s, "the share ran too long")
             elif s.reason == "anytime" and age > ANYTIME_IDLE_END:

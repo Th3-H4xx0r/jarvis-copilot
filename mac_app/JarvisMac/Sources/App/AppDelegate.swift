@@ -62,6 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HoloDrop.shared.start()
         GameStreaming.shared.start()
         ScreenShareService.shared.start()
+        GlassesCameraService.shared.start()
         AppUpdater.shared.start()
         MacPowerBridge.start()
         SecurityAgentWatch.shared.start()

@@ -35,6 +35,9 @@ targets:
       - package: WebRTC
       # Share → Jarvis (Holo Drop), embedded in Contents/PlugIns.
       - target: JarvisHoloShare
+      # The Jarvis Glasses camera (CoreMediaIO system extension), embedded in
+      # Contents/Library/SystemExtensions and activated from Settings → Glasses camera.
+      - target: JarvisGlassesCamera
     sources:
       - path: Sources
       # The one accent colour, shared with the iPhone app and the voice dylib.
@@ -91,6 +94,31 @@ targets:
         ENABLE_HARDENED_RUNTIME: NO
         SKIP_INSTALL: YES
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks"
+  # The "Jarvis Glasses" camera FaceTime, Zoom and Meet can pick: a CoreMediaIO camera
+  # extension with a source stream (what apps read) and a sink stream (the app writes the
+  # glasses' frames into it). Sandboxed, like every camera extension. It only LOADS from a
+  # Developer ID-signed, notarized Jarvis in /Applications (scripts/build-developer-id.sh);
+  # the everyday Apple Development build compiles and embeds it all the same.
+  JarvisGlassesCamera:
+    type: system-extension
+    platform: macOS
+    sources:
+      - path: GlassesCamera
+      - path: Sources/GlassesCamera/GlassesCameraKit.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jarviscopilot.mac.glassescamera
+        # A system extension's bundle is named after its identifier.
+        PRODUCT_NAME: com.jarviscopilot.mac.glassescamera
+        PRODUCT_MODULE_NAME: JarvisGlassesCamera
+        INFOPLIST_FILE: GlassesCamera/Info.plist
+        CODE_SIGN_ENTITLEMENTS: GlassesCamera/GlassesCamera.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        # The signing certificate's real team (its OU): the Mach service name and app group
+        # in Info.plist / the entitlements start with $(TeamIdentifierPrefix).
+        DEVELOPMENT_TEAM: VY5CNF8734
+        ENABLE_HARDENED_RUNTIME: YES
+        SKIP_INSTALL: YES
   JarvisTests:
     type: bundle.unit-test
     platform: macOS
