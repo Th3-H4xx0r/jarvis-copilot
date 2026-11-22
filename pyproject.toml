@@ -257,7 +257,7 @@ jarviscopilot_cli = ["tui_dist/**/*", "scripts/install.sh", "scripts/install.ps1
 gateway = ["assets/**/*"]
 
 [tool.setuptools.packages.find]
-include = ["agent", "agent.*", "tools", "tools.*", "jarviscopilot_cli", "jarviscopilot_cli.*", "gateway", "gateway.*", "tui_gateway", "tui_gateway.*", "cron", "acp_adapter", "plugins", "plugins.*", "providers", "providers.*", "jarvis_registry", "jarvis_registry.*", "jarvis_speech", "jarvis_speech.*"]
+include = ["agent", "agent.*", "tools", "tools.*", "jarviscopilot_cli", "jarviscopilot_cli.*", "gateway", "gateway.*", "tui_gateway", "tui_gateway.*", "cron", "acp_adapter", "plugins", "plugins.*", "providers", "providers.*", "jarvis_registry", "jarvis_registry.*", "jarvis_speech", "jarvis_speech.*", "glasses_relay", "glasses_relay.*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
