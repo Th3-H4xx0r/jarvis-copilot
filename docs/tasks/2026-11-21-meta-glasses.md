@@ -79,6 +79,11 @@ His asks: a full simulator he uses until the glasses arrive. Jarvis drives it li
     - Found (his phone, devicectl prefs pull): build 263261701 installed; no meta.sim.wakePhrase / listenWake, so it was never set up. He then found the setup button himself.
     - His follow-up: "When wake word gets activated, there needs to be a chime so I know it got activated". Fix: on detection, play his chosen Jarvis "listening" chime (VoiceEarconSounds, nothing synthesized) through the speaker (recording plan has .defaultToSpeaker), plus a haptic tap, and the 3D model glides to the mics right away. ✅ Shipped in build 263261756 (d1eefbead6)
     - His question about battery: real glasses = the glasses' own wake detector (same path as "Hey Meta"), so roughly the same battery and no phone listening. The sim uses the phone mic + on-device recognition, but only while the Sim screen is open.
+18. [ ] His asks: "I need to hear the done chime as well once it stops listening", "support for tying the ring into this just like the inmo's", "the haptics don't work anymore, did u remove that? Add it back".
+    - Haptics, found (his prefs: listenWake = true): with "Listen for Hey Jarvis" on, the sim holds the mic, and iOS mutes app haptics while recording. Fix: setAllowHapticsAndSystemSoundsDuringRecording(true) while the sim holds the mic (listener, hold to talk, assistant), back to false after.
+    - Done chime: his Jarvis "done" earcon when listening ends (after the wake-word question, on hold-to-talk release, when the assistant stops listening); the listening chime on hold-to-talk press.
+    - Ring: like the INMO, through the ring action picker: a "Meta glasses" section with the glasses icon and clean names (Talk, Photo, Video…), plus a new "Talk" tool that opens the glasses' assistant. Sim: chime → phone mic as the glasses mic until quiet → done chime → Jarvis. The Touch-and-hold tile now does the same (it used to start a turn with no audio).
+    - Testing.
 
 ## Shipped (2026-11-22)
 - build 263260740 (94118210d0): full Gen 2 simulator, 7 meta_glasses_* tools, Device | Sim page

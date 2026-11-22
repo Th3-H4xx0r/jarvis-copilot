@@ -343,6 +343,84 @@ final class MetaWakeWordTests: XCTestCase {
     }
 }
 
+/// The glasses' assistant: chime, listen, done chime, then the turn (touch-and-hold, ring, talk tool).
+@MainActor
+final class MetaGlassesAssistantTests: XCTestCase {
+    final class FakeEarcon: EarconPlaying {
+        var played: [VoiceEarcon] = []
+        func play(_ earcon: VoiceEarcon) -> Int { played.append(earcon); return 0 }
+    }
+    final class FakeCapture: MetaQuestionCapturing {
+        var pcm: Data
+        init(_ pcm: Data) { self.pcm = pcm }
+        func captureQuestion() async throws -> Data { pcm }
+    }
+
+    private func nextWake(_ sim: SimulatedGlassesTransport) async -> Bool {
+        let stream = sim.inbound
+        let task = Task { () -> Bool in
+            for await event in stream { if case .wake = event { return true } }
+            return false
+        }
+        let timer = Task { try? await Task.sleep(for: .seconds(2)); task.cancel() }
+        let got = await task.value
+        timer.cancel()
+        return got
+    }
+
+    func testOpenAssistantChimesListensChimesThenStartsTheTurn() async throws {
+        let sim = SimulatedGlassesTransport(autoTick: false)
+        try await sim.connect()
+        let chime = FakeEarcon()
+        sim.earcon = chime
+        sim.questionCapture = FakeCapture(Data(count: 32_000))
+        async let woke = nextWake(sim)
+        try await sim.openAssistant(source: .touch)
+        let didWake = await woke
+        XCTAssertTrue(didWake, "the question goes to Jarvis")
+        XCTAssertEqual(chime.played, [.listening, .thinking], "listening chime, then his done chime")
+        XCTAssertFalse(sim.capturingQuestion)
+    }
+
+    func testNoQuestionClosesTheAssistantWithoutATurn() async throws {
+        let sim = SimulatedGlassesTransport(autoTick: false)
+        try await sim.connect()
+        let chime = FakeEarcon()
+        sim.earcon = chime
+        sim.questionCapture = FakeCapture(Data())
+        try await sim.openAssistant(source: .touch)
+        XCTAssertEqual(chime.played, [.listening, .thinking])
+        XCTAssertEqual(sim.feed.entries.first?.detail, "Didn't hear a question")
+        XCTAssertNil(sim.focus)
+    }
+
+    func testTalkToolOpensTheAssistantAndRespectsTheGlassesState() async throws {
+        let sim = SimulatedGlassesTransport(autoTick: false)
+        let device = MetaGlassesDevice(transport: sim, voice: FakeVoiceTurnController(), feed: sim.feed,
+                                       defaults: UserDefaults(suiteName: "talk-\(UUID().uuidString)")!)
+        try await device.session.start()
+        XCTAssertTrue(device.capabilities.contains { $0.name == "meta_glasses_talk" })
+        let result = try await device.invoke("meta_glasses_talk", args: [:])
+        XCTAssertEqual(result["listening"] as? Bool, true)
+        XCTAssertTrue(sim.sentFrames.contains(.openAssistant))
+        await sim.setFolded(true)
+        do {
+            _ = try await device.invoke("meta_glasses_talk", args: [:])
+            XCTFail("folded glasses can't open the assistant")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("folded"), error.localizedDescription)
+        }
+    }
+
+    func testRingPickerShowsMetaGlassesLikeTheINMO() {
+        XCTAssertEqual(ActionPickerIndex.label(MetaGlassesDevice.model).0, "Meta glasses")
+        XCTAssertEqual(ActionPickerIndex.label(MetaGlassesDevice.model).1, "eyeglasses")
+        XCTAssertEqual(ActionPickerIndex.title(of: "meta_glasses_talk"), "Talk")
+        XCTAssertEqual(ActionPickerIndex.title(of: "meta_glasses_photo"), "Photo")
+        XCTAssertEqual(ActionPickerIndex.title(of: "glasses_remote_key"), "Remote key", "INMO titles unchanged")
+    }
+}
+
 /// Jarvis's tools over the simulated glasses.
 @MainActor
 final class MetaGlassesDeviceToolTests: XCTestCase {

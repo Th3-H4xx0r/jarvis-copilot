@@ -132,6 +132,8 @@ private struct MetaTalkCard: View {
         .onChange(of: runner.isRunning) { _, _ in updateListener() }
         .onChange(of: sim.wakePhrase) { _, _ in updateListener() }
         .onChange(of: pressing) { _, _ in updateListener() }
+        .onChange(of: sim.capturingQuestion) { _, _ in updateListener() }
+        .onChange(of: sim.hw.voiceActive) { _, _ in updateListener() }
         .sheet(isPresented: $enrolling) {
             MetaWakeEnrolmentView(phrase: "Hey Jarvis") { samples in
                 listener.stop()
@@ -176,6 +178,7 @@ private struct MetaTalkCard: View {
     /// Listen only while this screen shows, the switch is on, and no turn or press is using the mic.
     private func updateListener() {
         let want = visible && listenWake && sim.wakePhrase != nil && !runner.isRunning && !pressing
+            && !sim.capturingQuestion && !sim.hw.voiceActive
         if want, !listener.isListening {
             let phrase = sim.wakePhrase ?? "Hey Jarvis"
             Task { await listener.start(phrase: phrase) }
@@ -212,6 +215,7 @@ private struct MetaTalkCard: View {
         listener.stop()
         micError = nil
         MetaGlassesHaptics.micOpened()
+        sim.earcon?.play(.listening)
         sim.setHoldToTalk(true)
         Task {
             do {
@@ -228,6 +232,7 @@ private struct MetaTalkCard: View {
         guard pressing else { return }
         pressing = false
         MetaGlassesHaptics.micClosed()
+        sim.earcon?.play(.thinking)             // his "done" chime: the glasses stopped listening
         sim.setHoldToTalk(false)
         if let pcm = mic.finishPress() { send(pcm) }
     }

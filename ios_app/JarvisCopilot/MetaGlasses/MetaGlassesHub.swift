@@ -29,6 +29,8 @@ final class MetaGlassesHub: ObservableObject {
         sim.speaker = MetaPhoneSpeaker()
         sim.wakeDefaults = .standard
         sim.saveToPhotos = { item in try await Self.addToPhotos(item) }
+        sim.questionCapture = MetaPhoneQuestionCapture()
+        sim.earcon = ToneEarconPlayer()
         // No mediaKeys: the sim's touchpad drives the SIMULATED music only. Real media keys run
         // through iOS Shortcuts on iOS 27 and yanked him into the Shortcuts app (2026-11-22).
         return sim

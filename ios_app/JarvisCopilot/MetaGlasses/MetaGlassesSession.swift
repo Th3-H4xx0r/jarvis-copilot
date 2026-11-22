@@ -338,6 +338,12 @@ final class MetaGlassesSession {
         try await transport.send(.speak(text: text))
     }
 
+    /// Open the glasses' assistant from the phone: they chime and listen (a ring button, a shortcut).
+    func openAssistant() async throws {
+        guard isReady else { throw MetaGlassesError.notReady }
+        try await transport.send(.openAssistant)
+    }
+
     /// Enrol the custom wake phrase on the glasses (they build the detector themselves).
     func enrolWakeWord(phrase: String, samples: [Data]) async throws {
         guard isReady else { throw MetaGlassesError.notReady }

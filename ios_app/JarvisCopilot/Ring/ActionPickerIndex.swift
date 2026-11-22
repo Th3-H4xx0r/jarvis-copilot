@@ -251,7 +251,8 @@ enum ActionPickerIndex {
     /// "bottle_sterilise" → "Sterilise"; "clipboard_read" → "Clipboard read".
     static func title(of skill: String) -> String {
         var words = skill.split(separator: "_").map(String.init)
-        if words.count > 1, prefixes.contains(words[0]) { words.removeFirst() }
+        if words.count > 2, words[0] == "meta", words[1] == "glasses" { words.removeFirst(2) }   // meta_glasses_talk → Talk
+        else if words.count > 1, prefixes.contains(words[0]) { words.removeFirst() }
         let text = words.joined(separator: " ")
         return text.prefix(1).uppercased() + text.dropFirst()
     }
@@ -273,6 +274,7 @@ enum ActionPickerIndex {
         case "VSITOO S1 Pro": return ("Bottle", "waterbottle")
         case "Etekcity ESF551": return ("Scale", "scalemass")
         case "INMO GO3": return ("Glasses", "eyeglasses")
+        case MetaGlassesDevice.model: return ("Meta glasses", "eyeglasses")
         case "Jarvis ESP32 DevKit V1": return ("ESP32 board", "cpu")
         case "Jarvis Wearables": return ("Wearables", "dot.radiowaves.left.and.right")
         case "Dashcam": return ("Dashcam", "video")

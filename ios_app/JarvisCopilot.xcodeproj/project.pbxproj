@@ -638,6 +638,7 @@
 		6D66B9555A176C2465EFB313 /* CodingModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE2C930EE26524211A99CB60 /* CodingModelsTests.swift */; };
 		6D76F7332ADAE58646AFF8F2 /* HealthOutbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3E804F54FD960243693BFCF /* HealthOutbox.swift */; };
 		6D9A244A8A5EB5A936E838B3 /* MetaWakeChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF01D221F3E3D2B5377A59FF /* MetaWakeChannel.swift */; };
+		7F95D69EFD7F906FAD1013BE /* MetaSimQuestionCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 809B77ED3B76C35D25044E96 /* MetaSimQuestionCapture.swift */; };
 		6DAC47F07BFA8F679FA440C0 /* HoloDropIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 768C0BFB517B5A212496BBCD /* HoloDropIntents.swift */; };
 		6DCDE91F906558F0FE5D6489 /* JcRefreshLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC314DB579B933FC4D52806E /* JcRefreshLoaderTests.swift */; };
 		6E0CD5588652A4DF91BF504C /* ControlPushTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6DD83A867F696CE5B2005B8 /* ControlPushTokens.swift */; };
@@ -2736,6 +2737,7 @@
 		DEAAD503A0211420989E05FC /* CostsCharts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CostsCharts.swift; sourceTree = "<group>"; };
 		DEF634F684255E22206A46C5 /* WearableControlsSection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableControlsSection.swift; sourceTree = "<group>"; };
 		DF01D221F3E3D2B5377A59FF /* MetaWakeChannel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaWakeChannel.swift; sourceTree = "<group>"; };
+		809B77ED3B76C35D25044E96 /* MetaSimQuestionCapture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaSimQuestionCapture.swift; sourceTree = "<group>"; };
 		DF1C549B7CA16A17E29DE99C /* WidgetDesigns.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetDesigns.swift; sourceTree = "<group>"; };
 		DF1FC5DD16021AA9D36986EF /* TrainingSync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TrainingSync.swift; sourceTree = "<group>"; };
 		DF35BD612E7FA661FE43D21E /* OnDeviceAI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnDeviceAI.swift; sourceTree = "<group>"; };
@@ -4647,6 +4649,7 @@
 				2666075B3D662E9000B49F0E /* MetaHardwareState.swift */,
 				4EB041E244B3962F5FAEF16F /* MetaSimCamera.swift */,
 				EA6E06F75D0DB4BB903E6E8D /* MetaSimMic.swift */,
+				809B77ED3B76C35D25044E96 /* MetaSimQuestionCapture.swift */,
 				F399F3A2DFE44F21D1C7AC96 /* MetaSimWakeListener.swift */,
 			);
 			path = Sim;
@@ -6795,6 +6798,7 @@
 				825D188B5D2F771A8CEC0BFC /* SimulatedGlassesTransport.swift in Sources */,
 				20E4AE11832860C85BC2F12B /* MetaGlassesTransport.swift in Sources */,
 				6D9A244A8A5EB5A936E838B3 /* MetaWakeChannel.swift in Sources */,
+				7F95D69EFD7F906FAD1013BE /* MetaSimQuestionCapture.swift in Sources */,
 				5AFF07F207A718160033800E /* MetaGlassesHaptics.swift in Sources */,
 				B75BC8DCED8ED18E2A8491A5 /* MetaSimWakeListener.swift in Sources */,
 				5C20D484997CE3195A4D3405 /* MetaWakeEnrolmentView.swift in Sources */,

@@ -42,6 +42,7 @@ final class MetaSimWakeListener: ObservableObject {
         do {
             try AudioSessionArbiter.shared.hold(.recording)
             holdsSession = true
+            MetaGlassesHaptics.allowWhileRecording(true)
             try startEngine()
             beginRecognition()
             state = .listening
@@ -59,7 +60,11 @@ final class MetaSimWakeListener: ObservableObject {
         if engine.isRunning { engine.stop() }
         engine.inputNode.removeTap(onBus: 0)
         capture.reset()
-        if holdsSession { holdsSession = false; try? AudioSessionArbiter.shared.release(.recording) }
+        if holdsSession {
+            holdsSession = false
+            MetaGlassesHaptics.allowWhileRecording(false)
+            try? AudioSessionArbiter.shared.release(.recording)
+        }
         if case .failed = state {} else { state = .off }
     }
 
@@ -146,6 +151,7 @@ final class MetaSimWakeListener: ObservableObject {
             }
             let pcm = self.capture.pcm(after: wakeEnd)
             self.stop()
+            self.earcon.play(.thinking)       // his "done" chime: the glasses stopped listening
             self.onWake?(pcm)
         }
     }

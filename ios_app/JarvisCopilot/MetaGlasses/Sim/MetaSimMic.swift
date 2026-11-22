@@ -27,6 +27,7 @@ final class MetaSimMic: ObservableObject {
         }
         try AudioSessionArbiter.shared.hold(.recording)
         holdsSession = true
+        MetaGlassesHaptics.allowWhileRecording(true)
         // 16 kHz first; some routes refuse it, so fall back to 44.1 kHz and convert on read.
         for rate in [16_000.0, 44_100.0] {
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("meta-sim-mic-\(UUID().uuidString).wav")
@@ -73,6 +74,7 @@ final class MetaSimMic: ObservableObject {
     private func release() {
         guard holdsSession else { return }
         holdsSession = false
+        MetaGlassesHaptics.allowWhileRecording(false)
         try? AudioSessionArbiter.shared.release(.recording)
     }
 

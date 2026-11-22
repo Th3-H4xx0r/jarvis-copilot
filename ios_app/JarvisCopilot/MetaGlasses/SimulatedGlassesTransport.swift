@@ -94,6 +94,12 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
     var transferTimeScale: Double = 1
     /// Adds an imported photo/clip to the phone's Photos library (the hub sets it; tests fake it).
     var saveToPhotos: ((MetaStoredMedia) async throws -> Void)?
+    /// The glasses' mics once the assistant opens (the hub sets the phone mic; nil = no audio, tests).
+    var questionCapture: MetaQuestionCapturing?
+    /// The glasses' chimes: his Jarvis listening / done earcons (the hub sets them).
+    var earcon: EarconPlaying?
+    /// The assistant is open and listening for a question.
+    @Published private(set) var capturingQuestion = false
 
     /// Every frame the session sent down, in order — the assertion surface for tests.
     private(set) var sentFrames: [GlassesFrame] = []
@@ -155,6 +161,9 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
             feed.log(.glasses, "Wake word armed", detail: "“Hey Jarvis” · \(MetaGen2Profile.wakeLanguages.joined()) only", outcome: .info)
         case .showTranscript, .showAnswer:
             break      // Gen 2 has no display: the assistant state rides the session, nothing to draw
+        case .openAssistant:
+            if let reason = hw.voiceRefusal() { throw refuse(frame, reason) }
+            Task { @MainActor [weak self] in try? await self?.openAssistant(source: .jarvis) }
         case .setSpeaking(let on):
             hw.voiceActive = on
             speaking = on
@@ -163,6 +172,7 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
             hw.voiceActive = false
             listening = false
             speaking = false
+            stopStreaming()
             settleFocus()
         case .capturePhoto(let question):
             try await takePhoto(source: .jarvis, question: question, emit: true)
@@ -457,6 +467,11 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
         }
         if let d = detail, action != .volumeUp, action != .volumeDown { detail = d + " (simulated music)" }
         feed.log(.touch, "\(MetaTouchBinding.label(gesture)) → \(MetaTouchBinding.label(action))", detail: detail)
+        if gesture == .hold, questionCapture != nil {
+            // The glasses' assistant opens and listens; the turn starts once you've asked.
+            Task { @MainActor [weak self] in try? await self?.openAssistant(source: .touch) }
+            return
+        }
         show(.touchpad, .touch, for: 1.2)
         continuation.yield(.touch(gesture))
     }
@@ -544,6 +559,49 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
         guard let url else { return nil }
         let dest = mediaDirectory.appendingPathComponent("video-\(UUID().uuidString).\(url.pathExtension.isEmpty ? "mov" : url.pathExtension)")
         do { try FileManager.default.moveItem(at: url, to: dest); return dest } catch { return url }
+    }
+
+    // MARK: The assistant (touch and hold, a ring button, Jarvis's talk tool)
+
+    /// The glasses chime, listen through their mics until you stop, chime again, then hand the
+    /// question to Jarvis — the touch-and-hold flow of the real glasses.
+    func openAssistant(source: MetaCommandFeed.Source) async throws {
+        if let reason = hw.voiceRefusal() {
+            feed.log(source, "Assistant", detail: reason, outcome: .refused(reason))
+            throw MetaGlassesError.refused(reason)
+        }
+        guard !capturingQuestion else { return }
+        earcon?.play(.listening)
+        listening = true
+        show(.mic, .listening, for: nil)
+        feed.log(source, "Assistant opened", detail: "Listening through the glasses mic")
+        guard let questionCapture else {
+            continuation.yield(.wake)          // no mic here (tests): the turn starts on its own
+            return
+        }
+        capturingQuestion = true
+        defer { capturingQuestion = false }
+        // Give a running wake-word listener a beat to let go of the mic.
+        try? await Task.sleep(for: .milliseconds(250))
+        let pcm: Data
+        do {
+            pcm = try await questionCapture.captureQuestion()
+        } catch {
+            earcon?.play(.thinking)
+            listening = false
+            settleFocus()
+            feed.log(.glasses, "Assistant closed", detail: error.localizedDescription, outcome: .info)
+            throw error
+        }
+        earcon?.play(.thinking)                // his "done" chime: the glasses stopped listening
+        guard pcm.count >= 3_200 else {
+            listening = false
+            settleFocus()
+            feed.log(.glasses, "Assistant closed", detail: "Didn't hear a question", outcome: .info)
+            return
+        }
+        continuation.yield(.wake)
+        streamSpokenAudio(pcm)
     }
 
     // MARK: Focus (what the 3D model glides to)
@@ -655,6 +713,7 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
         case .setClipLength(let s): return "Clip length \(s) s"
         case .setVideoMode(let m): return "Video mode \(m.label)"
         case .enrolWakeWord(let phrase, _): return "Enrol “\(phrase)”"
+        case .openAssistant: return "Open the assistant"
         }
     }
 }

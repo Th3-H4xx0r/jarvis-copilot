@@ -38,7 +38,7 @@ final class MetaGlassesDevice: ObservableObject, WearableDevice {
     /// register frame and can push other wearables past the 512 cap).
     static let capabilityNames = ["meta_glasses_status", "meta_glasses_look", "meta_glasses_photo",
                                   "meta_glasses_video", "meta_glasses_live", "meta_glasses_speak",
-                                  "meta_glasses_volume"]
+                                  "meta_glasses_volume", "meta_glasses_talk"]
 
     var capabilities: [DeviceCapability] {
         [
@@ -82,6 +82,10 @@ final class MetaGlassesDevice: ObservableObject, WearableDevice {
                 inputSchema: DeviceCapability.schema([
                     "level": ["type": "integer", "minimum": 0, "maximum": 100],
                 ], required: ["level"])),
+            DeviceCapability(
+                name: "meta_glasses_talk",
+                description: "Open the glasses' assistant so the wearer can ask Jarvis something (for ring buttons and shortcuts).",
+                inputSchema: DeviceCapability.schema()),
         ]
     }
 
@@ -208,6 +212,10 @@ final class MetaGlassesDevice: ObservableObject, WearableDevice {
             guard let text = args["text"] as? String, !text.isEmpty else { throw DeviceError.badArgument("text is required") }
             try await session.speak(text)
             return ["spoken": true]
+
+        case "meta_glasses_talk":
+            try await session.openAssistant()
+            return ["listening": true, "note": "The glasses chimed and are listening for the question."]
 
         case "meta_glasses_volume":
             guard let level = (args["level"] as? Int) ?? (args["level"] as? Double).map({ Int($0) }) else {

@@ -1,3 +1,4 @@
+import AVFoundation
 import UIKit
 
 /// What your finger feels on the simulated glasses' right arm, so the touchpad and capture button
@@ -66,6 +67,14 @@ enum MetaGlassesHaptics {
             medium.impactOccurred(intensity: 0.9)
             DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(140)) { medium.impactOccurred(intensity: 0.9) }
         }
+    }
+
+    /// iOS mutes app haptics while the app records unless the session allows them. The simulator
+    /// holds the mic (wake-word listening, hold to talk, the assistant), so allow them while it does,
+    /// then put it back so a normal voice chat isn't buzzed into its own mic (2026-11-22: "the
+    /// haptics don't work anymore" once "Listen for Hey Jarvis" was on).
+    static func allowWhileRecording(_ on: Bool) {
+        try? AVAudioSession.sharedInstance().setAllowHapticsAndSystemSoundsDuringRecording(on)
     }
 
     /// Hold to talk: the mic opens / closes.
