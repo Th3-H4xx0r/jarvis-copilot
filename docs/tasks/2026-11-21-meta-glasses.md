@@ -75,9 +75,9 @@ His asks: a full simulator he uses until the glasses arrive. Jarvis drives it li
 16. [x] His asks (2026-11-22): "The touch controls card needs to be on the top right below the glasses model", "add vibrations and haptic feedback when I tap or touch and hold", "when I import photos or videos taken on glasses sim to the phone, it doesn't save it to my gallery".
     - Found: Import only moved items into the in-app list; it never touched the Photos library.
     - Fix: touchpad card moved right under the 3D model; MetaGlassesHaptics (taps at the glasses' rhythm, swipe ticks, shutter, a firm thump when a hold registers; Touch-and-hold and Hold-video tiles now need a real 0.5 s hold); hold to talk ticks on open/close; Import saves to Photos (add-only), tiles show it, the feed says "N of M saved to Photos" with the reason for any miss; clips are moved out of tmp. ✅ 58 tests; shipped in build 263261701 (1673674dbd)
-17. [ ] His report: "Did u implement support for wake word? I don't see it working".
+17. [x] His report: "Did u implement support for wake word? I don't see it working".
     - Found (his phone, devicectl prefs pull): build 263261701 installed; no meta.sim.wakePhrase / listenWake, so it was never set up. He then found the setup button himself.
-    - His follow-up: "When wake word gets activated, there needs to be a chime so I know it got activated". Fix: on detection, play his chosen Jarvis "listening" chime (VoiceEarconSounds, nothing synthesized) through the speaker (recording plan has .defaultToSpeaker), plus a haptic tap, and the 3D model glides to the mics right away. Testing.
+    - His follow-up: "When wake word gets activated, there needs to be a chime so I know it got activated". Fix: on detection, play his chosen Jarvis "listening" chime (VoiceEarconSounds, nothing synthesized) through the speaker (recording plan has .defaultToSpeaker), plus a haptic tap, and the 3D model glides to the mics right away. ✅ Shipped in build 263261756 (d1eefbead6)
     - His question about battery: real glasses = the glasses' own wake detector (same path as "Hey Meta"), so roughly the same battery and no phone listening. The sim uses the phone mic + on-device recognition, but only while the Sim screen is open.
 
 ## Shipped (2026-11-22)
@@ -86,6 +86,7 @@ His asks: a full simulator he uses until the glasses arrive. Jarvis drives it li
 - build 263260801 (6988ee4155): "Hey Jarvis" enrolment (glasses + sim) + hands-free listening in the sim
 - build 263260829 (d870531bc5): 3D Shiny Black Scriber model + focus animations
 - build 263261701 (1673674dbd): touchpad under the model, haptics, imports saved to Photos
+- build 263261756 (d1eefbead6): chime + haptic when "Hey Jarvis" is heard
 - Mac: scripts/glasses-sim.sh (d075a60d2e)
 
 ## For you
