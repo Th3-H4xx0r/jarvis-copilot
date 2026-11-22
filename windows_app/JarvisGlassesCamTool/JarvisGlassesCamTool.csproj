@@ -19,5 +19,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Jarvis.Core\Jarvis.Core.csproj" />
+    <!-- selftest drives the real media source in-process. -->
+    <ProjectReference Include="..\JarvisGlassesCam\JarvisGlassesCam.csproj" />
   </ItemGroup>
 </Project>

@@ -1,5 +1,6 @@
 // Jarvis Glasses camera: adapted from VCamNetSample (https://github.com/smourier/VCamNetSample).
 // Copyright (c) 2024-2026 Simon Mourier. MIT License; the full notice is in THIRD_PARTY_NOTICES.md.
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using DirectN;
 using Jarvis.Core.GlassesCamera;
@@ -25,6 +26,13 @@ namespace JarvisGlassesCam
         private int _height = GlassesCamSpec.Portrait.H;
         private long _frameCount;
         private FrameProvider _provider = new();
+        // Pacing: requests queue their tokens; a timer hands out one sample per 1/30 s, like a real
+        // camera (unpaced, a reader pulling as fast as it can would spin the camera service).
+        private static readonly long FrameTicks = Stopwatch.Frequency / GlassesCamSpec.Fps;
+        private readonly Queue<object?> _tokens = new();
+        private Timer? _pacer;
+        private bool _scheduled;
+        private long _nextFrameAt;
 
         public MediaStream(MediaSource source, uint index)
         {
@@ -127,6 +135,12 @@ namespace JarvisGlassesCam
             queue.Object.QueueEventParamVar((uint)__MIDL___MIDL_itf_mfobjects_0000_0013_0001.MEStreamStopped, Guid.Empty, HRESULTS.S_OK, null).ThrowOnError();
             if (_state != _MF_STREAM_STATE.MF_STREAM_STATE_STOPPED) _provider.Stopped();
             _state = _MF_STREAM_STATE.MF_STREAM_STATE_STOPPED;
+            lock (_lock)
+            {
+                _tokens.Clear();
+                _pacer?.Change(Timeout.Infinite, Timeout.Infinite);
+                _scheduled = false;
+            }
             return HRESULTS.S_OK;
         }
 
@@ -318,16 +332,48 @@ namespace JarvisGlassesCam
 
         public HRESULT RequestSample(object token)
         {
-            try
+            lock (_lock)
             {
-                lock (_lock)
-                {
-                    var queue = _queue;
-                    var allocator = _allocator;
-                    if (allocator == null || queue == null)
-                        return HRESULTS.MF_E_SHUTDOWN;
+                if (_allocator == null || _queue == null)
+                    return HRESULTS.MF_E_SHUTDOWN;
 
-                    allocator.Object.AllocateSample(out var sample).ThrowOnError();
+                _tokens.Enqueue(token);
+                ScheduleLocked(0);
+                return HRESULTS.S_OK;
+            }
+        }
+
+        private void ScheduleLocked(long extraTicks)
+        {
+            if (_scheduled || _tokens.Count == 0) return;
+            var wait = Math.Max(extraTicks, _nextFrameAt - Stopwatch.GetTimestamp());
+            _scheduled = true;
+            _pacer ??= new Timer(_ => Deliver());
+            _pacer.Change(TimeSpan.FromTicks(Math.Max(0, wait) * TimeSpan.TicksPerSecond / Stopwatch.Frequency), Timeout.InfiniteTimeSpan);
+        }
+
+        /// The pacer's tick: one sample for the oldest request.
+        private void Deliver()
+        {
+            lock (_lock)
+            {
+                _scheduled = false;
+                var queue = _queue;
+                var allocator = _allocator;
+                if (queue == null || allocator == null || _tokens.Count == 0) return;
+                var token = _tokens.Peek();
+                var hr = allocator.Object.AllocateSample(out var sample);
+                if (hr == HRESULTS.MF_E_SAMPLEALLOCATOR_EMPTY)
+                {
+                    // The reader still holds every sample: try again shortly.
+                    GC.Collect();
+                    ScheduleLocked(Stopwatch.Frequency / 200);
+                    return;
+                }
+                _tokens.Dequeue();
+                try
+                {
+                    hr.ThrowOnError();
                     try
                     {
                         sample.SetSampleTime(Functions.MFGetSystemTime()).ThrowOnError();
@@ -352,13 +398,14 @@ namespace JarvisGlassesCam
                     {
                         GC.Collect();
                     }
-                    return HRESULTS.S_OK;
                 }
-            }
-            catch (Exception e)
-            {
-                EventProvider.LogError(e.ToString());
-                throw;
+                catch (Exception e)
+                {
+                    EventProvider.LogError(e.ToString());
+                }
+                var now = Stopwatch.GetTimestamp();
+                _nextFrameAt = Math.Max(_nextFrameAt + FrameTicks, now);
+                ScheduleLocked(0);
             }
         }
 
@@ -435,6 +482,7 @@ namespace JarvisGlassesCam
             Interlocked.Exchange(ref _descriptor!, null)?.Dispose();
             Interlocked.Exchange(ref _queue!, null)?.Dispose();
             Interlocked.Exchange(ref _allocator!, null)?.Dispose();
+            Interlocked.Exchange(ref _pacer, null)?.Dispose();
             Interlocked.Exchange(ref _provider!, null)?.Dispose();
             base.Dispose(disposing);
         }

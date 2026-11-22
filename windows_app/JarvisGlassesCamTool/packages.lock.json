@@ -10,6 +10,13 @@
       },
       "jarvis.core": {
         "type": "Project"
+      },
+      "jarvisglassescam": {
+        "type": "Project",
+        "dependencies": {
+          "DirectNCore": "[1.17.3, 2.0.0)",
+          "Jarvis.Core": "[1.0.0, )"
+        }
       }
     },
     "net8.0-windows7.0/win-x64": {}

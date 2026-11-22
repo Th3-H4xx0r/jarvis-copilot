@@ -222,6 +222,65 @@ public static class GlassesCamPng
         return (px, w, h);
     }
 
+    /// BGRA → an 8-bit RGB PNG (the probe's snapshots of what the camera shows).
+    public static byte[] EncodeBgra(ReadOnlySpan<byte> bgra, int w, int h)
+    {
+        var raw = new byte[h * (1 + w * 3)];
+        for (var y = 0; y < h; y++)
+        {
+            var o = y * (1 + w * 3);
+            for (var x = 0; x < w; x++)
+            {
+                var i = (y * w + x) * 4;
+                raw[o + 1 + x * 3] = bgra[i + 2];
+                raw[o + 2 + x * 3] = bgra[i + 1];
+                raw[o + 3 + x * 3] = bgra[i];
+            }
+        }
+        using var z = new MemoryStream();
+        using (var zs = new ZLibStream(z, CompressionLevel.Fastest, leaveOpen: true)) zs.Write(raw);
+        using var ms = new MemoryStream();
+        ms.Write(Signature);
+        var ihdr = new byte[13];
+        BinaryPrimitives.WriteInt32BigEndian(ihdr, w);
+        BinaryPrimitives.WriteInt32BigEndian(ihdr.AsSpan(4), h);
+        ihdr[8] = 8;
+        ihdr[9] = 2;
+        Chunk(ms, "IHDR", ihdr);
+        Chunk(ms, "IDAT", z.ToArray());
+        Chunk(ms, "IEND", Array.Empty<byte>());
+        return ms.ToArray();
+    }
+
+    private static void Chunk(Stream s, string type, byte[] data)
+    {
+        Span<byte> len = stackalloc byte[4];
+        BinaryPrimitives.WriteInt32BigEndian(len, data.Length);
+        s.Write(len);
+        var body = new byte[4 + data.Length];
+        System.Text.Encoding.ASCII.GetBytes(type, body);
+        data.CopyTo(body, 4);
+        s.Write(body);
+        s.Write(Crc(body));
+    }
+
+    private static readonly uint[] CrcTable = Enumerable.Range(0, 256).Select(n =>
+    {
+        var c = (uint)n;
+        for (var k = 0; k < 8; k++) c = (c & 1) != 0 ? 0xEDB88320 ^ (c >> 1) : c >> 1;
+        return c;
+    }).ToArray();
+
+    /// PNG's CRC-32 of a chunk's type and data, big-endian.
+    public static byte[] Crc(ReadOnlySpan<byte> typeAndData)
+    {
+        var c = 0xFFFFFFFFu;
+        foreach (var b in typeAndData) c = CrcTable[(c ^ b) & 0xFF] ^ (c >> 8);
+        var o = new byte[4];
+        BinaryPrimitives.WriteUInt32BigEndian(o, c ^ 0xFFFFFFFFu);
+        return o;
+    }
+
     private static int Paeth(int a, int b, int c)
     {
         var p = a + b - c;

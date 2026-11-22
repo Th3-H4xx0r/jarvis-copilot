@@ -41,7 +41,12 @@ public static class GlassesCamSpec
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Jarvis", "GlassesCamera");
 
     /// Made by the installer, writable by his account and the camera service.
-    public static string FrameFilePath => Path.Combine(DataDir, "frames.bin");
+    public static string FrameFilePath =>
+        Environment.GetEnvironmentVariable(FrameFileOverride) is { Length: > 0 } path ? path : Path.Combine(DataDir, "frames.bin");
+
+    /// Set only by JarvisGlassesCamTool's selftest, to drive the real media source on a scratch
+    /// file; Windows' camera service never has it.
+    public const string FrameFileOverride = "JARVIS_GLASSES_CAM_FRAMES";
 
     /// What the last install or remove did (written by the admin script).
     public static string InstallResultPath => Path.Combine(DataDir, "install-result.json");

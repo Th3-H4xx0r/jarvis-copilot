@@ -173,6 +173,22 @@ public class GlassesCamPictureTests
     }
 
     [Fact]
+    public void PngEncodeRoundTrips()
+    {
+        var px = new byte[5 * 3 * 4];
+        for (var i = 0; i < px.Length; i++) px[i] = (byte)(i * 13);
+        for (var i = 3; i < px.Length; i += 4) px[i] = 255;
+        var png = GlassesCamPng.EncodeBgra(px, 5, 3);
+        Assert.Equal(new byte[] { 137, 80, 78, 71 }, png[..4]);
+        var (back, w, h) = GlassesCamPng.DecodeBgra(png);
+        Assert.Equal((5, 3), (w, h));
+        Assert.Equal(px, back);
+        // The IHDR chunk's CRC is the real one (viewers check it): zlib.crc32(b"IHDR" + data).
+        Assert.Equal(new byte[] { 0xD4, 0x54, 0x52, 0xAF }, GlassesCamPng.Crc(png.AsSpan(12, 17)));
+        Assert.Equal(new byte[] { 0xD4, 0x54, 0x52, 0xAF }, png[29..33]);
+    }
+
+    [Fact]
     public void PngDecodesEachFilterAndRgba()
     {
         // 3×2 RGBA with filter types 1 (Sub) and 4 (Paeth), made with .NET's zlib.
