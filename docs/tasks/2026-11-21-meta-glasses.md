@@ -102,8 +102,8 @@ His asks: a full simulator he uses until the glasses arrive. Jarvis drives it li
     - iPhone: no third-party camera input for FaceTime at all (no UVC/virtual cameras on iOS, iPad only). The only route is FaceTime's Share My Screen.
     - Mac: a CoreMediaIO camera extension shows up as a real camera in FaceTime/Zoom/Meet.
     - His pick: BOTH.
-    a. [ ] iPhone call view: the live viewer's "Call view" (just the video, LIVE dot, screen kept awake) + a "FaceTime" guide (share-screen steps, cellular note, sim camera note). Built + compiled; shipping.
-    b. [ ] Mac "Jarvis Glasses" camera: design pending his OK. Recommended transport: reuse the Mac app's WebRTC pipeline (ScreenShareSession / FramePipeline + Cloudflare TURN) reversed, phone → Mac. LAN-direct breaks with the real glasses, because their stream puts the phone on the glasses' Wi-Fi. Camera extension in mac_app (XcodeGen project.yml). Signing: system extensions need Developer ID, or "systemextensionsctl developer on" with Apple Development.
+    a. [x] iPhone call view: the live viewer's "Call view" (just the video, LIVE dot, screen kept awake) + a "FaceTime" guide (share-screen steps, cellular note, sim camera note). Shipped in build 263261858 (8e1536df1a).
+    b. [ ] Mac "Jarvis Glasses" camera. His picks: reuse WebRTC (phone → Mac) + Developer ID + notarize. Being built by one Opus helper agent (2026-11-22 19:00). Blocker (USER): no Developer ID Application cert and no notarytool profile on the Mac yet; the agent reports the exact steps. Recommended transport: reuse the Mac app's WebRTC pipeline (ScreenShareSession / FramePipeline + Cloudflare TURN) reversed, phone → Mac. LAN-direct breaks with the real glasses, because their stream puts the phone on the glasses' Wi-Fi. Camera extension in mac_app (XcodeGen project.yml). Signing: system extensions need Developer ID, or "systemextensionsctl developer on" with Apple Development.
 
 ## Shipped (2026-11-22)
 - build 263260740 (94118210d0): full Gen 2 simulator, 7 meta_glasses_* tools, Device | Sim page
@@ -117,6 +117,7 @@ His asks: a full simulator he uses until the glasses arrive. Jarvis drives it li
 - build 263261825 (77135df096): chime-before-release + video toggle (interim)
 - build 263261835 (6838f83b9b): ring Talk from the background (.glassesSim) + full-screen live viewer
 - build 263261843 (987577ea58): wake-word listener can't grab the mic mid-handoff
+- build 263261858 (8e1536df1a): live viewer Call view + FaceTime guide
 - Mac: scripts/glasses-sim.sh (d075a60d2e)
 
 ## For you
