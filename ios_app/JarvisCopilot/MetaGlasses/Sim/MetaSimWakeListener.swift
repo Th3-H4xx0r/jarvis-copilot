@@ -13,6 +13,11 @@ final class MetaSimWakeListener: ObservableObject {
 
     /// The words after the wake phrase, 16 kHz mono PCM16.
     var onWake: ((Data) -> Void)?
+    /// The moment the phrase is heard (before the question is captured).
+    var onHeard: (() -> Void)?
+    /// His chosen "listening" chime (the Jarvis voice earcon), so he knows the wake word fired —
+    /// the real glasses chime on wake too.
+    var earcon: EarconPlaying = ToneEarconPlayer()
 
     private let engine = AVAudioEngine()
     private var recognizer: SFSpeechRecognizer?
@@ -115,10 +120,18 @@ final class MetaSimWakeListener: ObservableObject {
         }
     }
 
+    /// The wake word fired: the chime, a tap, and whoever's watching (the 3D model glides to the mics).
+    func announceWake() {
+        earcon.play(.listening)
+        MetaGlassesHaptics.micOpened()
+        onHeard?()
+    }
+
     /// Heard the phrase: keep capturing until the speaker pauses, then hand over what followed it.
     private func heard(after wakeEnd: TimeInterval) {
         state = .heard
         restartTask?.cancel()
+        announceWake()
         Task { @MainActor [weak self] in
             guard let self else { return }
             let clock = ContinuousClock()

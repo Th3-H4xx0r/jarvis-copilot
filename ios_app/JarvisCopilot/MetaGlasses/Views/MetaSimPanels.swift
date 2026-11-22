@@ -124,6 +124,7 @@ private struct MetaTalkCard: View {
         .onAppear {
             visible = true
             listener.onWake = { pcm in Task { await runner.run(recorded: pcm) } }
+            listener.onHeard = { sim.show(.mic, .listening, for: 12) }
             updateListener()
         }
         .onDisappear { visible = false; listener.stop() }

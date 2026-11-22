@@ -307,6 +307,21 @@ final class MetaWakeWordTests: XCTestCase {
         XCTAssertNil(MetaSimWakeListener.wakeEnd(in: [("hey", 0.3), ("jar", 0.6)]), "too short to be the name")
     }
 
+    func testWakeAnnouncesWithTheListeningChime() {
+        final class FakeEarcon: EarconPlaying {
+            var played: [VoiceEarcon] = []
+            func play(_ earcon: VoiceEarcon) -> Int { played.append(earcon); return 0 }
+        }
+        let listener = MetaSimWakeListener()
+        let chime = FakeEarcon()
+        listener.earcon = chime
+        var heard = false
+        listener.onHeard = { heard = true }
+        listener.announceWake()
+        XCTAssertEqual(chime.played, [.listening], "his chosen Jarvis listening chime, not a new tone")
+        XCTAssertTrue(heard)
+    }
+
     func testEnrolmentNeedsThreeSamplesAndTheGlassesOn() async throws {
         let sim = SimulatedGlassesTransport(autoTick: false)
         try await sim.connect()
