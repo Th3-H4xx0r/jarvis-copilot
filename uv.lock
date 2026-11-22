@@ -1935,6 +1935,7 @@ vercel = [
     { name = "vercel" },
 ]
 voice = [
+    { name = "av" },
     { name = "faster-whisper" },
     { name = "numpy" },
     { name = "sounddevice" },
@@ -1955,6 +1956,7 @@ requires-dist = [
     { name = "aiohttp", marker = "extra == 'slack'", specifier = "==3.13.3" },
     { name = "aiohttp", marker = "extra == 'sms'", specifier = "==3.13.3" },
     { name = "anthropic", marker = "extra == 'anthropic'", specifier = "==0.86.0" },
+    { name = "av", marker = "extra == 'voice'", specifier = ">=17.0.0,<19" },
     { name = "azure-identity", marker = "extra == 'azure-identity'", specifier = "==1.25.3" },
     { name = "boto3", marker = "extra == 'bedrock'", specifier = "==1.42.89" },
     { name = "brotlicffi", marker = "extra == 'messaging'", specifier = "==1.2.0.1" },

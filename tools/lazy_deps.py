@@ -108,6 +108,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
     # ─── Speech-to-text providers ──────────────────────────────────────────
     "stt.faster_whisper": (
         "faster-whisper==1.2.1",
+        "av>=17.0.0,<19",  # PyAV 19 removed the av.open() keyword faster-whisper passes
         "sounddevice==0.5.5",
         "numpy==2.4.3",
     ),

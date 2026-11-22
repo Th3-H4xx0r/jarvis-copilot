@@ -115,6 +115,10 @@ voice = [
   # Local STT pulls in wheel-only transitive deps (ctranslate2, onnxruntime),
   # so keep it out of the base install for source-build packagers like Homebrew.
   "faster-whisper==1.2.1",
+  # faster-whisper 1.2.1 asks for av>=11 with no ceiling but still calls
+  # av.open(metadata_errors=...), a keyword PyAV 19 removed, so on av 19 every
+  # local transcription fails. Keep in step with tools/lazy_deps.py.
+  "av>=17.0.0,<19",
   "sounddevice==0.5.5",
   "numpy==2.4.3",
 ]
