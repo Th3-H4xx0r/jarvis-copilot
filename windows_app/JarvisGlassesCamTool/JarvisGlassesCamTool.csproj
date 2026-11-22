@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The Jarvis Glasses camera's setup tool: creates/removes the virtual camera, lists cameras and
+       reads frames like an app would (probe). Shipped next to the media source in
+       Program Files\Jarvis\GlassesCamera and run from there: the virtual camera API loads the .NET
+       media source into its caller, which the self-contained Jarvis.exe can't host. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <PlatformTarget>x64</PlatformTarget>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>JarvisGlassesCamTool</RootNamespace>
+    <AssemblyName>JarvisGlassesCamTool</AssemblyName>
+    <Product>Jarvis</Product>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="DirectNCore" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Jarvis.Core\Jarvis.Core.csproj" />
+  </ItemGroup>
+</Project>
