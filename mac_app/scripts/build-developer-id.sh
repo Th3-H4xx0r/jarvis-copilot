@@ -48,9 +48,9 @@ cat > "$EXPORT_OPTIONS" <<PLIST
 </plist>
 PLIST
 
-echo "archiving build $BUILD_NUMBER…"
-xcodebuild -project JarvisMac.xcodeproj -scheme Jarvis -configuration Release -destination 'generic/platform=macOS' \
-  -derivedDataPath "$DD" -archivePath "$ARCHIVE" -allowProvisioningUpdates \
+echo "archiving build ${BUILD_NUMBER}…"
+xcodebuild -project JarvisMac.xcodeproj -scheme Jarvis -configuration Release -destination 'platform=macOS' \
+  -derivedDataPath "$DD" -archivePath "$ARCHIVE" -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
   CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM=$TEAM CODE_SIGN_IDENTITY="Apple Development" \
   ENABLE_HARDENED_RUNTIME=YES OTHER_CODE_SIGN_FLAGS=--timestamp JARVIS_ENTITLEMENTS=Jarvis-devid.entitlements \
   CURRENT_PROJECT_VERSION="$BUILD_NUMBER" archive 2>&1 | grep -E "error:|\*\* ARCHIVE" | tail -30
@@ -62,8 +62,12 @@ xcodebuild -exportArchive -archivePath "$ARCHIVE" -exportOptionsPlist "$EXPORT_O
 APP="$OUT/export/Jarvis.app"
 [ -d "$APP" ] || { echo "export failed"; exit 1; }
 codesign --verify --deep --strict "$APP"
-codesign -dv "$APP" 2>&1 | grep -q "Authority=Developer ID Application" || { echo "not Developer ID-signed"; exit 1; }
-codesign -d --entitlements - "$APP" 2>/dev/null | grep -q system-extension.install \
+# Captured first, not piped into grep -q: under pipefail an early-exiting grep can fail the pipe.
+# -dvv, not -dv: only the second verbosity level prints the Authority= chain.
+SIG="$(codesign -dvv "$APP" 2>&1)"
+[[ "$SIG" == *"Authority=Developer ID Application"* ]] || { echo "not Developer ID-signed"; echo "$SIG"; exit 1; }
+ENTS="$(codesign -d --entitlements - "$APP" 2>/dev/null)"
+[[ "$ENTS" == *system-extension.install* ]] \
   || { echo "the app lost its system-extension entitlement (no Developer ID profile with System Extension?)"; exit 1; }
 [ -d "$APP/Contents/Library/SystemExtensions/com.jarviscopilot.mac.glassescamera.systemextension" ] \
   || { echo "the camera extension isn't embedded"; exit 1; }
