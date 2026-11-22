@@ -196,8 +196,30 @@ protocol GlassesTransport: AnyObject {
     func disconnect() async
     /// Battery, heat, storage, worn/folded… as the glasses report it. Nil until known.
     var hardware: MetaHardwareState? { get }
+    func listMedia() async throws -> [MetaStoredMedia]
+    func latestPhoto() async throws -> (data: Data, date: Date, onGlasses: Bool)?
+    func importMedia() async throws -> MetaImportResult
+}
+
+/// What an import did: how many came over and how many reached the Photos library.
+struct MetaImportResult: Equatable, Sendable {
+    var imported: Int
+    var savedToPhotos: Int
+    var problem: String?
 }
 
 extension GlassesTransport {
     var hardware: MetaHardwareState? { nil }
+    /// Photos and clips on the glasses and already on the phone.
+    func listMedia() async throws -> [MetaStoredMedia] {
+        throw MetaGlassesError.transportUnavailable("media listing needs the glasses link (hardware-gated)")
+    }
+    /// The newest photo (full JPEG), wherever it is.
+    func latestPhoto() async throws -> (data: Data, date: Date, onGlasses: Bool)? {
+        throw MetaGlassesError.transportUnavailable("photo transfer needs the glasses link (hardware-gated)")
+    }
+    /// Copy everything on the glasses to the phone (and its Photos library).
+    func importMedia() async throws -> MetaImportResult {
+        throw MetaGlassesError.transportUnavailable("media import needs the glasses link (hardware-gated)")
+    }
 }

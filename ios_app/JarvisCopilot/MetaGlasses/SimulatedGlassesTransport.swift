@@ -39,6 +39,8 @@ struct MetaStoredMedia: Identifiable, Equatable, Sendable {
     var source: String
     /// Imported to the phone AND added to the Photos library.
     var savedToPhotos = false
+    /// Copied off the glasses to the phone (false = still in glasses storage).
+    var onPhone = false
 }
 
 /// The simulated Ray-Ban Meta (Gen 2): software glasses behind the same `GlassesTransport` the
@@ -509,11 +511,12 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
 
     /// Import everything in glasses storage to the phone over the glasses' Wi-Fi — ~10 MB/s, and
     /// the phone leaves home Wi-Fi while it runs.
-    func importAll() async {
-        guard !storage.isEmpty else { return }
+    @discardableResult
+    func importAll() async -> MetaImportResult {
+        guard !storage.isEmpty else { return MetaImportResult(imported: 0, savedToPhotos: 0, problem: nil) }
         if let reason = hw.unreachableReason ?? (hw.folded ? "The glasses are folded" : nil) {
             feed.log(.sim, "Import", detail: reason, outcome: .refused(reason))
-            return
+            return MetaImportResult(imported: 0, savedToPhotos: 0, problem: reason)
         }
         let items = storage
         let bytes = items.reduce(Int64(0)) { $0 + $1.bytes }
@@ -529,7 +532,7 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
         }
         importProgress = nil
         // Like the Meta app: imports land in the phone's Photos library.
-        var landed = items
+        var landed = items.map { item -> MetaStoredMedia in var copy = item; copy.onPhone = true; return copy }
         var saved = 0
         var problem: String?
         if let saveToPhotos {
@@ -552,6 +555,37 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
             : "\(saved) of \(items.count) saved to Photos" + (problem.map { " · \($0)" } ?? "")
         feed.log(.glasses, "Imported \(items.count) item\(items.count == 1 ? "" : "s") to the phone", detail: summary,
                  outcome: problem == nil ? .done : .info)
+        return MetaImportResult(imported: items.count, savedToPhotos: saved, problem: problem)
+    }
+
+    // MARK: Media for Jarvis (the same calls the real glasses will answer)
+
+    func listMedia() async throws -> [MetaStoredMedia] {
+        if let reason = hw.unreachableReason { throw MetaGlassesError.refused(reason) }
+        return storage + imported
+    }
+
+    func latestPhoto() async throws -> (data: Data, date: Date, onGlasses: Bool)? {
+        if let reason = hw.unreachableReason { throw MetaGlassesError.refused(reason) }
+        let photos = (storage + imported).filter { $0.kind == .photo }.sorted { $0.date > $1.date }
+        guard let newest = photos.first, let url = newest.fileURL, let data = try? Data(contentsOf: url) else { return nil }
+        if !newest.onPhone {
+            // Off the glasses over their Wi-Fi first, like a real import of one photo.
+            phoneOnGlassesWiFi = true
+            hw.wifiBusyFor = MetaGen2Profile.wifiJoinSeconds
+            if transferTimeScale > 0 { try? await Task.sleep(for: .seconds(1.0 * transferTimeScale)) }
+            if !hw.streaming { phoneOnGlassesWiFi = false }
+        }
+        feed.log(.jarvis, "Sent the latest photo", thumbnail: newest.thumbnail)
+        return (data, newest.date, !newest.onPhone)
+    }
+
+    func importMedia() async throws -> MetaImportResult {
+        if let reason = hw.unreachableReason ?? (hw.folded ? "The glasses are folded" : nil) {
+            feed.log(.jarvis, "Import", detail: reason, outcome: .refused(reason))
+            throw MetaGlassesError.refused(reason)
+        }
+        return await importAll()
     }
 
     /// Keep a finished clip with the glasses' other media (the camera writes to tmp, which iOS purges).

@@ -59,6 +59,21 @@ enum MetaGen2Profile {
 enum MetaVideoMode: String, CaseIterable, Codable, Sendable {
     case uhd3K30, fhd30, fhd60, hd120
 
+    /// The name Jarvis's tools use.
+    var key: String {
+        switch self {
+        case .uhd3K30: return "3k30"
+        case .fhd30: return "1080p30"
+        case .fhd60: return "1080p60"
+        case .hd120: return "720p120"
+        }
+    }
+
+    init?(key: String) {
+        guard let mode = Self.allCases.first(where: { $0.key == key.lowercased() }) else { return nil }
+        self = mode
+    }
+
     var label: String {
         switch self {
         case .uhd3K30: return "3K · 30 fps"

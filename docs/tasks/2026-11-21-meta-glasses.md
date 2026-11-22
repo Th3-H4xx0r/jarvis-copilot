@@ -79,11 +79,15 @@ His asks: a full simulator he uses until the glasses arrive. Jarvis drives it li
     - Found (his phone, devicectl prefs pull): build 263261701 installed; no meta.sim.wakePhrase / listenWake, so it was never set up. He then found the setup button himself.
     - His follow-up: "When wake word gets activated, there needs to be a chime so I know it got activated". Fix: on detection, play his chosen Jarvis "listening" chime (VoiceEarconSounds, nothing synthesized) through the speaker (recording plan has .defaultToSpeaker), plus a haptic tap, and the 3D model glides to the mics right away. ✅ Shipped in build 263261756 (d1eefbead6)
     - His question about battery: real glasses = the glasses' own wake detector (same path as "Hey Meta"), so roughly the same battery and no phone listening. The sim uses the phone mic + on-device recognition, but only while the Sim screen is open.
-18. [ ] His asks: "I need to hear the done chime as well once it stops listening", "support for tying the ring into this just like the inmo's", "the haptics don't work anymore, did u remove that? Add it back".
+18. [x] His asks: "I need to hear the done chime as well once it stops listening", "support for tying the ring into this just like the inmo's", "the haptics don't work anymore, did u remove that? Add it back".
     - Haptics, found (his prefs: listenWake = true): with "Listen for Hey Jarvis" on, the sim holds the mic, and iOS mutes app haptics while recording. Fix: setAllowHapticsAndSystemSoundsDuringRecording(true) while the sim holds the mic (listener, hold to talk, assistant), back to false after.
     - Done chime: his Jarvis "done" earcon when listening ends (after the wake-word question, on hold-to-talk release, when the assistant stops listening); the listening chime on hold-to-talk press.
     - Ring: like the INMO, through the ring action picker: a "Meta glasses" section with the glasses icon and clean names (Talk, Photo, Video…), plus a new "Talk" tool that opens the glasses' assistant. Sim: chime → phone mic as the glasses mic until quiet → done chime → Jarvis. The Touch-and-hold tile now does the same (it used to start a turn with no audio).
-    - Testing.
+    - ✅ 63 tests; shipped in build 263261808 (a482fb0b15)
+19. [ ] His ask: "make sure that Jarvis picks up all the tools exposed by the glasses and have a skill for meta glasses control… it shouldn't see a difference between the real glasses or the sim… it should be able to do everything on the glasses".
+    - Found (server .devices.json on jc-hermes): the iPhone device already advertises the 7 meta_glasses_* tools, so Jarvis picks them up through the wearables route.
+    - Done: the status has no "simulated" flag and the sim registers as plain "Ray-Ban Meta (Gen 2)", so Jarvis can't tell them apart. New tools meta_glasses_media (list / latest_photo / import) and meta_glasses_settings (clip length, video mode), 10 in total, with the same transport API for the real glasses (hardware-gated defaults). Skill skills/smart-home/jarvis-meta-glasses (SKILL.md + scripts/meta_glasses.py + 9 tests).
+    - Testing / deploying.
 
 ## Shipped (2026-11-22)
 - build 263260740 (94118210d0): full Gen 2 simulator, 7 meta_glasses_* tools, Device | Sim page
@@ -92,6 +96,7 @@ His asks: a full simulator he uses until the glasses arrive. Jarvis drives it li
 - build 263260829 (d870531bc5): 3D Shiny Black Scriber model + focus animations
 - build 263261701 (1673674dbd): touchpad under the model, haptics, imports saved to Photos
 - build 263261756 (d1eefbead6): chime + haptic when "Hey Jarvis" is heard
+- build 263261808 (a482fb0b15): done chime, ring Talk via the action picker, haptics while the sim records
 - Mac: scripts/glasses-sim.sh (d075a60d2e)
 
 ## For you

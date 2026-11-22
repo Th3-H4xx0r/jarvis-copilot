@@ -338,6 +338,33 @@ final class MetaGlassesSession {
         try await transport.send(.speak(text: text))
     }
 
+    // MARK: Media + settings (the same for the simulator and the real glasses)
+
+    func listMedia() async throws -> [MetaStoredMedia] {
+        guard isReady else { throw MetaGlassesError.notReady }
+        return try await transport.listMedia()
+    }
+
+    func latestPhoto() async throws -> (data: Data, date: Date, onGlasses: Bool)? {
+        guard isReady else { throw MetaGlassesError.notReady }
+        return try await transport.latestPhoto()
+    }
+
+    func importMedia() async throws -> MetaImportResult {
+        guard isReady else { throw MetaGlassesError.notReady }
+        return try await transport.importMedia()
+    }
+
+    func setClipLength(_ seconds: Int) async throws {
+        guard isReady else { throw MetaGlassesError.notReady }
+        try await transport.send(.setClipLength(seconds))
+    }
+
+    func setVideoMode(_ mode: MetaVideoMode) async throws {
+        guard isReady else { throw MetaGlassesError.notReady }
+        try await transport.send(.setVideoMode(mode))
+    }
+
     /// Open the glasses' assistant from the phone: they chime and listen (a ring button, a shortcut).
     func openAssistant() async throws {
         guard isReady else { throw MetaGlassesError.notReady }

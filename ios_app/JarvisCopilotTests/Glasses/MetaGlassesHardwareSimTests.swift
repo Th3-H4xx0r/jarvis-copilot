@@ -494,8 +494,44 @@ final class MetaGlassesDeviceToolTests: XCTestCase {
         await sim.overrideBattery(42)
         let status = try await device.invoke("meta_glasses_status", args: [:])
         XCTAssertEqual(status["battery_percent"] as? Int, 42)
-        XCTAssertEqual(status["simulated"] as? Bool, true)
+        XCTAssertNil(status["simulated"], "Jarvis sees the same glasses whether real or simulated")
         XCTAssertEqual(status["clip_length_seconds"] as? Int, 30)
+    }
+
+    func testMediaToolListsFetchesTheLatestPhotoAndImports() async throws {
+        let (device, sim) = try await makeDevice()
+        sim.transferTimeScale = 0
+        var empty = try await device.invoke("meta_glasses_media", args: ["action": "latest_photo"])
+        XCTAssertEqual(empty["found"] as? Bool, false)
+        await sim.pressCaptureButton(hold: false)                   // a photo taken on the glasses
+        var listed = try await device.invoke("meta_glasses_media", args: ["action": "list"])
+        XCTAssertEqual((listed["on_glasses"] as? [[String: Any]])?.count, 1)
+        let latest = try await device.invoke("meta_glasses_media", args: ["action": "latest_photo", "question": "what is this"])
+        XCTAssertEqual(latest["mime"] as? String, "image/jpeg")
+        XCTAssertEqual(latest["was_on_glasses"] as? Bool, true)
+        XCTAssertNotNil(Data(base64Encoded: latest["base64"] as? String ?? ""))
+        let imported = try await device.invoke("meta_glasses_media", args: ["action": "import"])
+        XCTAssertEqual(imported["imported"] as? Int, 1)
+        listed = try await device.invoke("meta_glasses_media", args: ["action": "list"])
+        XCTAssertEqual((listed["on_phone"] as? [[String: Any]])?.count, 1)
+        XCTAssertEqual((listed["on_glasses"] as? [[String: Any]])?.count, 0)
+        empty = try await device.invoke("meta_glasses_media", args: ["action": "import"])
+        XCTAssertEqual(empty["note"] as? String, "Nothing new on the glasses.")
+    }
+
+    func testSettingsToolChangesClipLengthAndVideoModeWithinTheLimits() async throws {
+        let (device, sim) = try await makeDevice()
+        let result = try await device.invoke("meta_glasses_settings", args: ["clip_length_seconds": 180, "video_mode": "1080p60"])
+        XCTAssertEqual(result["clip_length_seconds"] as? Int, 180)
+        XCTAssertEqual(result["video_mode"] as? String, "1080p60")
+        XCTAssertEqual(sim.hw.videoMode, .fhd60)
+        do {
+            _ = try await device.invoke("meta_glasses_settings", args: ["clip_length_seconds": 240])
+            XCTFail("3 min is the glasses' max")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("Clip length must be one of"), error.localizedDescription)
+        }
+        XCTAssertEqual(device.capabilities.map(\.name), MetaGlassesDevice.capabilityNames)
     }
 
     func testSpeakAndVolumeRespectFolding() async throws {

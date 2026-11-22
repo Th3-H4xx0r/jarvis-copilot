@@ -66,8 +66,9 @@ final class MetaGlassesHub: ObservableObject {
         let glasses = MetaGlassesDevice(transport: simulator, feed: feed)
         glasses.session.onTouchBinding = { [weak self] gesture in self?.runBinding(for: gesture) }
         device = glasses
+        // The same name the real glasses will register under: Jarvis can't tell them apart.
         DeviceRegistry.shared.syncMembership(of: glasses, identity: MetaGlassesDevice.identityKey,
-                                             model: "\(MetaGlassesDevice.model) · Simulated")
+                                             model: MetaGlassesDevice.model)
         do { try await glasses.session.start() }
         catch { feed.log(.glasses, "Couldn't start the simulated glasses", detail: error.localizedDescription, outcome: .info) }
         // A background launch gets no didEnterBackground: start paused, catch up on foreground.

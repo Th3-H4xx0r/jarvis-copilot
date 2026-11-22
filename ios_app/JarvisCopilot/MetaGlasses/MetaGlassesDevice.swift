@@ -38,7 +38,8 @@ final class MetaGlassesDevice: ObservableObject, WearableDevice {
     /// register frame and can push other wearables past the 512 cap).
     static let capabilityNames = ["meta_glasses_status", "meta_glasses_look", "meta_glasses_photo",
                                   "meta_glasses_video", "meta_glasses_live", "meta_glasses_speak",
-                                  "meta_glasses_volume", "meta_glasses_talk"]
+                                  "meta_glasses_volume", "meta_glasses_talk", "meta_glasses_media",
+                                  "meta_glasses_settings"]
 
     var capabilities: [DeviceCapability] {
         [
@@ -86,15 +87,29 @@ final class MetaGlassesDevice: ObservableObject, WearableDevice {
                 name: "meta_glasses_talk",
                 description: "Open the glasses' assistant so the wearer can ask Jarvis something (for ring buttons and shortcuts).",
                 inputSchema: DeviceCapability.schema()),
+            DeviceCapability(
+                name: "meta_glasses_media",
+                description: "Photos/videos taken with the glasses: list them, get the latest photo to look at, or import all to the phone's Photos.",
+                inputSchema: DeviceCapability.schema([
+                    "action": ["type": "string", "enum": ["list", "latest_photo", "import"]],
+                    "question": ["type": "string", "maxLength": 2000],
+                ], required: ["action"])),
+            DeviceCapability(
+                name: "meta_glasses_settings",
+                description: "Read or change the glasses' capture settings: clip length (30/60/180 s) and video mode.",
+                inputSchema: DeviceCapability.schema([
+                    "clip_length_seconds": ["type": "integer", "enum": MetaGen2Profile.clipLengths],
+                    "video_mode": ["type": "string", "enum": MetaVideoMode.allCases.map(\.key)],
+                ])),
         ]
     }
 
     func snapshot() -> [String: Any] {
+        // Identical for the simulator and the real glasses: Jarvis sees one pair of glasses.
         var state: [String: Any] = [
             "model": Self.model,
             "device_id": deviceID,
             "connected": isConnected,
-            "simulated": transport is SimulatedGlassesTransport,
         ]
         state.merge(session.snapshot()) { _, new in new }
         if let hw = session.hardware { state.merge(Self.describe(hw)) { _, new in new } }
@@ -117,7 +132,7 @@ final class MetaGlassesDevice: ObservableObject, WearableDevice {
             "photos_on_glasses": hw.photoCount,
             "videos_on_glasses": hw.videoCount,
             "volume": hw.volume,
-            "video_mode": hw.videoMode.label,
+            "video_mode": hw.videoMode.key,
             "clip_length_seconds": hw.clipLength,
             "streaming": hw.streaming,
             "music_playing": hw.musicPlaying,
@@ -216,6 +231,64 @@ final class MetaGlassesDevice: ObservableObject, WearableDevice {
         case "meta_glasses_talk":
             try await session.openAssistant()
             return ["listening": true, "note": "The glasses chimed and are listening for the question."]
+
+        case "meta_glasses_media":
+            let action = (args["action"] as? String ?? "").lowercased()
+            switch action {
+            case "list":
+                let items = try await session.listMedia()
+                let iso = ISO8601DateFormatter()
+                func row(_ item: MetaStoredMedia) -> [String: Any] {
+                    var out: [String: Any] = ["kind": item.kind.rawValue, "taken_at": iso.string(from: item.date)]
+                    if let seconds = item.seconds { out["seconds"] = Int(seconds.rounded()) }
+                    if let mode = item.mode { out["video_mode"] = mode.key }
+                    if item.savedToPhotos { out["in_photos_library"] = true }
+                    return out
+                }
+                return [
+                    "on_glasses": items.filter { !$0.onPhone }.prefix(50).map(row),
+                    "on_phone": items.filter(\.onPhone).prefix(50).map(row),
+                ]
+            case "latest_photo":
+                guard let photo = try await session.latestPhoto() else {
+                    return ["found": false, "note": "No photos taken with the glasses yet."]
+                }
+                let vision = SimulatedGlassesTransport.downscaled(photo.data, maxEdge: CGFloat(MetaGen2Profile.visionMaxEdge)) ?? photo.data
+                var result: [String: Any] = [
+                    "base64": vision.base64EncodedString(),
+                    "mime": "image/jpeg",
+                    "taken_at": ISO8601DateFormatter().string(from: photo.date),
+                    "was_on_glasses": photo.onGlasses,
+                ]
+                if let question = args["question"] as? String { result["question"] = question }
+                return result
+            case "import":
+                let done = try await session.importMedia()
+                var result: [String: Any] = ["imported": done.imported, "saved_to_photos": done.savedToPhotos]
+                if let problem = done.problem { result["note"] = problem }
+                if done.imported == 0, done.problem == nil { result["note"] = "Nothing new on the glasses." }
+                return result
+            default:
+                throw DeviceError.badArgument("action must be list, latest_photo or import")
+            }
+
+        case "meta_glasses_settings":
+            if let seconds = (args["clip_length_seconds"] as? Int) ?? (args["clip_length_seconds"] as? Double).map({ Int($0) }) {
+                try await session.setClipLength(seconds)
+            }
+            if let key = args["video_mode"] as? String {
+                guard let mode = MetaVideoMode(key: key) else {
+                    throw DeviceError.badArgument("video_mode must be one of \(MetaVideoMode.allCases.map(\.key).joined(separator: ", "))")
+                }
+                try await session.setVideoMode(mode)
+            }
+            let hw = session.hardware
+            return [
+                "clip_length_seconds": hw?.clipLength ?? MetaGen2Profile.defaultClipLength,
+                "video_mode": hw?.videoMode.key ?? MetaVideoMode.uhd3K30.key,
+                "clip_lengths": MetaGen2Profile.clipLengths,
+                "video_modes": MetaVideoMode.allCases.map(\.key),
+            ]
 
         case "meta_glasses_volume":
             guard let level = (args["level"] as? Int) ?? (args["level"] as? Double).map({ Int($0) }) else {
