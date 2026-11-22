@@ -159,6 +159,17 @@ final class MetaSimWakeListener: ObservableObject {
         }
     }
 
+    /// Whether the hands-free listener may hold the mic now. Off whenever anything else needs the mic
+    /// or the turn isn't over: it used to restart in the gaps (the hold-to-talk chime handoff, Jarvis
+    /// thinking after a ring press, the app going to the background) and grab the mic from the
+    /// glasses path — "mic blocked" (2026-11-22).
+    nonisolated static func shouldListen(onScreen: Bool, appActive: Bool, switchOn: Bool, enrolled: Bool,
+                                         turnRunning: Bool, pressing: Bool, handingOff: Bool,
+                                         capturingQuestion: Bool, assistantBusy: Bool, jarvisSpeaking: Bool) -> Bool {
+        onScreen && appActive && switchOn && enrolled
+            && !turnRunning && !pressing && !handingOff && !capturingQuestion && !assistantBusy && !jarvisSpeaking
+    }
+
     /// Where the wake phrase ends in the transcription (seconds), or nil. Forgiving about how the
     /// recognizer spells it: "Hey Jarvis", "hey, jarvis", "a jarvis", "hey jervis".
     nonisolated static func wakeEnd(in segments: [(text: String, end: TimeInterval)], phrase: String = "hey jarvis") -> TimeInterval? {

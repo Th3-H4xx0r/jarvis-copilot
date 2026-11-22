@@ -106,12 +106,16 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
     var earcon: EarconPlaying?
     /// The assistant is open and listening for a question.
     @Published private(set) var capturingQuestion = false
+    /// An assistant turn is open (ring / touch-and-hold / talk tool) from the press until Jarvis is
+    /// done — the hands-free listener stays off the whole time so it can't grab the mic mid-turn.
+    @Published private(set) var assistantBusy = false
     /// Holds (true) / releases (false) the audio session the assistant turn runs in — the hub wires
     /// it to `AudioSessionArbiter` `.glassesSim`; nil in tests.
     var assistantSession: ((Bool) throws -> Void)?
     private var holdsAssistantSession = false
 
     private func releaseAssistantSession() {
+        assistantBusy = false
         guard holdsAssistantSession else { return }
         holdsAssistantSession = false
         try? assistantSession?(false)
@@ -624,6 +628,7 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
             throw MetaGlassesError.refused(reason)
         }
         guard !capturingQuestion else { return }
+        assistantBusy = true
         // The session first (same plan as the record-ready keepalive: nothing switches, even from
         // the background), then the chime in it — so neither the claim nor the turn cuts it off.
         if let assistantSession, !holdsAssistantSession {
@@ -631,6 +636,7 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
                 try assistantSession(true)
                 holdsAssistantSession = true
             } catch {
+                assistantBusy = false
                 let why = "Couldn't open the microphone: \(error.localizedDescription)"
                 feed.log(source, "Assistant", detail: why, outcome: .refused(why))
                 throw MetaGlassesError.refused(why)

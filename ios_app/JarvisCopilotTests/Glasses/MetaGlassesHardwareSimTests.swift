@@ -322,6 +322,24 @@ final class MetaWakeWordTests: XCTestCase {
         XCTAssertTrue(heard)
     }
 
+    func testTheListenerStaysOffWheneverSomethingElseNeedsTheMic() {
+        func gate(onScreen: Bool = true, appActive: Bool = true, turnRunning: Bool = false, pressing: Bool = false,
+                  handingOff: Bool = false, capturing: Bool = false, busy: Bool = false, speaking: Bool = false) -> Bool {
+            MetaSimWakeListener.shouldListen(onScreen: onScreen, appActive: appActive, switchOn: true, enrolled: true,
+                                             turnRunning: turnRunning, pressing: pressing, handingOff: handingOff,
+                                             capturingQuestion: capturing, assistantBusy: busy, jarvisSpeaking: speaking)
+        }
+        XCTAssertTrue(gate(), "idle on screen: listen")
+        XCTAssertFalse(gate(appActive: false), "never with the app in the background")
+        XCTAssertFalse(gate(handingOff: true), "not in the hold-to-talk chime handoff")
+        XCTAssertFalse(gate(busy: true), "not while a ring/touch-hold assistant turn is open (Jarvis thinking)")
+        XCTAssertFalse(gate(capturing: true))
+        XCTAssertFalse(gate(pressing: true))
+        XCTAssertFalse(gate(speaking: true))
+        XCTAssertFalse(gate(turnRunning: true))
+        XCTAssertFalse(gate(onScreen: false))
+    }
+
     func testEnrolmentNeedsThreeSamplesAndTheGlassesOn() async throws {
         let sim = SimulatedGlassesTransport(autoTick: false)
         try await sim.connect()
@@ -405,8 +423,10 @@ final class MetaGlassesAssistantTests: XCTestCase {
         sim.questionCapture = FakeCapture(Data(count: 32_000))
         try await sim.openAssistant(source: .touch)
         XCTAssertEqual(claims, [true], "held through the turn, not released when the question is captured")
+        XCTAssertTrue(sim.assistantBusy, "busy while Jarvis thinks — the listener must stay off")
         try await sim.send(.closeAssistant)
         XCTAssertEqual(claims, [true, false], "released once the turn closes")
+        XCTAssertFalse(sim.assistantBusy)
     }
 
     func testARefusedMicClaimReportsInsteadOfCuttingTheChime() async throws {

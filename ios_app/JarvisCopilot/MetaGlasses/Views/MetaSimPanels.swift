@@ -81,6 +81,9 @@ private struct MetaTalkCard: View {
     @AppStorage("meta.sim.listenWake") private var listenWake = false
     @State private var enrolling = false
     @State private var visible = false
+    /// From releasing Hold to talk (or the wake word firing) until Jarvis's turn has ended.
+    @State private var handingOff = false
+    @Environment(\.scenePhase) private var scenePhase
     @FocusState private var typing: Bool
 
     var body: some View {
@@ -123,7 +126,7 @@ private struct MetaTalkCard: View {
         }
         .onAppear {
             visible = true
-            listener.onWake = { pcm in Task { await runner.run(recorded: pcm) } }
+            listener.onWake = { pcm in send(pcm) }
             listener.onHeard = { sim.show(.mic, .listening, for: 12) }
             updateListener()
         }
@@ -134,6 +137,9 @@ private struct MetaTalkCard: View {
         .onChange(of: pressing) { _, _ in updateListener() }
         .onChange(of: sim.capturingQuestion) { _, _ in updateListener() }
         .onChange(of: sim.hw.voiceActive) { _, _ in updateListener() }
+        .onChange(of: sim.assistantBusy) { _, _ in updateListener() }
+        .onChange(of: handingOff) { _, _ in updateListener() }
+        .onChange(of: scenePhase) { _, _ in updateListener() }
         .sheet(isPresented: $enrolling) {
             MetaWakeEnrolmentView(phrase: "Hey Jarvis") { samples in
                 listener.stop()
@@ -177,8 +183,11 @@ private struct MetaTalkCard: View {
 
     /// Listen only while this screen shows, the switch is on, and no turn or press is using the mic.
     private func updateListener() {
-        let want = visible && listenWake && sim.wakePhrase != nil && !runner.isRunning && !pressing
-            && !sim.capturingQuestion && !sim.hw.voiceActive
+        let want = MetaSimWakeListener.shouldListen(
+            onScreen: visible, appActive: scenePhase == .active, switchOn: listenWake,
+            enrolled: sim.wakePhrase != nil, turnRunning: runner.isRunning, pressing: pressing,
+            handingOff: handingOff, capturingQuestion: sim.capturingQuestion,
+            assistantBusy: sim.assistantBusy, jarvisSpeaking: sim.hw.voiceActive)
         if want, !listener.isListening {
             let phrase = sim.wakePhrase ?? "Hey Jarvis"
             Task { await listener.start(phrase: phrase) }
@@ -230,6 +239,7 @@ private struct MetaTalkCard: View {
 
     private func stopMic() {
         guard pressing else { return }
+        handingOff = true                       // keep the listener off through the chime and the turn
         pressing = false
         MetaGlassesHaptics.micClosed()
         sim.setHoldToTalk(false)
@@ -238,12 +248,16 @@ private struct MetaTalkCard: View {
         let holdMs = sim.earcon?.play(.thinking) ?? 0
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(holdMs))
-            if let pcm = mic.finishPress() { send(pcm) }
+            if let pcm = mic.finishPress() { send(pcm) } else { handingOff = false }
         }
     }
 
     private func send(_ pcm: Data) {
-        Task { await runner.run(recorded: pcm) }
+        handingOff = true
+        Task {
+            await runner.run(recorded: pcm)
+            handingOff = false
+        }
     }
 
     private func runTyped() {
