@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The "Jarvis Glasses" camera's media source: a .NET COM server (comhost) that Windows' camera
+       service (Frame Server) loads for the virtual camera MFCreateVirtualCamera registers. Adapted
+       from smourier/VCamNetSample (MIT, THIRD_PARTY_NOTICES.md). Framework-dependent: the camera
+       service loads the machine-wide .NET 8 runtime (and it can never load into the self-contained
+       Jarvis.exe). Installed to Program Files from Settings → Glasses camera. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <EnableComHosting>true</EnableComHosting>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <PlatformTarget>x64</PlatformTarget>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ComVisible>false</ComVisible>
+    <RootNamespace>JarvisGlassesCam</RootNamespace>
+    <AssemblyName>JarvisGlassesCam</AssemblyName>
+    <Product>Jarvis</Product>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="DirectNCore" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Jarvis.Core\Jarvis.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Rendered by scripts/glasses-camera-cards.sh with the Mac camera's own drawing code. -->
+    <EmbeddedResource Include="Cards\card-portrait.png" LogicalName="JarvisGlassesCam.card-portrait.png" />
+    <EmbeddedResource Include="Cards\card-landscape.png" LogicalName="JarvisGlassesCam.card-landscape.png" />
+  </ItemGroup>
+</Project>

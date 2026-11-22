@@ -9,6 +9,9 @@
     <PackageVersion Include="System.Speech" Version="[8.0.0, 9.0.0)" />
     <PackageVersion Include="SIPSorcery" Version="[10.0.17, 11.0.0)" />
     <PackageVersion Include="SIPSorceryMedia.Encoders" Version="[10.0.4, 11.0.0)" />
+    <!-- Media Foundation interop for the Jarvis Glasses camera (JarvisGlassesCam). 1.18+ ships only a
+         net10.0 lib; 1.17.3 is the newest with one .NET 8 can use (net6.0-windows). -->
+    <PackageVersion Include="DirectNCore" Version="[1.17.3, 2.0.0)" />
     <!-- PC Stats helper service (JarvisSensors): sensors through PawnIO, frame timing through ETW. -->
     <PackageVersion Include="LibreHardwareMonitorLib" Version="[0.9.6, 1.0.0)" />
     <PackageVersion Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="[3.2.8, 4.0.0)" />
