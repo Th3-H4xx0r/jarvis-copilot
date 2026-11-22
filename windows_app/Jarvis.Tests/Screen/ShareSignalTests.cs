@@ -35,6 +35,15 @@ public class ShareSignalTests
     }
 
     [Fact]
+    public void Mine_LeavesOutGlassesShares()
+    {
+        // A "glasses" share is this PC ASKING for the glasses' video (GlassesCameraService): nothing
+        // to capture here.
+        var reply = J.Parse("{\"shares\":[{\"id\":\"g\",\"device_id\":\"pc1\",\"reason\":\"glasses\"},{\"id\":\"a\",\"device_id\":\"pc1\",\"reason\":\"anytime\"}]}");
+        Assert.Equal(new[] { ("a", "anytime") }, ShareSelection.Mine(reply, "pc1"));
+    }
+
+    [Fact]
     public void Mine_OnlyThisDevice()
     {
         var reply = J.Parse("{\"shares\":[{\"id\":\"a\",\"device_id\":\"pc1\",\"reason\":\"task\"},{\"id\":\"b\",\"device_id\":\"mac1\"},{\"id\":\"c\"},{\"id\":\"d\",\"device_id\":\"pc1\",\"status\":\"ended\"}]}");

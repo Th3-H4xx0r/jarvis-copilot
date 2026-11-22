@@ -4,6 +4,8 @@ using System.Windows.Threading;
 using Jarvis.Admin;
 using Jarvis.Core.Admin;
 using Jarvis.Core.Gaming;
+using Jarvis.Core.GlassesCamera;
+using Jarvis.GlassesCamera;
 using Jarvis.Core.Http;
 using Jarvis.Core.Input;
 using Jarvis.Core.Island;
@@ -99,6 +101,9 @@ public sealed class AppHost : IAsyncDisposable
     public HoloSender HoloSender { get; }
     public HoloFlingWatcher Fling { get; }
     public ScreenShareService ScreenShare { get; }
+    public GlassesCameraService GlassesCamera { get; }
+    public GlassesCamHost GlassesCamHost { get; }
+    public GlassesCamInstaller GlassesCamInstaller { get; }
     public ShareBanner ShareBanner { get; }
     public UpdateCoordinator Updates { get; }
     public UpdateCard UpdateCard { get; }
@@ -383,6 +388,18 @@ public sealed class AppHost : IAsyncDisposable
         var sharePoll = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
         sharePoll.Tick += (_, _) => { if (State.Connected) _ = ScreenShare.PollAsync(); };
         sharePoll.Start();
+
+        // ── The Jarvis Glasses camera: the glasses' live video as a webcam in any app. The camera
+        // itself is a media source in Windows' camera service; this side only asks the iPhone for
+        // video (and decodes it) while an app is using the camera. Pool-thread timers: the service
+        // locks its own state, and Settings marshals what it shows.
+        var camLog = FileLog.For("glasses-camera");
+        GlassesCamHost = new GlassesCamHost();
+        GlassesCamera = new GlassesCameraService(Api, () => State.DeviceId, () => State.ApiOrigin != null, GlassesCamHost,
+            new GlassesCamPeers(GlassesCamHost.File, camLog), TimeProvider.System, camLog);
+        GlassesCamInstaller = new GlassesCamInstaller(Admin, camLog);
+        GlassesCamInstaller.Changed += GlassesCamera.Refresh;
+        GlassesCamera.Start();
 
         // ── Task 19: in-app updates ──
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -722,6 +739,9 @@ public sealed class AppHost : IAsyncDisposable
         await Voice.StopAsync();
         Mic.Dispose();
         ScreenShare.StopAll(null);
+        await GlassesCamera.StopAsync();
+        GlassesCamera.Dispose();
+        GlassesCamHost.Dispose();
         Holo.Dispose();
         Fling.Dispose();
         Wake?.Dispose();

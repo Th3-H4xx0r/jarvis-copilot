@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.IO.Compression;
+using System.Text.RegularExpressions;
 
 namespace Jarvis.Core.GlassesCamera;
 
@@ -64,6 +65,60 @@ public static class GlassesCamPixels
         s = Math.Clamp(s, 0, (long)(inN - 1) << 16);
         i0 = (int)(s >> 16);
         w = (int)((s & 0xFFFF) >> 8);
+    }
+
+    /// A decoded VP8 picture (I420, BT.601 studio range: what libvpx gives) fitted and centred in
+    /// the BGRA frame `dst`, black around it; bilinear on luma when the size changes. The phone
+    /// sends the glasses' portrait video, so this is usually a straight 720×1280 conversion.
+    public static void I420ToBgraFit(ReadOnlySpan<byte> y, int yStride, ReadOnlySpan<byte> u, int uStride, ReadOnlySpan<byte> v, int vStride,
+        int sw, int sh, Span<byte> dst, int dw, int dh, int dstride)
+    {
+        var (rx, ry, rw, rh) = GlassesCamGeometry.Fit((sw, sh), (dw, dh));
+        if (rx != 0 || ry != 0 || rw != dw || rh != dh) FillBlack(dst, dw, dh, dstride);
+        if (sw <= 0 || sh <= 0) return;
+        if (rw == sw && rh == sh)
+        {
+            for (var row = 0; row < sh; row++)
+            {
+                var yr = y.Slice(row * yStride, sw);
+                var ur = u.Slice(row / 2 * uStride);
+                var vr = v.Slice(row / 2 * vStride);
+                var o = dst.Slice((ry + row) * dstride + rx * 4, sw * 4);
+                for (var x = 0; x < sw; x++) Put(o, x, yr[x], ur[x >> 1], vr[x >> 1]);
+            }
+            return;
+        }
+        Span<int> x0 = rw <= 4096 ? stackalloc int[rw] : new int[rw];
+        Span<int> wx = rw <= 4096 ? stackalloc int[rw] : new int[rw];
+        for (var x = 0; x < rw; x++) Sample(x, rw, sw, out x0[x], out wx[x]);
+        for (var row = 0; row < rh; row++)
+        {
+            Sample(row, rh, sh, out var y0, out var wy);
+            var y1 = Math.Min(y0 + 1, sh - 1);
+            var top = y.Slice(y0 * yStride);
+            var bot = y.Slice(y1 * yStride);
+            var ur = u.Slice(y0 / 2 * uStride);
+            var vr = v.Slice(y0 / 2 * vStride);
+            var o = dst.Slice((ry + row) * dstride + rx * 4, rw * 4);
+            for (var x = 0; x < rw; x++)
+            {
+                int a = x0[x], b = Math.Min(a + 1, sw - 1), fx = wx[x];
+                var t = top[a] * (256 - fx) + top[b] * fx;
+                var w = bot[a] * (256 - fx) + bot[b] * fx;
+                Put(o, x, (t * (256 - wy) + w * wy + 32768) >> 16, ur[a >> 1], vr[a >> 1]);
+            }
+        }
+    }
+
+    private static void Put(Span<byte> o, int x, int yv, int uv, int vv)
+    {
+        var c = 298 * (yv - 16);
+        int d = uv - 128, e = vv - 128;
+        var i = x * 4;
+        o[i] = (byte)Math.Clamp((c + 516 * d + 128) >> 8, 0, 255);
+        o[i + 1] = (byte)Math.Clamp((c - 100 * d - 208 * e + 128) >> 8, 0, 255);
+        o[i + 2] = (byte)Math.Clamp((c + 409 * e + 128) >> 8, 0, 255);
+        o[i + 3] = 255;
     }
 
     /// BGRA → NV12, BT.709 studio range (what apps assume for 720p and up; the media type says so
@@ -256,4 +311,16 @@ public sealed class GlassesCamPicture
         var age = _utcNow() - at;
         return age < GlassesCamSpec.StaleAfter && age > -GlassesCamSpec.StaleAfter;
     }
+}
+
+/// The phone's offer, as this PC answers it.
+public static partial class GlassesCamSdp
+{
+    [GeneratedRegex(@"^a=extmap:\d+(/\w+)? urn:3gpp:video-orientation\r?\n", RegexOptions.Multiline)]
+    private static partial Regex Rotation();
+
+    /// Without the rotation header extension (urn:3gpp:video-orientation) agreed, the phone's
+    /// WebRTC rotates the pixels before encoding, so every frame arrives upright and nothing here
+    /// needs to read rotation from RTP.
+    public static string ForReceiving(string offerSdp) => Rotation().Replace(offerSdp, "");
 }

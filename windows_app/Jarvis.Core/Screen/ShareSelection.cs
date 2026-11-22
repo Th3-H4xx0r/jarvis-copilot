@@ -7,9 +7,12 @@ namespace Jarvis.Core.Screen;
 /// shares whose `device_id` is that id, never a Mac's.
 public static class ShareSelection
 {
+    /// A "glasses" share is this PC asking the iPhone for the glasses' video (the Jarvis Glasses
+    /// camera, GlassesCameraService): nothing to capture, so it's never one of these.
     public static IReadOnlyList<(string Id, string Reason)> Mine(JsonObject sharesReply, string deviceId) =>
         J.Arr(sharesReply["shares"])
-            .Where(s => J.S(s["status"]) != "ended" && J.S(s["id"]).Length > 0 && J.S(s["device_id"]) == deviceId)
+            .Where(s => J.S(s["status"]) != "ended" && J.S(s["id"]).Length > 0 && J.S(s["device_id"]) == deviceId
+                && J.S(s["reason"]) != "glasses")
             .Select(s => (J.S(s["id"]), J.S(s["reason"], "anytime")))
             .ToList();
 
