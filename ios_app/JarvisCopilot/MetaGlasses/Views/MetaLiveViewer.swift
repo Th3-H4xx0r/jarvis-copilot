@@ -175,7 +175,7 @@ private struct MetaFaceTimeHelp: View {
                     note("Keep Jarvis open while sharing. FaceTime stays in picture-in-picture.")
                     note("With the real glasses, their live video moves your phone onto the glasses' Wi-Fi, so FaceTime runs over cellular.")
                     note("In the simulator the iPhone camera is the glasses camera, and FaceTime takes it during a call, so the sim's view may pause. The real glasses send their own video.")
-                    note("On a Mac there's a real camera called “Jarvis Glasses”: install it in Jarvis for Mac → Settings → Glasses camera, pick it in FaceTime, Zoom or Meet, then tap Send to Mac camera here.")
+                    note("On your Mac or Windows PC there's a real camera called “Jarvis Glasses”: install it in Jarvis there → Settings → Glasses camera, pick it in FaceTime, Zoom, Meet or Teams, then tap Send to computer camera here.")
                 }
                 .padding(20)
             }

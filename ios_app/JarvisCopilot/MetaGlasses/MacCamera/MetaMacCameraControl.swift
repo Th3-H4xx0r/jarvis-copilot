@@ -8,7 +8,7 @@ struct MetaMacCameraControl: View {
     var body: some View {
         VStack(spacing: 6) {
             Button { camera.enabled.toggle() } label: {
-                Label(camera.enabled ? "Sending to Mac camera" : "Send to Mac camera",
+                Label(camera.enabled ? "Sending to computer camera" : "Send to computer camera",
                       systemImage: camera.phase == .sending ? "video.fill" : "macbook")
                     .frame(maxWidth: .infinity, minHeight: 44)
             }

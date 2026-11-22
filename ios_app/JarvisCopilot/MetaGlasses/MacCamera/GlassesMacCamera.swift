@@ -212,7 +212,7 @@ final class GlassesMacCameraPeer: NSObject {
             try await signal(["type": "offer", "sdp": offer.sdp])
             pollTask = Task { [weak self] in await self?.poll() }
         } catch {
-            if !stopped { onFailed?("Couldn't reach your Mac: \(apiErrorMessage(error)).") }
+            if !stopped { onFailed?("Couldn't reach your computer: \(apiErrorMessage(error)).") }
         }
     }
 
@@ -298,7 +298,7 @@ final class GlassesMacCameraPeer: NSObject {
         guard !stopped else { return }
         switch state {
         case .connected: onConnected?()
-        case .failed: onFailed?("Lost the connection to your Mac.")
+        case .failed: onFailed?("Lost the connection to your computer.")
         default: break
         }
     }

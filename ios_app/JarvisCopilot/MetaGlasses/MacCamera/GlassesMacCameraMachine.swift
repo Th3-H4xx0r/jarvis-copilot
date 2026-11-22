@@ -20,9 +20,9 @@ struct GlassesMacCameraMachine: Equatable {
             switch self {
             case .off: return "Off"
             case .waitingForGlasses: return "Starts when the glasses go live."
-            case .waitingForMac: return "Waiting for your Mac. Pick “Jarvis Glasses” as the camera in FaceTime, Zoom or Meet."
-            case .connecting: return "Connecting to your Mac…"
-            case .sending: return "On your Mac's Jarvis Glasses camera."
+            case .waitingForMac: return "Waiting for your computer. Pick “Jarvis Glasses” as the camera in FaceTime, Zoom, Meet or Teams."
+            case .connecting: return "Connecting to your computer…"
+            case .sending: return "On your computer's Jarvis Glasses camera."
             case .failed(let why): return "\(why) Trying again…"
             }
         }
