@@ -24,6 +24,36 @@ final class GlassesCameraTests: XCTestCase {
         XCTAssertTrue(GlassesCameraSpec.extensionBundleID.hasPrefix(GlassesCameraSpec.appBundleID + "."))
     }
 
+    // MARK: Who may feed the camera
+
+    func testJarvisFeedsTheCameraByItsSigningID() {
+        XCTAssertTrue(GlassesSinkGate.allows(signingID: "com.jarviscopilot.mac", code: .unknown))
+    }
+
+    func testJarvisFeedsTheCameraByItsSignatureWhenMacOSGivesNoSigningID() {
+        // What macOS actually hands the extension for the Developer ID Jarvis (2026-11-22).
+        XCTAssertTrue(GlassesSinkGate.allows(signingID: "unknown", code: .jarvis))
+        XCTAssertTrue(GlassesSinkGate.allows(signingID: nil, code: .jarvis))
+    }
+
+    func testAnotherSignedAppCantFeedTheCamera() {
+        XCTAssertFalse(GlassesSinkGate.allows(signingID: "unknown", code: .other))
+        XCTAssertFalse(GlassesSinkGate.allows(signingID: nil, code: .other))
+        XCTAssertFalse(GlassesSinkGate.allows(signingID: "com.example.other", code: .unknown))
+    }
+
+    func testAClientMacOSGivesNoWayToCheckIsLetIn() {
+        XCTAssertTrue(GlassesSinkGate.allows(signingID: "unknown", code: .unknown))
+        XCTAssertTrue(GlassesSinkGate.allows(signingID: nil, code: .unknown))
+    }
+
+    func testTheSignatureRequirementNamesJarvisAndItsTeam() {
+        XCTAssertTrue(GlassesSinkGate.requirement.contains("identifier \"com.jarviscopilot.mac\""))
+        XCTAssertTrue(GlassesSinkGate.requirement.contains("leaf[subject.OU] = \"\(GlassesCameraSpec.teamID)\""))
+        var req: SecRequirement?
+        XCTAssertEqual(SecRequirementCreateWithString(GlassesSinkGate.requirement as CFString, [], &req), errSecSuccess)
+    }
+
     // MARK: Geometry
 
     func testPortraitFitsIntoLandscapeAsACentredEvenPillar() {

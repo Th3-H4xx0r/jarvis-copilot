@@ -18,6 +18,8 @@ enum GlassesCameraSpec {
     static let manufacturer = "Jarvis"
     static let model = "Meta glasses"
     static let appBundleID = "com.jarviscopilot.mac"
+    /// The team that signs Jarvis: the extension checks a sink client's code signature against it.
+    static let teamID = "VY5CNF8734"
     static let extensionBundleID = "com.jarviscopilot.mac.glassescamera"
     /// Fixed, so FaceTime and Zoom remember the camera across launches and reinstalls.
     static let deviceID = UUID(uuidString: "6A1E5B9C-3F2D-4C8A-9E71-2B0D4F6A8C31")!
@@ -46,6 +48,36 @@ enum GlassesCameraSpec {
 
     static func fourCC(_ code: String) -> FourCharCode {
         code.utf8.prefix(4).reduce(0) { ($0 << 8) | FourCharCode($1) }
+    }
+}
+
+/// Who may feed the camera's input (its sink stream): only the Jarvis app. macOS often hands the
+/// extension no signing ID for a client (CMIOExtensionClient.signingID reads "unknown" for the
+/// Developer ID Jarvis, 2026-11-22), so the extension also checks the client process's code
+/// signature itself. A client whose signature is provably someone else's is refused; one macOS
+/// gives no way to verify is let in (logged) rather than breaking the camera silently.
+enum GlassesSinkGate {
+    enum CodeCheck: Equatable, Sendable {
+        /// Signed as Jarvis (its bundle ID, by this team).
+        case jarvis
+        /// Signed, and not Jarvis.
+        case other
+        /// Couldn't look (no pid, or macOS wouldn't say).
+        case unknown
+    }
+
+    static func allows(signingID: String?, code: CodeCheck) -> Bool {
+        if signingID == GlassesCameraSpec.appBundleID { return true }
+        switch code {
+        case .jarvis: return true
+        case .other: return false
+        case .unknown: return signingID == nil || signingID == "unknown" || signingID == ""
+        }
+    }
+
+    /// The code requirement a sink client must meet.
+    static var requirement: String {
+        "identifier \"\(GlassesCameraSpec.appBundleID)\" and anchor apple generic and certificate leaf[subject.OU] = \"\(GlassesCameraSpec.teamID)\""
     }
 }
 

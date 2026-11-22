@@ -3,6 +3,7 @@ import CoreVideo
 import Foundation
 import IOKit.audio
 import os.log
+import Security
 
 /// The Jarvis Glasses camera (a CoreMediaIO camera extension, WWDC22 "Create camera
 /// extensions with Core Media IO"): one device with a SOURCE stream that FaceTime, Zoom and
@@ -251,6 +252,23 @@ final class GlassesSourceStream: NSObject, CMIOExtensionStreamSource {
     func stopStream() throws { owner?.sourceStopped() }
 }
 
+/// A sink client's code signature, looked up by its pid (GlassesSinkGate decides with it).
+enum GlassesClientSignature {
+    static func check(pid: pid_t) -> GlassesSinkGate.CodeCheck {
+        guard pid > 0 else { return .unknown }
+        var code: SecCode?
+        guard SecCodeCopyGuestWithAttributes(nil, [kSecGuestAttributePid: pid] as CFDictionary, [], &code) == errSecSuccess,
+              let code else { return .unknown }
+        var requirement: SecRequirement?
+        guard SecRequirementCreateWithString(GlassesSinkGate.requirement as CFString, [], &requirement) == errSecSuccess,
+              let requirement else { return .unknown }
+        let status = SecCodeCheckValidity(code, [], requirement)
+        if status == errSecSuccess { return .jarvis }
+        // errSecCSReqFailed: a valid signature that isn't Jarvis's. Anything else: couldn't tell.
+        return status == errSecCSReqFailed ? .other : .unknown
+    }
+}
+
 /// Where the Jarvis app writes the glasses' frames (720×1280 BGRA). Only the Jarvis app may
 /// feed it — no other app can put a picture into this camera.
 final class GlassesSinkStream: NSObject, CMIOExtensionStreamSource {
@@ -286,9 +304,16 @@ final class GlassesSinkStream: NSObject, CMIOExtensionStreamSource {
     func setStreamProperties(_ streamProperties: CMIOExtensionStreamProperties) throws {}
 
     func authorizedToStartStream(for client: CMIOExtensionClient) -> Bool {
-        guard client.signingID == GlassesCameraSpec.appBundleID else {
-            glassesLog.error("refused a sink client: \(client.signingID ?? "unsigned", privacy: .public)")
+        let signingID = client.signingID
+        let code = signingID == GlassesCameraSpec.appBundleID ? .jarvis : GlassesClientSignature.check(pid: client.pid)
+        guard GlassesSinkGate.allows(signingID: signingID, code: code) else {
+            glassesLog.error("refused a sink client: \(signingID ?? "nil", privacy: .public) pid \(client.pid) code \(String(describing: code), privacy: .public)")
             return false
+        }
+        if code == .unknown {
+            glassesLog.notice("sink client pid \(client.pid) let in unverified: macOS gave no signing ID or signature")
+        } else {
+            glassesLog.info("sink client pid \(client.pid) is Jarvis")
         }
         self.client = client
         return true

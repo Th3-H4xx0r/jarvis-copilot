@@ -85,14 +85,24 @@ xcrun stapler staple "$APP"
 spctl -a -vv "$APP"
 # The same zip the in-app updater takes (scripts/publish-app-update.sh), stapled.
 ditto -c -k --keepParent "$APP" "$OUT/Jarvis.zip"
+# Leave no stray Jarvis.app behind (macOS would launch an old copy): only the zip stays.
+LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+forget_app_copies() {
+  find "$OUT" "$DD" -name Jarvis.app -type d -prune 2>/dev/null | while read -r copy; do
+    "$LSREG" -u "$copy" 2>/dev/null || true
+    rm -rf "$copy"
+  done
+  rm -rf "$ARCHIVE"
+}
 echo "zip: $(cd "$OUT" && pwd)/Jarvis.zip"
 echo "build: $BUILD_NUMBER"
-[ "${1:-}" = "--no-install" ] && exit 0
+if [ "${1:-}" = "--no-install" ]; then forget_app_copies; exit 0; fi
 
 pkill -x Jarvis 2>/dev/null || true
 sleep 1
 rm -rf /Applications/Jarvis.app
 cp -R "$APP" /Applications/Jarvis.app
+forget_app_copies
 # One Jarvis only: an older copy in ~/Applications (build-app.sh's) goes to the Trash.
 if [ -d "$HOME/Applications/Jarvis.app" ]; then
   mv "$HOME/Applications/Jarvis.app" "$HOME/.Trash/Jarvis-$(date +%s).app"
