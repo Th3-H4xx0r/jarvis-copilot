@@ -21,6 +21,8 @@
 #include <BLE2902.h>
 #include <BLESecurity.h>
 #include <Preferences.h>
+
+#include "PcRole.h"
 #include <esp_mac.h>
 #include <esp32-hal-bt.h>
 
@@ -75,6 +77,7 @@ BlinkState g_blink;
 jarvis::WifiLink g_wifi;
 jarvis::ScriptRuntime g_script;
 jarvis::CloudLink g_cloud;
+jarvis::PcRole g_pc;         // "PC power button" role (PcRole.h)
 bool g_cloud_boot = false;   // booted without Bluetooth, holding the bridge instead
 jarvis::AncsClient g_ancs;
 bool g_relay_enabled = false;  // iPhone-notification relay for the glasses (NVS, read at boot)
@@ -208,9 +211,17 @@ uint8_t read_level(int index) {
 
 void cancel_blink() { g_blink = BlinkState{}; }
 
+// Pins the generic commands may touch (the PC button role hides its four).
+size_t exposed_count() {
+  size_t n = 0;
+  for (size_t i = 0; i < pins::count; ++i) n += g_pc.reserved(pins::table[i].gpio) ? 0 : 1;
+  return n;
+}
+
 void all_off() {
   cancel_blink();
   for (size_t i = 0; i < pins::count; ++i) {
+    if (g_pc.reserved(pins::table[i].gpio)) continue;  // never "off" = pressed for the PC button
     PinState& s = g_pins[i];
     s.pulse_active = false;
     if (s.mode == proto::Mode::output || s.mode == proto::Mode::pwm) {
@@ -314,6 +325,7 @@ void send_wifi_changed() {
 bool resolve_pin(proto::Op op, const proto::Request& r, size_t min_len, int& index) {
   if (r.payload_len < min_len) { send_status(op, proto::Status::bad_arg); return false; }
   index = pins::index_of(r.payload[0]);
+  if (index >= 0 && g_pc.reserved(r.payload[0])) index = -1;  // the PC button owns it
   if (index < 0) { send_status(op, proto::Status::bad_pin); return false; }
   return true;
 }
@@ -335,8 +347,9 @@ void handle_ping(const proto::Request&) {
 void handle_get_info(const proto::Request&) {
   proto::FrameBuilder fb;
   fb.begin_response(proto::Op::get_info, proto::Status::ok);
-  fb.push(static_cast<uint8_t>(pins::count));
+  fb.push(static_cast<uint8_t>(exposed_count()));
   for (size_t i = 0; i < pins::count; ++i) {
+    if (g_pc.reserved(pins::table[i].gpio)) continue;
     fb.push(pins::table[i].gpio);
     fb.push(pins::table[i].flags);
   }
@@ -346,8 +359,9 @@ void handle_get_info(const proto::Request&) {
 void handle_get_state(const proto::Request&) {
   proto::FrameBuilder fb;
   fb.begin_response(proto::Op::get_state, proto::Status::ok);
-  fb.push(static_cast<uint8_t>(pins::count));
+  fb.push(static_cast<uint8_t>(exposed_count()));
   for (size_t i = 0; i < pins::count; ++i) {
+    if (g_pc.reserved(pins::table[i].gpio)) continue;
     const PinState& s = g_pins[i];
     fb.push(pins::table[i].gpio);
     fb.push(static_cast<uint8_t>(s.mode));
@@ -687,11 +701,13 @@ bool run_skill(const char* skill, JsonVariantConst args, JsonDocument& result, S
   auto gpio_arg = [&](uint8_t& gpio) -> bool {
     const int g = args["gpio"] | -1;
     if (g < 0 || g > 255 || pins::index_of(static_cast<uint8_t>(g)) < 0) { error = "gpio is not exposed"; return false; }
+    if (g_pc.reserved(static_cast<uint8_t>(g))) { error = "gpio is reserved for the PC power button"; return false; }
     gpio = static_cast<uint8_t>(g);
     return true;
   };
 
   if (name.startsWith("esp32_door_")) return g_door.run_skill(name, args, result, error);
+  if (name.startsWith("esp32_pc_")) return g_pc.run_skill(name, args, result, error);
   if (name == "esp32_get_state") {
     result["connected"] = true;
     result["link"] = "cloud";
@@ -1066,6 +1082,27 @@ void handle_auth(const proto::Request& r) {
   Serial.printf("[auth] %s session authorised\n", g_reply_link == Link::tcp ? "tcp" : "ble");
 }
 
+// PC_ROLE: [] reads, [on] sets (Bluetooth only; applied after a reboot).
+// Reply: status, on, light, plus_mv (u16 BE), minus_mv (u16 BE).
+void handle_pc_role(const proto::Request& r) {
+  constexpr proto::Op op = proto::Op::pc_role;
+  if (r.payload_len > 1) { send_status(op, proto::Status::bad_arg); return; }
+  if (r.payload_len == 1) {
+    if (!require_ble(op)) return;
+    if (g_pc.set_on(r.payload[0] != 0)) g_cloud.request_reboot(400);
+  }
+  proto::FrameBuilder fb;
+  fb.begin_response(op, proto::Status::ok);
+  fb.push(r.payload_len == 1 ? (r.payload[0] != 0 ? 1 : 0) : (g_pc.on() ? 1 : 0));
+  fb.push(static_cast<uint8_t>(g_pc.light()));
+  const uint16_t plus = static_cast<uint16_t>(g_pc.plus_mv()), minus = static_cast<uint16_t>(g_pc.minus_mv());
+  fb.push(static_cast<uint8_t>(plus >> 8));
+  fb.push(static_cast<uint8_t>(plus & 0xFF));
+  fb.push(static_cast<uint8_t>(minus >> 8));
+  fb.push(static_cast<uint8_t>(minus & 0xFF));
+  send_frame(fb);
+}
+
 void dispatch(const uint8_t* bytes, size_t len, Link link) {
   g_reply_link = link;
   proto::Request req{};
@@ -1122,6 +1159,7 @@ void dispatch(const uint8_t* bytes, size_t len, Link link) {
     case proto::Op::cloud_forget:  handle_cloud_forget(req); break;
     case proto::Op::cloud_pause:   handle_cloud_pause(req); break;
     case proto::Op::notify_relay:  handle_notify_relay(req); break;
+    case proto::Op::pc_role:       handle_pc_role(req); break;
     default: {
       proto::FrameBuilder fb;
       fb.begin(req.op | proto::response_bit);
@@ -1365,6 +1403,11 @@ void setup() {
   Serial.printf("\nJarvis ESP32 firmware %u.%u, protocol %u\n",
                 cfg::firmware_major, cfg::firmware_minor, proto::version);
 
+  // PC power button: both buttons released before anything else (no-op when the role is off).
+  g_pc.begin([](const char* event, const String& data) {
+    return g_cloud.connected() && g_cloud.send_event(event, data);
+  });
+
   g_rx_queue = xQueueCreate(rx_queue_depth, sizeof(IncomingFrame));
   configASSERT(g_rx_queue != nullptr);
 
@@ -1380,7 +1423,16 @@ void setup() {
   Serial.printf("[mem] free heap before radios: %u bytes\n", ESP.getFreeHeap());
 
   const String name = device_name();
-  g_cloud.begin(skills_json, run_skill);
+  // The PC button's two skills join the catalogue only while its role is on.
+  static String catalogue;
+  catalogue = skills_json;
+  if (g_pc.on()) {
+    catalogue.remove(catalogue.lastIndexOf(']'));
+    catalogue += ",\n";
+    catalogue += jarvis::PcRole::catalogue();
+    catalogue += "\n]";
+  }
+  g_cloud.begin(catalogue.c_str(), run_skill);
   // Door-hub events ride the bridge; while it's down door_report is queued and door_link
   // just waits for the next one.
   g_door.begin([](const char* event, const String& data) {
@@ -1451,7 +1503,9 @@ void loop() {
       g_boot_pressed_ms = 0;
     }
   }
-  if (g_cloud.wants_reboot()) {
+  g_pc.service(now);
+  // Never restart mid-press: a cut-short 6 s hold would become a short press (= Sleep).
+  if (g_cloud.wants_reboot() && !g_pc.any_held()) {
     Serial.println("[boot] restarting");
     Serial.flush();
     delay(50);

@@ -72,6 +72,7 @@ enum class Op : uint8_t {
   cloud_status = 0x49, // → status, state, mode, url_len, url…, err_len, err…
   cloud_forget = 0x4A, // → status. Drops the session and reboots into Bluetooth mode.
   cloud_pause  = 0x4B, // → status. Keeps the session, reboots into Bluetooth mode for now.
+  pc_role      = 0x4D, // [] → query, [on] → set (BLE only, applied after a reboot). → status, on, light, plus_mv (u16 BE), minus_mv (u16 BE).
   notify_relay = 0x4C, // [] → query, [on] → set. → status, on, state (AncsState), forwarded (u16 BE).
                        //   The iPhone-notification relay for the glasses (Ancs.h). Changing it
                        //   reboots the board, because it also switches BLE bonding on or off.
