@@ -133,6 +133,8 @@ def _mac(c, method, p, body):
         return _result(power.unlock(device_id))
     if p == "/agents/mac/lock":
         return _ok(power.lock(device_id))
+    if p == "/agents/mac/power-light":  # the power button's LED wires are connected (or not)
+        return _ok(power.set_light_wired(device_id, bool(body.get("wired"))))
     if p == "/agents/mac/restart":      # clean Windows restart / shutdown (jc-client on the PC)
         return _result(power.restart(device_id))
     if p == "/agents/mac/shutdown":
@@ -154,7 +156,7 @@ _V2_ROUTES = frozenset({"/agents/list", "/agents/messages", "/agents/send", "/ag
                         "/agents/mac/wake", "/agents/mac/keep-awake", "/agents/mac/let-sleep",
                         "/agents/mac/timer", "/agents/mac/unlock", "/agents/mac/password/answer",
                         "/agents/mac/approval-key", "/agents/mac/lock", "/agents/mac/unlock-grant",
-                        "/agents/mac/restart", "/agents/mac/shutdown"})
+                        "/agents/mac/restart", "/agents/mac/shutdown", "/agents/mac/power-light"})
 _MAX_CONTINUE = 20
 
 

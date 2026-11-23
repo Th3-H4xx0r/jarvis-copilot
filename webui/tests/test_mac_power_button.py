@@ -46,7 +46,9 @@ class Rig:
         self.store._spawn = lambda fn: fn()   # follow-up checks run inline in tests
         self.store._sleep = lambda s: setattr(self, "t", self.t + s)
 
-    def light(self, state, board=BOARD):
+    def light(self, state, board=BOARD, wired=True):
+        if wired and PC in self.store._devices:
+            self.store.set_light_wired(PC, True)    # the light wires are connected (he says so; off by default)
         self.store.on_light(board, {"light": state, "since_s": 5, "plus_mv": 2400, "minus_mv": 0})
 
     def presses(self):
@@ -116,7 +118,7 @@ def test_no_board_payload_unchanged(tmp_path):
     rig.store.on_status(PC, PC_STATUS)
     r = row(rig)
     assert r["state"] == "awake" and r["reason"] == ""
-    assert r["power_button"] == {"linked": False, "connected": False, "name": "", "light": "unknown"}
+    assert r["power_button"] == {"linked": False, "connected": False, "name": "", "light": "unknown", "light_wired": False}
 
 
 # ── Task 4: wake / sleep fallback / clean restart + shutdown / force ───────────
@@ -352,3 +354,32 @@ def test_no_board_keeps_the_check_in_timer(tmp_path):
     rig.skills.pop(BOARD)
     rig.store.on_status(PC, dict(PC_STATUS, timer_on=True))
     assert rig.store.device(PC)["timer_on"] is True
+
+
+
+# ── Live 2026-11-23: light wires not connected yet; floating ADC pins made the card flip ──
+def test_unwired_light_is_ignored(tmp_path):
+    rig = asleep_pc(tmp_path, connected=(BOARD,))
+    rig.light("on", wired=False)          # noise from floating pins
+    rig.light("asleep", wired=False)
+    assert rig.store.light(PC) == "unknown"
+    assert row(rig)["state"] == "sleeping" and row(rig)["reason"] == ""
+    out = rig.store.wake(PC)
+    assert out["via"] == "power button" and len(rig.presses()) == 1   # a noisy "on" never blocks the press
+
+
+def test_unwired_light_never_triggers_the_sleep_fallback(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    rig.light("on", wired=False)
+    rig.store.let_sleep(PC)
+    assert rig.presses() == []
+
+
+def test_light_wired_flag_round_trip(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    assert rig.store.set_light_wired(PC, True)["ok"] is True
+    assert row(rig)["power_button"]["light_wired"] is True
+    rig.store.set_light_wired(PC, False)
+    assert row(rig)["power_button"]["light_wired"] is False

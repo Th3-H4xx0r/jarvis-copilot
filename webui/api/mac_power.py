@@ -197,14 +197,23 @@ class MacPowerStore:
             return "unknown"
         rec = self._devices.get(pc) or {}
         cur = rec.get("light") or {}
-        if not cur or not rec.get("light_trusted") or self._clock() - float(cur.get("at") or 0) > LIGHT_FRESH:
+        # Only once he says the LED wires are connected: GPIO 34/35 float when unwired and read noise (live
+        # 2026-11-23: the card flipped between on / asleep / off).
+        if not rec.get("light_wired") or not cur or not rec.get("light_trusted") \
+                or self._clock() - float(cur.get("at") or 0) > LIGHT_FRESH:
             return "unknown"
         return str(cur.get("light") or "unknown")
+
+    def set_light_wired(self, pc: str, wired: bool) -> dict:
+        """He connected (or removed) the power-light wires; until then the light is ignored."""
+        self._update(pc, light_wired=bool(wired))
+        return {"ok": True, "light_wired": bool(wired)}
 
     def _power_button(self, pc: str) -> dict:
         board = self._linked_board(pc)
         return {"linked": bool(board), "connected": bool(board) and board in set(self._connected()),
-                "name": (self._name_of(board) or "Power button") if board else "", "light": self.light(pc)}
+                "name": (self._name_of(board) or "Power button") if board else "", "light": self.light(pc),
+                "light_wired": bool((self._devices.get(pc) or {}).get("light_wired"))}
 
     def press(self, pc: str, button: str, ms: int, expect: list) -> dict:
         """Press a button through the board. The board itself refuses when the light isn't in expect."""
