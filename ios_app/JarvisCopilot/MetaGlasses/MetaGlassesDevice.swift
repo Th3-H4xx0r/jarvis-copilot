@@ -45,7 +45,7 @@ final class MetaGlassesDevice: ObservableObject, WearableDevice {
         [
             DeviceCapability(
                 name: "meta_glasses_status",
-                description: "Ray-Ban Meta glasses: battery, worn/folded, heat, storage, recording/streaming, volume.",
+                description: "Ray-Ban Meta glasses: battery, worn/folded, heat, storage, recording/streaming, volume, phone call (none/ringing/active).",
                 inputSchema: DeviceCapability.schema()),
             DeviceCapability(
                 name: "meta_glasses_look",
@@ -137,6 +137,9 @@ final class MetaGlassesDevice: ObservableObject, WearableDevice {
             "clip_length_seconds": hw.clipLength,
             "streaming": hw.streaming,
             "music_playing": hw.musicPlaying,
+            // Only whether a call rings or is on — what iOS tells apps (CXCallObserver). Never the
+            // caller, and there's no call tool: the glasses handle calls themselves.
+            "phone_call": hw.call.status,
         ]
         if let rec = hw.recording { out["recording_seconds"] = Int(rec.elapsed) }
         if let reason = hw.captureRefusal() { out["camera_unavailable_because"] = reason }

@@ -34,6 +34,12 @@ final class MetaGlassesHub: ObservableObject {
             if hold { try AudioSessionArbiter.shared.hold(.glassesSim) } else { try AudioSessionArbiter.shared.release(.glassesSim) }
         }
         sim.earcon = ToneEarconPlayer()
+        // An incoming call: his listening chime, soft, while it rings; what you say while it rings
+        // becomes words on the phone (on-device), matched to answer / decline.
+        let ringChime = ToneEarconPlayer()
+        ringChime.volume = 0.35
+        sim.ringChime = ringChime
+        sim.callTranscriber = { pcm in await MetaCallSpeech.transcribe(pcm) }
         // No mediaKeys: the sim's touchpad drives the SIMULATED music only. Real media keys run
         // through iOS Shortcuts on iOS 27 and yanked him into the Shortcuts app (2026-11-22).
         return sim

@@ -50,6 +50,11 @@ enum MetaGen2Profile {
     static let wifiBytesPerSecond = 10_000_000.0
     static let wifiJoinSeconds = 4.0              // (assumed)
 
+    // Phone calls (the glasses are the phone's hands-free headset; Meta help pages 2026-11-23)
+    static let callRingSeconds = 30.0             // a caller rings this long before it's a missed call (assumed)
+    static let callCueInterval = 2.5              // s between the soft ring chimes (assumed)
+    static let drainCall = drainMusic             // a call drains like audio playback (assumed)
+
     // Wake word
     static let wakeLanguages = ["en-US"]
     static let wakeEnrolSamples = 3

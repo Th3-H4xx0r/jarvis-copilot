@@ -25,6 +25,8 @@ protocol EarconPlaying: AnyObject {
 /// switch).
 final class ToneEarconPlayer: EarconPlaying {
     private var players: [VoiceEarcon: AVAudioPlayer] = [:]
+    /// 0…1. Full by default; the Meta glasses simulator rings softly with the same chime.
+    var volume: Float = 1
 
     /// Past the sound's end, room for the car's cabin to stop ringing with it.
     static let echoTailMs = 100
@@ -37,6 +39,7 @@ final class ToneEarconPlayer: EarconPlaying {
             players[earcon]?.prepareToPlay()
         }
         guard let player = players[earcon] else { return 0 }
+        player.volume = volume
         player.currentTime = 0
         player.play()
         // The mic hears the sound until it has left the speaker — its length plus

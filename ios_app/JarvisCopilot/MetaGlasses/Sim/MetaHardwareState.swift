@@ -27,6 +27,8 @@ struct MetaHardwareState: Equatable, Sendable {
     var voiceActive = false
     var wifiBusyFor = 0.0               // s of import/transfer left
     var cameraTooHot = false
+    /// A phone call on the glasses (their own call handling, not Jarvis's).
+    var call = MetaPhoneCall.none
 
     struct Recording: Equatable, Sendable {
         var mode: MetaVideoMode
@@ -41,6 +43,10 @@ struct MetaHardwareState: Equatable, Sendable {
         case cameraCooled
         case poweredOff
         case charged
+        /// The caller rang `MetaGen2Profile.callRingSeconds` with no answer.
+        case callMissed(from: String)
+        /// The glasses went off, into the case or out of range mid-call (the phone keeps the call).
+        case callEnded(reason: String, wasRinging: Bool)
     }
 
     var poweredOn: Bool { battery > 0 }
@@ -83,6 +89,8 @@ struct MetaHardwareState: Equatable, Sendable {
         if let reason = unreachableReason { return reason }
         if inCase { return "The glasses are in their case" }
         if folded { return "The glasses are folded" }
+        if call.isActive { return MetaCallRules.onCallReason }
+        if call.isRinging { return MetaCallRules.ringingReason }
         if !worn { return "The glasses aren't being worn" }
         if battery < MetaGen2Profile.lowBatteryVoice { return "Battery too low for the assistant" }
         return nil
@@ -92,6 +100,52 @@ struct MetaHardwareState: Equatable, Sendable {
         if let reason = unreachableReason { return reason }
         if inCase || folded { return "The glasses are folded" }
         return nil
+    }
+
+    // MARK: Phone calls
+
+    /// Why the glasses can't ring for an incoming call now (nil = they ring). The phone rings anyway.
+    func ringRefusal() -> String? {
+        if let reason = unreachableReason { return reason }
+        if inCase { return "The glasses are in their case" }
+        if folded { return "The glasses are folded" }
+        if call.isOn { return "Already on a call" }      // call waiting isn't simulated
+        return nil
+    }
+
+    /// A caller rings: the glasses start ringing (and the phone holds its media for the call).
+    /// Returns the refusal when they can't.
+    @discardableResult
+    mutating func ring(from caller: String) -> String? {
+        if let reason = ringRefusal() { return reason }
+        let name = caller.trimmingCharacters(in: .whitespacesAndNewlines)
+        call = .ringing(from: name.isEmpty ? "Unknown caller" : name, seconds: 0)
+        musicPlaying = false
+        return nil
+    }
+
+    /// Answer a ringing call. Returns the caller, nil when nothing was ringing.
+    @discardableResult
+    mutating func answerCall() -> String? {
+        guard case .ringing(let from, _) = call else { return nil }
+        call = .active(from: from, seconds: 0)
+        return from
+    }
+
+    /// Decline a ringing call. Returns the caller, nil when nothing was ringing.
+    @discardableResult
+    mutating func rejectCall() -> String? {
+        guard case .ringing(let from, _) = call else { return nil }
+        call = .none
+        return from
+    }
+
+    /// Hang up an answered call. Returns who and how long, nil when no call was on.
+    @discardableResult
+    mutating func hangUp() -> (caller: String, seconds: Double)? {
+        guard case .active(let from, let seconds) = call else { return nil }
+        call = .none
+        return (from, seconds)
     }
 
     /// A requested clip is capped by the clip-length setting (the glasses stop at it).
@@ -144,6 +198,21 @@ struct MetaHardwareState: Equatable, Sendable {
                 events += stopEverything(reason: "Battery empty")
                 events.append(.poweredOff)
             }
+        }
+
+        // A call runs in real time (sim speed is for battery and heat): ringing gives up at 30 s.
+        switch call {
+        case .ringing(let from, let rang):
+            if rang + seconds >= MetaGen2Profile.callRingSeconds {
+                call = .none
+                events.append(.callMissed(from: from))
+            } else {
+                call = .ringing(from: from, seconds: rang + seconds)
+            }
+        case .active(let from, let talked):
+            call = .active(from: from, seconds: talked + seconds)
+        case .none:
+            break
         }
 
         // Heat: approach the hottest active target.
@@ -219,6 +288,7 @@ struct MetaHardwareState: Equatable, Sendable {
         if inCase || folded { return MetaGen2Profile.drainFolded }
         var rate = worn ? MetaGen2Profile.drainIdle : MetaGen2Profile.drainFolded
         if musicPlaying { rate = max(rate, MetaGen2Profile.drainMusic) }
+        if call.isActive { rate = max(rate, MetaGen2Profile.drainCall) }
         if voiceActive { rate = max(rate, MetaGen2Profile.drainVoice) }
         if wifiBusyFor > 0 { rate = max(rate, MetaGen2Profile.drainWiFiTransfer) }
         if streaming { rate = max(rate, MetaGen2Profile.drainStreaming) }
@@ -229,7 +299,7 @@ struct MetaHardwareState: Equatable, Sendable {
     private var heatTarget: (Double, Double) {
         var best: (Double, Double) = (0.1, MetaGen2Profile.heatCoolTau)
         func consider(_ t: (Double, Double)) { if t.0 > best.0 { best = t } }
-        if musicPlaying { consider((0.2, 300)) }
+        if musicPlaying || call.isActive { consider((0.2, 300)) }
         if voiceActive { consider((0.25, 300)) }
         if wifiBusyFor > 0 { consider((0.55, 120)) }
         if streaming { consider((0.95, 400)) }
@@ -241,6 +311,10 @@ struct MetaHardwareState: Equatable, Sendable {
         var events: [Event] = []
         if let rec = recording { events.append(.recordingStopped(seconds: rec.elapsed, reason: reason)); finishRecording() }
         if streaming { streaming = false; events.append(.streamStopped(reason: reason)) }
+        if call.isOn {
+            events.append(.callEnded(reason: reason, wasRinging: call.isRinging))
+            call = .none
+        }
         musicPlaying = false
         voiceActive = false
         return events

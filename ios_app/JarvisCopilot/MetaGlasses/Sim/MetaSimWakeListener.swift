@@ -163,11 +163,15 @@ final class MetaSimWakeListener: ObservableObject {
     /// or the turn isn't over: it used to restart in the gaps (the hold-to-talk chime handoff, Jarvis
     /// thinking after a ring press, the app going to the background) and grab the mic from the
     /// glasses path — "mic blocked" (2026-11-22).
+    /// `onCall`: an answered phone call owns the glasses' mic (a ringing one doesn't — "Hey Jarvis,
+    /// answer" is how you pick it up hands-free).
     nonisolated static func shouldListen(onScreen: Bool, appActive: Bool, switchOn: Bool, enrolled: Bool,
                                          turnRunning: Bool, pressing: Bool, handingOff: Bool,
-                                         capturingQuestion: Bool, assistantBusy: Bool, jarvisSpeaking: Bool) -> Bool {
+                                         capturingQuestion: Bool, assistantBusy: Bool, jarvisSpeaking: Bool,
+                                         onCall: Bool = false) -> Bool {
         onScreen && appActive && switchOn && enrolled
             && !turnRunning && !pressing && !handingOff && !capturingQuestion && !assistantBusy && !jarvisSpeaking
+            && !onCall
     }
 
     /// Where the wake phrase ends in the transcription (seconds), or nil. Forgiving about how the

@@ -10,6 +10,7 @@ struct MetaSimScreen: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             MetaSimHero(sim: sim)
+            MetaCallCard(sim: sim)
             MetaTouchpadCard(sim: sim)
             MetaLiveCard(sim: sim, hub: hub)        // up here so Call view / FaceTime are easy to find
             MetaTalkCard(sim: sim)
@@ -44,6 +45,18 @@ private struct MetaSimHero: View {
                 Label("Phone on the glasses' Wi-Fi — Jarvis traffic goes over cellular", systemImage: "wifi")
                     .font(.system(size: 12))
                     .foregroundStyle(JcTheme.muted)
+            }
+            switch sim.hw.call {
+            case .ringing(let from, _):
+                Label("Call from \(from) · ringing", systemImage: "phone.arrow.down.left")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(JcTheme.text)
+            case .active(_, let seconds):
+                Label("On a call · \(MetaCallRules.clock(seconds))", systemImage: "phone.fill")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(JcTheme.text)
+            case .none:
+                EmptyView()
             }
             if sim.hw.recording != nil || sim.hw.streaming {
                 Label(sim.hw.streaming ? "Live streaming · LED on" : "Recording \(Int(sim.hw.recording?.elapsed ?? 0)) s · LED on",
@@ -139,6 +152,7 @@ private struct MetaTalkCard: View {
         .onChange(of: sim.hw.voiceActive) { _, _ in updateListener() }
         .onChange(of: sim.assistantBusy) { _, _ in updateListener() }
         .onChange(of: handingOff) { _, _ in updateListener() }
+        .onChange(of: sim.hw.call.isActive) { _, _ in updateListener() }
         .onChange(of: scenePhase) { _, _ in updateListener() }
         .sheet(isPresented: $enrolling) {
             MetaWakeEnrolmentView(phrase: "Hey Jarvis") { samples in
@@ -187,7 +201,7 @@ private struct MetaTalkCard: View {
             onScreen: visible, appActive: scenePhase == .active, switchOn: listenWake,
             enrolled: sim.wakePhrase != nil, turnRunning: runner.isRunning, pressing: pressing,
             handingOff: handingOff, capturingQuestion: sim.capturingQuestion,
-            assistantBusy: sim.assistantBusy, jarvisSpeaking: sim.hw.voiceActive)
+            assistantBusy: sim.assistantBusy, jarvisSpeaking: sim.hw.voiceActive, onCall: sim.hw.call.isActive)
         if want, !listener.isListening {
             let phrase = sim.wakePhrase ?? "Hey Jarvis"
             Task { await listener.start(phrase: phrase) }
@@ -205,21 +219,32 @@ private struct MetaTalkCard: View {
     private var holdToTalk: some View {
         HStack(spacing: 8) {
             Image(systemName: mic.recording ? "waveform" : "mic.fill")
-            Text(mic.recording ? "Listening — release to send" : runner.isRunning ? "Jarvis is answering…" : "Hold to talk to the glasses")
+            Text(holdToTalkTitle)
                 .font(.system(size: 16, weight: .semibold))
         }
         .foregroundStyle(JcAccent.onFill)
         .frame(maxWidth: .infinity)
         .frame(height: 50)
-        .background(RoundedRectangle(cornerRadius: 14).fill(JcAccent.fill.opacity(runner.isRunning ? 0.5 : 1)))
+        .background(RoundedRectangle(cornerRadius: 14).fill(JcAccent.fill.opacity(micBlocked ? 0.5 : 1)))
         .gesture(DragGesture(minimumDistance: 0)
             .onChanged { _ in startMic() }
             .onEnded { _ in stopMic() })
-        .allowsHitTesting(!runner.isRunning)
+        .allowsHitTesting(!micBlocked)
+    }
+
+    /// Jarvis is answering, or an answered call owns the glasses' mic.
+    private var micBlocked: Bool { runner.isRunning || sim.hw.call.isActive }
+
+    private var holdToTalkTitle: String {
+        if mic.recording { return sim.hw.call.isRinging ? "Listening — say “answer” or “decline”" : "Listening — release to send" }
+        if sim.hw.call.isActive { return "On a call — the mic is the call's" }
+        if runner.isRunning { return "Jarvis is answering…" }
+        if sim.hw.call.isRinging { return "Hold and say “answer” or “decline”" }
+        return "Hold to talk to the glasses"
     }
 
     private func startMic() {
-        guard !pressing, !runner.isRunning else { return }
+        guard !pressing, !runner.isRunning, !sim.hw.call.isActive else { return }
         pressing = true
         listener.stop()
         micError = nil
@@ -255,7 +280,8 @@ private struct MetaTalkCard: View {
     private func send(_ pcm: Data) {
         handingOff = true
         Task {
-            await runner.run(recorded: pcm)
+            // While a call rings, the glasses' mics answer or decline it — nothing goes to Jarvis.
+            if sim.hw.call.isRinging { await sim.hearDuringCall(pcm) } else { await runner.run(recorded: pcm) }
             handingOff = false
         }
     }
@@ -264,6 +290,10 @@ private struct MetaTalkCard: View {
         guard !runner.isRunning, !runner.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         typing = false
         micError = nil
+        if sim.hw.call.isRinging {
+            sim.hearDuringCall(text: runner.prompt)
+            return
+        }
         Task { await runner.run() }
     }
 
@@ -289,7 +319,7 @@ private struct MetaTouchpadCard: View {
                         ForEach(gestures, id: \.self) { gesture in
                             if gesture == .hold {
                                 MetaHoldTile(title: MetaTouchBinding.label(gesture),
-                                             detail: MetaTouchBinding.label(MetaTouchBinding.defaultAction(for: gesture)),
+                                             detail: doesNow(gesture),
                                              symbol: nil) {
                                     Task { await sim.touch(.hold) }
                                 }
@@ -300,7 +330,7 @@ private struct MetaTouchpadCard: View {
                                 } label: {
                                     VStack(spacing: 2) {
                                         Text(MetaTouchBinding.label(gesture)).font(.system(size: 13, weight: .semibold))
-                                        Text(MetaTouchBinding.label(MetaTouchBinding.defaultAction(for: gesture)))
+                                        Text(doesNow(gesture))
                                             .font(.system(size: 11)).foregroundStyle(JcTheme.muted)
                                     }
                                     .frame(maxWidth: .infinity, minHeight: 44)
@@ -330,6 +360,111 @@ private struct MetaTouchpadCard: View {
                 }
             }
         }
+    }
+
+    /// What the gesture does right now: a ringing or answered call takes over double-tap and hold.
+    private func doesNow(_ gesture: MetaTouchGesture) -> String {
+        MetaCallRules.label(gesture, during: sim.hw.call)
+            ?? MetaTouchBinding.label(MetaTouchBinding.defaultAction(for: gesture))
+    }
+}
+
+/// A phone call to the glasses: ring them as a caller, then answer or decline the way the real
+/// glasses do — the buttons here perform the same gestures (double-tap, touch and hold).
+private struct MetaCallCard: View {
+    @ObservedObject var sim: SimulatedGlassesTransport
+    @AppStorage("meta.sim.callerName") private var caller = "Mom"
+    @FocusState private var typing: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            JcSectionLabel("Incoming call")
+            JcCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    switch sim.hw.call {
+                    case .none: idle
+                    case .ringing(let from, let seconds): ringing(from, seconds)
+                    case .active(let from, let seconds): onCall(from, seconds)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var idle: some View {
+        HStack(spacing: 8) {
+            TextField("Caller", text: $caller)
+                .font(.system(size: 15))
+                .focused($typing)
+                .submitLabel(.go)
+                .onSubmit(ring)
+            Button(action: ring) {
+                Label("Ring", systemImage: "phone.arrow.down.left").frame(minHeight: 40)
+            }
+            .buttonStyle(.jcGlass)
+        }
+        Text("The glasses say who's calling and chime softly until you answer (double-tap, or “answer”) or decline (touch and hold, or “decline”). Jarvis only learns that a call is on — never who, and it can't answer.")
+            .font(.system(size: 12))
+            .foregroundStyle(JcTheme.muted)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder private func ringing(_ from: String, _ seconds: Double) -> some View {
+        HStack(spacing: 12) {
+            JcIconSquare(symbol: "phone.arrow.down.left")
+            VStack(alignment: .leading, spacing: 2) {
+                Text(from).font(.system(size: 17, weight: .semibold)).foregroundStyle(JcTheme.text).lineLimit(1)
+                Text("Calling · missed in \(max(0, Int((MetaGen2Profile.callRingSeconds - seconds).rounded(.up)))) s")
+                    .font(.system(size: 12)).foregroundStyle(JcTheme.muted).monospacedDigit()
+            }
+            Spacer(minLength: 0)
+        }
+        HStack(spacing: 8) {
+            Button {
+                MetaGlassesHaptics.play(.doubleTap)
+                Task { await sim.touch(.doubleTap) }
+            } label: {
+                Label("Answer", systemImage: "phone.fill").frame(maxWidth: .infinity, minHeight: 40)
+            }
+            .buttonStyle(.jcGlass)
+            Button {
+                MetaGlassesHaptics.holdRegistered()
+                Task { await sim.touch(.hold) }
+            } label: {
+                Label("Decline", systemImage: "phone.down.fill").frame(maxWidth: .infinity, minHeight: 40)
+            }
+            .buttonStyle(.jcGlass)
+        }
+        Text("Answer = double-tap · Decline = touch and hold · or hold to talk and say it")
+            .font(.system(size: 12)).foregroundStyle(JcTheme.muted)
+    }
+
+    @ViewBuilder private func onCall(_ from: String, _ seconds: Double) -> some View {
+        HStack(spacing: 12) {
+            JcIconSquare(symbol: "phone.fill")
+            VStack(alignment: .leading, spacing: 2) {
+                Text(from).font(.system(size: 17, weight: .semibold)).foregroundStyle(JcTheme.text).lineLimit(1)
+                Text("On the glasses · \(MetaCallRules.clock(seconds))")
+                    .font(.system(size: 12)).foregroundStyle(JcTheme.muted).monospacedDigit()
+            }
+            Spacer(minLength: 0)
+            Button {
+                MetaGlassesHaptics.play(.doubleTap)
+                Task { await sim.touch(.doubleTap) }
+            } label: {
+                Label("Hang up", systemImage: "phone.down.fill").frame(minHeight: 40)
+            }
+            .buttonStyle(.jcGlass)
+        }
+        Text("The mic and speakers carry the call — Jarvis's assistant is off until you hang up (double-tap).")
+            .font(.system(size: 12)).foregroundStyle(JcTheme.muted)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func ring() {
+        typing = false
+        MetaGlassesHaptics.taps(1)
+        sim.ring(from: caller)
     }
 }
 

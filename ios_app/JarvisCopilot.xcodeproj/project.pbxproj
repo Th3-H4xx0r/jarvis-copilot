@@ -289,6 +289,7 @@
 		32628C66310E7ED3B48D02FB /* ToyotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31D82C3E4E44CC962AB97F39 /* ToyotaTests.swift */; };
 		326A31E1C3A9E2ED9CBA88EF /* IMessagePreviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34499A004EE9B4F3F1B64168 /* IMessagePreviewSheet.swift */; };
 		32799A707359913FB5986CC5 /* StrengthSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0777950E8E0AF9437C9EB6A6 /* StrengthSessionTests.swift */; };
+		3285D0094B3DE3585B2B7B6E /* MetaGlassesCallSimTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 434F78D62AFDA4A258ED34BA /* MetaGlassesCallSimTests.swift */; };
 		329CDC1CF746BEDF300590CB /* CostsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E48183E93B0371C1405CE6FE /* CostsTests.swift */; };
 		32AA30F46877652C37ABC4D0 /* StrengthWorkoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C79C79DEEE34968F8E62367 /* StrengthWorkoutTests.swift */; };
 		32ADDA216B46841F29926194 /* IntegrationsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DC88EBA9BCFBCBCA019DE32 /* IntegrationsStore.swift */; };
@@ -1419,6 +1420,7 @@
 		F9C0ADE306D91C71841AFE90 /* ActionPickerIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00AEAF03D07E3A83BB0A5E0 /* ActionPickerIndex.swift */; };
 		F9C22A26ABDAED60FA00A4E5 /* PhoneSkillsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7641CE63B1EC9EF88B73DBA1 /* PhoneSkillsTests.swift */; };
 		FAA13246D507952FFAC7EFC6 /* InmoAudioInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3771BFE92BFF9E51989080E6 /* InmoAudioInput.swift */; };
+		F97E13C7DC5CD250EA04E1C2 /* MetaSimCall.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88AFF441DB751F0BFC6C800E /* MetaSimCall.swift */; };
 		FAAFD569DD6EC0F8DEF6C4D6 /* MetaLiveViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 636EB86F921F64FB7B06D567 /* MetaLiveViewer.swift */; };
 		4116533F218987D4FE66E2AA /* GlassesMacCameraMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B94124CEA5C50CA203514D1 /* GlassesMacCameraMachine.swift */; };
 		DBF31BAC65CB8519F6D0A372 /* GlassesMacCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98034E05CC66634FBC610AEB /* GlassesMacCamera.swift */; };
@@ -1902,6 +1904,7 @@
 		429CFE4240883FFA52688AF6 /* AgentsMacPowerCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentsMacPowerCard.swift; sourceTree = "<group>"; };
 		42C95DA1207D93316ACCD786 /* SecurityPush.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SecurityPush.swift; sourceTree = "<group>"; };
 		432A3387741D90798D1C21CB /* OnDemandWearable.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnDemandWearable.swift; sourceTree = "<group>"; };
+		434F78D62AFDA4A258ED34BA /* MetaGlassesCallSimTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaGlassesCallSimTests.swift; sourceTree = "<group>"; };
 		4389979A771AB15448B4770A /* PcEffects.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PcEffects.swift; sourceTree = "<group>"; };
 		438CBFA66B125FE31EA00B31 /* HealthMetric.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthMetric.swift; sourceTree = "<group>"; };
 		438D0DAA806C23BD75CDA6F7 /* StrengthSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StrengthSession.swift; sourceTree = "<group>"; };
@@ -2253,6 +2256,7 @@
 		880324585FCBF620B71CB25A /* SystemSkills.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SystemSkills.swift; sourceTree = "<group>"; };
 		883B8048C4A61D4DFCC04066 /* KanbanModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanModels.swift; sourceTree = "<group>"; };
 		888601362BE4A63013AF6D72 /* SpokenMarkdown.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpokenMarkdown.swift; sourceTree = "<group>"; };
+		88AFF441DB751F0BFC6C800E /* MetaSimCall.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetaSimCall.swift; sourceTree = "<group>"; };
 		88E9C82A1568ECB9AB0D221D /* IntegrationDeleteSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationDeleteSheet.swift; sourceTree = "<group>"; };
 		88F31B15B05E8F7F84FF4017 /* VoiceAPITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceAPITests.swift; sourceTree = "<group>"; };
 		89041CFEB376E8D96A524649 /* DashcamRulesTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamRulesTests.swift; sourceTree = "<group>"; };
@@ -4673,6 +4677,7 @@
 				EA6E06F75D0DB4BB903E6E8D /* MetaSimMic.swift */,
 				809B77ED3B76C35D25044E96 /* MetaSimQuestionCapture.swift */,
 				F399F3A2DFE44F21D1C7AC96 /* MetaSimWakeListener.swift */,
+				88AFF441DB751F0BFC6C800E /* MetaSimCall.swift */,
 			);
 			path = Sim;
 			sourceTree = "<group>";
@@ -5311,6 +5316,7 @@
 				CB511B2BCD6DEAC831FBDFF2 /* MetaGlassesHardwareSimTests.swift */,
 				8C4E7C2C4423130E8AF5D814 /* MetaGlassesModelRenderTests.swift */,
 				14A12097749B2421A6E6790B /* MetaVoiceRelayTests.swift */,
+				434F78D62AFDA4A258ED34BA /* MetaGlassesCallSimTests.swift */,
 			);
 			name = Glasses;
 			path = Glasses;
@@ -6305,6 +6311,7 @@
 				A297002B5ECB11DD9F192B51 /* GameStreamingPageTests.swift in Sources */,
 				6E7F9AC46EC7BA2E6DF58FC7 /* GameStreamingSetupTests.swift in Sources */,
 				091151CB22C737ED4E0D1BE5 /* GameStreamingPairTests.swift in Sources */,
+				3285D0094B3DE3585B2B7B6E /* MetaGlassesCallSimTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -7291,6 +7298,7 @@
 				0402371C54403EFE3F357769 /* GameStreamingStore.swift in Sources */,
 				43FFABF0B99B957EBCB778C5 /* GameStreamingSetupStore.swift in Sources */,
 				C248D46E8844A91BF4C4A68F /* GameStreamingSetupView.swift in Sources */,
+				F97E13C7DC5CD250EA04E1C2 /* MetaSimCall.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

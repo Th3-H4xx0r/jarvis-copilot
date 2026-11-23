@@ -104,6 +104,15 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
     var questionCapture: MetaQuestionCapturing?
     /// The glasses' chimes: his Jarvis listening / done earcons (the hub sets them).
     var earcon: EarconPlaying?
+    /// The gentle cue while a call rings: his listening chime, played softly (the hub sets a quiet
+    /// player of the same asset — never a synthesized tone).
+    var ringChime: EarconPlaying?
+    /// How long between ring chimes (tests shorten it).
+    var ringInterval: Duration = .milliseconds(Int(MetaGen2Profile.callCueInterval * 1_000))
+    /// Words from what the glasses' mics heard while a call rings (the hub sets on-device speech
+    /// recognition; nil = nothing understood).
+    var callTranscriber: ((Data) async -> String)?
+    private var ringTask: Task<Void, Never>?
     /// The assistant is open and listening for a question.
     @Published private(set) var capturingQuestion = false
     /// An assistant turn is open (ring / touch-and-hold / talk tool) from the press until Jarvis is
@@ -160,6 +169,8 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
 
     func disconnect() async {
         stopStreaming()
+        stopRingCue()
+        hw.call = .none
         tickTask?.cancel(); tickTask = nil
         camera.stopLive()
         if hw.recording != nil { await endRecording(reason: "Disconnected") }
@@ -397,6 +408,16 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
                 feed.log(.glasses, "Battery empty — glasses off", outcome: .info)
             case .charged:
                 feed.log(.glasses, "Fully charged", outcome: .info)
+            case .callMissed(let from):
+                stopRingCue()
+                settleFocus()
+                feed.log(.glasses, "Missed call from \(from)",
+                         detail: "Rang \(Int(MetaGen2Profile.callRingSeconds)) s with no answer", outcome: .info)
+            case .callEnded(let reason, let wasRinging):
+                stopRingCue()
+                settleFocus()
+                feed.log(.glasses, wasRinging ? "Stopped ringing" : "Call left the glasses",
+                         detail: "\(reason) — the phone keeps the call", outcome: .info)
             }
         }
     }
@@ -463,6 +484,27 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
         if let reason = hw.audioRefusal() {
             feed.log(.touch, MetaTouchBinding.label(gesture), detail: reason, outcome: .refused(reason))
             return
+        }
+        // A ringing or answered call takes over the touchpad, like the real glasses: its gestures win
+        // over the defaults, the assistant and any Jarvis binding (nothing is reported up).
+        switch MetaCallRules.touch(gesture, during: hw.call) {
+        case .call(.answer)?:
+            answerCall(source: .touch)
+            return
+        case .call(.reject)?:
+            rejectCall(source: .touch)
+            return
+        case .call(.hangUp)?:
+            hangUp(source: .touch)
+            return
+        case .refused(let reason)?:
+            feed.log(.touch, MetaTouchBinding.label(gesture), detail: reason, outcome: .refused(reason))
+            return
+        case .ignored?:
+            feed.log(.touch, MetaTouchBinding.label(gesture), detail: "Nothing during a call", outcome: .info)
+            return
+        case nil:
+            break
         }
         let action = MetaTouchBinding.defaultAction(for: gesture)
         var detail: String?
@@ -708,7 +750,87 @@ final class SimulatedGlassesTransport: ObservableObject, GlassesTransport {
         if hw.recording != nil || hw.streaming { focus = MetaGlassesFocus(part: .camera, pulse: .recording) }
         else if speaking { focus = MetaGlassesFocus(part: .speakers, pulse: .speaking) }
         else if listening { focus = MetaGlassesFocus(part: .mic, pulse: .listening) }
+        else if hw.call.isOn { focus = MetaGlassesFocus(part: .speakers, pulse: .speaking) }
         else { focus = nil }
+    }
+
+    // MARK: Phone calls (the glasses' own call handling — Jarvis only sees none / ringing / active)
+
+    /// A caller rings the phone. The glasses announce them through their speakers, then chime softly
+    /// every few seconds until answered (double-tap, "answer"), declined (touch and hold, "decline")
+    /// or missed (30 s). The phone rings either way; refused here only means the glasses can't.
+    func ring(from caller: String) {
+        if let reason = hw.ring(from: caller) {
+            feed.log(.sim, "Incoming call", detail: "\(reason) — only the phone rings", outcome: .refused(reason))
+            return
+        }
+        let name = hw.call.caller ?? caller
+        feed.log(.sim, "Incoming call from \(name)", detail: "Double-tap to answer · touch and hold to decline")
+        speaker?.say("Call from \(name)", volume: hw.volume)
+        show(.speakers, .speaking, for: nil)
+        ringTask?.cancel()
+        ringTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let interval = self?.ringInterval else { return }
+                try? await Task.sleep(for: interval)
+                guard let self, !Task.isCancelled, self.hw.call.isRinging else { return }
+                self.ringChime?.play(.listening)
+            }
+        }
+    }
+
+    private func stopRingCue() {
+        ringTask?.cancel()
+        ringTask = nil
+    }
+
+    private func answerCall(source: MetaCommandFeed.Source, heard: String? = nil) {
+        guard let caller = hw.answerCall() else { return }
+        stopRingCue()
+        settleFocus()
+        feed.log(source, "Answered the call",
+                 detail: [heard.map { "“\($0)”" }, caller, "the glasses' mic and speakers carry it"].compactMap { $0 }.joined(separator: " · "))
+    }
+
+    private func rejectCall(source: MetaCommandFeed.Source, heard: String? = nil) {
+        guard let caller = hw.rejectCall() else { return }
+        stopRingCue()
+        settleFocus()
+        feed.log(source, "Declined the call", detail: [heard.map { "“\($0)”" }, caller].compactMap { $0 }.joined(separator: " · "))
+    }
+
+    private func hangUp(source: MetaCommandFeed.Source) {
+        guard let ended = hw.hangUp() else { return }
+        settleFocus()
+        feed.log(source, "Hung up", detail: "\(ended.caller) · \(MetaCallRules.clock(ended.seconds))")
+    }
+
+    /// What the glasses' mics heard while the call rings (hold to talk, or "Hey Jarvis, …"): it
+    /// answers or declines the call and never reaches Jarvis. Returns what it did.
+    @discardableResult
+    func hearDuringCall(_ pcm: Data) async -> MetaCallAction? {
+        guard hw.call.isRinging else { return nil }
+        let words = await callTranscriber?(pcm) ?? ""
+        return hearDuringCall(text: words)
+    }
+
+    /// The same, from words (the typed "what you'd say" box, or a transcript).
+    @discardableResult
+    func hearDuringCall(text: String) -> MetaCallAction? {
+        guard hw.call.isRinging else { return nil }
+        let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch MetaCallRules.voiceCommand(said) {
+        case .answer?:
+            answerCall(source: .voice, heard: said)
+            return .answer
+        case .reject?:
+            rejectCall(source: .voice, heard: said)
+            return .reject
+        case .hangUp?, nil:
+            feed.log(.voice, "Didn't catch that",
+                     detail: (said.isEmpty ? "" : "“\(said)” · ") + "say “answer” or “decline”", outcome: .info)
+            return nil
+        }
     }
 
     // MARK: Scripting (tests, the typed-prompt runner)
