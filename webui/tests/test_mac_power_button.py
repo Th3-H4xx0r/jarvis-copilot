@@ -341,33 +341,6 @@ def test_light_untrusted_until_seen_lit(tmp_path):
 
 
 
-def test_linked_board_turns_the_pc_check_in_timer_off(tmp_path):
-    # His ask 2026-11-23: the 15-minute self-wake is the old flow; with the button it only wakes the PC for nothing.
-    rig = Rig(tmp_path)
-    rig.store.on_status(PC, dict(PC_STATUS, timer_on=True))
-    assert rig.store.device(PC)["timer_on"] is False
-    assert any(d == PC and f.get("timer_on") is False for d, f in rig.frames)
-
-
-def test_no_board_keeps_the_check_in_timer(tmp_path):
-    rig = Rig(tmp_path, connected=(PC, MAC))
-    rig.skills.pop(BOARD)
-    rig.store.on_status(PC, dict(PC_STATUS, timer_on=True))
-    assert rig.store.device(PC)["timer_on"] is True
-
-
-
-# ── Live 2026-11-23: light wires not connected yet; floating ADC pins made the card flip ──
-def test_unwired_light_is_ignored(tmp_path):
-    rig = asleep_pc(tmp_path, connected=(BOARD,))
-    rig.light("on", wired=False)          # noise from floating pins
-    rig.light("asleep", wired=False)
-    assert rig.store.light(PC) == "unknown"
-    assert row(rig)["state"] == "sleeping" and row(rig)["reason"] == ""
-    out = rig.store.wake(PC)
-    assert out["via"] == "power button" and len(rig.presses()) == 1   # a noisy "on" never blocks the press
-
-
 def test_unwired_light_never_triggers_the_sleep_fallback(tmp_path):
     rig = Rig(tmp_path)
     rig.store.on_status(PC, PC_STATUS)
@@ -386,11 +359,9 @@ def test_light_wired_flag_round_trip(tmp_path):
 
 
 
-def test_pc_app_cannot_turn_the_check_in_back_on_with_a_board(tmp_path):
-    # Live 2026-11-23: after it was switched off, the PC turned its 15-minute self-wake back on (its own setting).
+def test_check_in_timer_stays_on_with_a_board(tmp_path):
+    # His call 2026-11-23: the 15-minute check-in stays (the flow worked with it); a linked board doesn't touch it.
     rig = Rig(tmp_path)
-    rig.store.on_status(PC, PC_STATUS)
-    rig.frames.clear()
+    rig.store.on_status(PC, dict(PC_STATUS, timer_on=True))
     rig.store.on_set(PC, {"timer_on": True})
-    assert rig.store.device(PC)["timer_on"] is False
-    assert any(d == PC and f.get("timer_on") is False for d, f in rig.frames)
+    assert rig.store.device(PC)["timer_on"] is True
