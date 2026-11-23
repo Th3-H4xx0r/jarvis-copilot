@@ -203,3 +203,13 @@ def test_refresh_boot_copy_only_when_paired(monkeypatch, tmp_path):
     assert C.refresh_boot_copy() is False and not (tmp_path / "boot-session.bin").exists()
     monkeypatch.setattr(C, "load", lambda: C.Credentials(server_url="https://j", cookie="c", cert_fingerprint="f"))
     assert C.refresh_boot_copy() is True and C.load_boot_copy()["cookie"] == "c"
+
+
+
+def test_boot_status_says_nothing_about_the_app(boot):
+    # Live 2026-11-23: at the sign-in screen the card said "The Jarvis app isn't running on this PC · open it there".
+    power = PcPower(lambda f: True, set_state=lambda flags: 1, lock=lambda: None, suspend=lambda: None,
+                    probe=lambda: ({"capable": True, "adapter": "x", "reason": ""}, "aa:bb:cc:dd:ee:ff"),
+                    battery=lambda: (None, None), lan_ip=lambda: "192.168.1.80", run=lambda argv, timeout=15.0: "",
+                    app_linked=lambda: False)
+    assert "app" not in power.status()

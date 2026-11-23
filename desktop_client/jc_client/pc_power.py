@@ -389,7 +389,9 @@ class PcPower:
         return {"os": "windows", "state": "awake", "held": keep, "reason": reason,
                 "keep_awake": keep, "timer_on": bool(getattr(self.power, "timer_on", False)), "battery": battery, "on_ac": on_ac, "lid": None,
                 "wifi_mac": mac, "wifi_ip": self._lan_ip(), "wake": dict(wake),
-                "button_action": self._button_action(), **self._app()}
+                "button_action": self._button_action(),
+                # Before sign-in the Jarvis app can't run: don't let the card say "open it there".
+                **({} if boot_mode.is_boot() else self._app())}
 
     def _button_action(self) -> Optional[str]:
         """What a short press on the power button does (the server's sleep fallback presses only for Sleep).

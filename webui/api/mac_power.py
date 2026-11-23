@@ -537,6 +537,10 @@ class MacPowerStore:
             fields["wake_requested_at"] = None
             fields["sleeping_at"] = None
         self._update(did, **fields)
+        if self._is_pc(did) and self._linked_board(did) and (self._devices.get(did) or {}).get("timer_on", True):
+            # His ask 2026-11-23: with the power button the PC's 15-minute self-wake (old flow) only wakes it
+            # for nothing. Turn it off once a board is linked.
+            self.timer(did, False)
 
     def on_token(self, did: str, data: dict) -> None:
         token = str(data.get("token") or "").strip()

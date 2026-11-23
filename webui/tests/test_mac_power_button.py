@@ -336,3 +336,19 @@ def test_light_untrusted_until_seen_lit(tmp_path):
     rig.light("on")                       # wired: once it has been seen lit, dark means off
     rig.light("off")
     assert rig.store.light(PC) == "off"
+
+
+
+def test_linked_board_turns_the_pc_check_in_timer_off(tmp_path):
+    # His ask 2026-11-23: the 15-minute self-wake is the old flow; with the button it only wakes the PC for nothing.
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, dict(PC_STATUS, timer_on=True))
+    assert rig.store.device(PC)["timer_on"] is False
+    assert any(d == PC and f.get("timer_on") is False for d, f in rig.frames)
+
+
+def test_no_board_keeps_the_check_in_timer(tmp_path):
+    rig = Rig(tmp_path, connected=(PC, MAC))
+    rig.skills.pop(BOARD)
+    rig.store.on_status(PC, dict(PC_STATUS, timer_on=True))
+    assert rig.store.device(PC)["timer_on"] is True
