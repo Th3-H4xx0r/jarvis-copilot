@@ -525,10 +525,14 @@ class PcPower:
         # Clean restart / shutdown from the card or Jarvis (the power button board is for frozen PCs).
         if change.get("restart") or change.get("shutdown"):
             log.info("pc power: %s from the card (stale=%s)", "restart" if change.get("restart") else "shutdown", stale)
-        if change.get("restart") and not stale:
-            log.info("pc power: shutdown /r -> %r", (self._run(["shutdown", "/r", "/t", "0"]) or "")[:300])
-        if change.get("shutdown") and not stale:
-            log.info("pc power: shutdown /s -> %r", (self._run(["shutdown", "/s", "/t", "0"]) or "")[:300])
+        for key, flag in (("restart", "/r"), ("shutdown", "/s")):
+            if change.get(key) and not stale:
+                out = self._run(["shutdown", flag, "/t", "0"]) or ""
+                log.info("pc power: shutdown %s -> %r", flag, out[:300])
+                if "(1271)" in out:
+                    # A locked PC refuses without /f (live 2026-11-23): apps close without asking to save.
+                    log.info("pc power: locked, retrying with /f -> %r",
+                             (self._run(["shutdown", flag, "/t", "0", "/f"]) or "")[:300])
 
     def ui_request(self, req: dict) -> dict:
         kind = req.get("type")

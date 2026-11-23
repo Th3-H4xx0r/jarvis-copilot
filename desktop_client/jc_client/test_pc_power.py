@@ -402,3 +402,20 @@ def test_stale_restart_dropped():
     rig = ButtonRig()
     rig.power.handle_frame({"type": "mac_power_set", "restart": True, "ts": _t.time() - 60})
     assert rig.cmds == []
+
+
+
+def test_restart_on_a_locked_pc_retries_with_force():
+    # Live 2026-11-23: "The machine is locked and cannot be shut down without the force option.(1271)".
+    import time as _t
+    rig = ButtonRig()
+    cmds = []
+
+    def run(argv, timeout=15.0):
+        if argv[:1] == ["powercfg"]:
+            return POWERCFG
+        cmds.append(argv)
+        return "The machine is locked and cannot be shut down without the force option.(1271)\n" if len(cmds) == 1 else ""
+    rig.power._run = run
+    rig.power.handle_frame({"type": "mac_power_set", "restart": True, "ts": _t.time()})
+    assert cmds == [["shutdown", "/r", "/t", "0"], ["shutdown", "/r", "/t", "0", "/f"]]
