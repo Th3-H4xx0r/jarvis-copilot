@@ -437,7 +437,8 @@ def _boot_task_ps(exe: str) -> str:
     an S4U logon (runs before he signs in, no stored password). Needs an elevated shell."""
     return (
         "$ErrorActionPreference = 'Stop'; "
-        "$Me = \"$env:USERDOMAIN\\$env:USERNAME\"; "
+        # His account as Windows names it (live: "$env:USERDOMAIN\\$env:USERNAME" over SSH → 0x80070534, no mapping).
+        "$Me = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name; "
         f"$Action = New-ScheduledTaskAction -Execute \"$env:SystemRoot\\System32\\conhost.exe\" "
         f"-Argument '--headless \"{exe}\" start --no-tray --boot'; "
         "$Boot = New-ScheduledTaskTrigger -AtStartup; "
