@@ -117,3 +117,167 @@ def test_no_board_payload_unchanged(tmp_path):
     r = row(rig)
     assert r["state"] == "awake" and r["reason"] == ""
     assert r["power_button"] == {"linked": False, "connected": False, "name": "", "light": "unknown"}
+
+
+# ── Task 4: wake / sleep fallback / clean restart + shutdown / force ───────────
+WAKING = ["asleep", "off", "unknown"]
+
+
+def asleep_pc(tmp_path, **kw):
+    rig = Rig(tmp_path, **kw)
+    rig.store.on_status(PC, PC_STATUS)
+    rig.t += 300          # its last report is long gone: it's down
+    return rig
+
+
+def test_wake_presses_when_asleep(tmp_path):
+    rig = asleep_pc(tmp_path, connected=(BOARD,))
+    rig.light("asleep")
+    out = rig.store.wake(PC)
+    assert out == {"ok": True, "sent": True, "via": "power button"}
+    assert rig.presses()[0] == (BOARD, {"button": "power", "ms": 300, "expect": WAKING})
+
+
+def test_wake_presses_when_off(tmp_path):
+    rig = asleep_pc(tmp_path, connected=(BOARD,))
+    rig.light("off")
+    assert rig.store.wake(PC)["via"] == "power button"
+    assert rig.presses()[0][1]["button"] == "power"
+
+
+def test_wake_when_light_on_does_not_press(tmp_path):
+    rig = asleep_pc(tmp_path, connected=(BOARD,))
+    rig.light("on")                      # still booting from the first tap
+    out = rig.store.wake(PC)
+    assert out == {"ok": True, "already_on": True}
+    assert rig.presses() == []
+    assert rig.store.device(PC)["wake_requested_at"] == rig.t   # the PC's check-in mustn't sleep it again
+
+
+def test_wake_when_pc_reporting_does_not_press(tmp_path):
+    rig = Rig(tmp_path)                  # jc-client connected and fresh, light not wired (unknown)
+    rig.store.on_status(PC, PC_STATUS)
+    assert rig.store.wake(PC)["already_on"] is True
+    assert rig.presses() == []
+
+
+def test_wake_falls_back_when_board_offline(tmp_path):
+    rig = asleep_pc(tmp_path, connected=(MAC,))
+    out = rig.store.wake(PC)
+    assert out["via"] == "MacBook" and rig.presses() == []
+    assert (MAC, "wol_send", {"mac": "aa:bb:cc:dd:ee:ff"}) in rig.invokes
+
+
+def test_wake_falls_back_when_press_refused(tmp_path):
+    rig = asleep_pc(tmp_path, connected=(BOARD, MAC),
+                    press_result={"ok": False, "error": "the power light is on, so the press was refused"})
+    rig.light("asleep")
+    out = rig.store.wake(PC)
+    assert out["via"] == "MacBook"
+    assert any(s == "wol_send" for _, s, _ in rig.invokes)
+
+
+def test_wake_fallback_after_15s_if_still_dark(tmp_path):
+    rig = asleep_pc(tmp_path, connected=(BOARD, MAC))
+    rig.light("asleep")
+    rig.store.wake(PC)
+    assert any(s == "wol_send" for _, s, _ in rig.invokes)   # 15 s later the light was still blinking
+
+
+def test_wake_no_fallback_when_light_turns_on(tmp_path):
+    rig = asleep_pc(tmp_path, connected=(BOARD, MAC))
+    rig.light("asleep")
+    rig.store._sleep = lambda s: (setattr(rig, "t", rig.t + s), rig.light("on"))
+    rig.store.wake(PC)
+    assert not any(s == "wol_send" for _, s, _ in rig.invokes)
+
+
+def test_sleep_fallback_presses_when_still_on(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    rig.light("on")
+    rig.store.let_sleep(PC)
+    assert any(f.get("let_sleep") for d, f in rig.frames if d == PC)
+    assert rig.presses() == [(BOARD, {"button": "power", "ms": 300, "expect": ["on"]})]
+
+
+def test_sleep_fallback_skips_when_it_slept(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    rig.light("on")
+    rig.store._sleep = lambda s: (setattr(rig, "t", rig.t + s), rig.light("asleep"))
+    rig.store.let_sleep(PC)
+    assert rig.presses() == []
+
+
+def test_sleep_fallback_skips_when_action_not_sleep(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, dict(PC_STATUS, button_action="shutdown"))
+    rig.light("on")
+    rig.store.let_sleep(PC)
+    assert rig.presses() == []
+
+
+def test_sleep_fallback_skips_unknown_light(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)   # no light events: unknown
+    rig.store.let_sleep(PC)
+    assert rig.presses() == []
+
+
+def test_sleep_fallback_skips_after_a_wake(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    rig.light("on")
+    rig.store._sleep = lambda s: (setattr(rig, "t", rig.t + s), rig.store.device(PC).update(wake_requested_at=rig.t))
+    rig.store.let_sleep(PC)
+    assert rig.presses() == []
+
+
+def test_restart_and_shutdown_send_frames(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    assert rig.store.restart(PC) == {"ok": True, "delivered": True}
+    assert rig.store.shutdown(PC) == {"ok": True, "delivered": True}
+    sent = [f for d, f in rig.frames if d == PC and f.get("type") == "mac_power_set"]
+    assert sent[-2].get("restart") is True and sent[-1].get("shutdown") is True
+
+
+def test_restart_when_pc_offline_errors(tmp_path):
+    rig = asleep_pc(tmp_path, connected=(BOARD,))
+    out = rig.store.restart(PC)
+    assert out["ok"] is False and "isn't connected" in out["error"]
+
+
+def test_force_off_holds_6000(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    assert rig.store.force(PC, "force_off")["ok"] is True
+    assert rig.presses() == [(BOARD, {"button": "power", "ms": 6000, "expect": ["any"]})]
+
+
+def test_force_restart_presses_reset(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    assert rig.store.force(PC, "force_restart")["ok"] is True
+    assert rig.presses() == [(BOARD, {"button": "reset", "ms": 300, "expect": ["any"]})]
+
+
+def test_force_without_board_errors(tmp_path):
+    rig = Rig(tmp_path, connected=(PC,))
+    rig.store.on_status(PC, PC_STATUS)
+    assert rig.store.force(PC, "force_off")["ok"] is False
+
+
+def test_restart_route(tmp_path, monkeypatch):
+    from api import agents_routes
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+
+    class C:
+        mac_power = rig.store
+    monkeypatch.setattr(agents_routes, "_core", lambda: C())
+    status, body = agents_routes._v2("POST", "/agents/mac/restart", {}, {"device_id": PC})
+    assert status == 200 and body["delivered"] is True
+    status, body = agents_routes._v2("POST", "/agents/mac/shutdown", {}, {"device_id": PC})
+    assert status == 200 and body["delivered"] is True

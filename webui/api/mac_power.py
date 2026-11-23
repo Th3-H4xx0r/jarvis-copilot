@@ -36,6 +36,10 @@ REQUEST_TTL = 120.0
 LIGHT_FRESH = 150.0            # the power button board reports its light every 60 s (PcRole.cpp)
 BUTTON_SKILL = "esp32_pc_press"
 LIGHTS = frozenset({"on", "asleep", "off", "unknown"})
+TAP_MS = 300                   # a short press: wake / boot / Windows' power-button action (Sleep)
+FORCE_OFF_MS = 6000            # held past ~4 s the board cuts power
+WAKE_CONFIRM_S = 15.0          # no light after a wake press by then: try the Wi-Fi wake too
+SLEEP_CONFIRM_S = 25.0         # still lit after a software sleep by then: press the button
 MAC_TOPIC = "com.jarviscopilot.mac"
 # How a request can end without him needing a push about it.
 _QUIET_ENDINGS = frozenset({"Not allowed", "No answer in 2 minutes"})
@@ -197,6 +201,89 @@ class MacPowerStore:
         return {"linked": bool(board), "connected": bool(board) and board in set(self._connected()),
                 "name": (self._name_of(board) or "Power button") if board else "", "light": self.light(pc)}
 
+    def press(self, pc: str, button: str, ms: int, expect: list) -> dict:
+        """Press a button through the board. The board itself refuses when the light isn't in expect."""
+        board = self.button_board(pc)
+        if not board:
+            return {"ok": False, "error": "The power button isn't connected."}
+        res = self._invoke(board, BUTTON_SKILL, {"button": button, "ms": int(ms), "expect": list(expect)}) or {}
+        inner = res.get("result") if isinstance(res.get("result"), dict) else {}
+        if res.get("ok") and inner.get("ok") is not False:
+            return {"ok": True, **{k: v for k, v in inner.items() if k != "ok"}}
+        return {"ok": False, "error": str(inner.get("error") or res.get("error") or "The power button didn't answer.")}
+
+    def _reporting(self, pc: str) -> bool:
+        """jc-client is up and reporting: the PC is running whatever the light says."""
+        d = self._devices.get(pc) or {}
+        return (pc in set(self._connected()) and d.get("sleeping_at") is None
+                and self._clock() - float(d.get("seen_at") or 0) <= PC_STATUS_FRESH)
+
+    def _wake_by_button(self, pc: str) -> Optional[dict]:
+        """Wake or boot the PC with its power button; None when the board can't (then the Wi-Fi path)."""
+        if not self.button_board(pc):
+            return None
+        if self._reporting(pc) or self.light(pc) == "on":
+            # Already on (or still booting from the last tap): a press now would sleep it.
+            self._update(pc, wake_requested_at=self._clock())
+            return {"ok": True, "already_on": True}
+        res = self.press(pc, "power", TAP_MS, ["asleep", "off", "unknown"])
+        if not res.get("ok"):
+            log.info("PC power button press didn't happen: %s", res.get("error"))
+            return None
+        self._update(pc, wake_requested_at=self._clock())
+
+        def confirm() -> None:
+            self._sleep(WAKE_CONFIRM_S)
+            if self.light(pc) != "on" and not self._reporting(pc):
+                log.info("PC still dark %ss after the power button: trying the Wi-Fi wake too", WAKE_CONFIRM_S)
+                self._wake_pc(pc)
+        self._spawn(confirm)
+        return {"ok": True, "sent": True, "via": "power button"}
+
+    def _sleep_fallback(self, pc: str, asked_at: float) -> None:
+        """After a software sleep: if the PC is still lit, press the button (only when Windows' power
+        button means Sleep, and never on an unknown light or after a newer wake)."""
+        if not self.button_board(pc):
+            return
+
+        def confirm() -> None:
+            self._sleep(SLEEP_CONFIRM_S)
+            d = self._devices.get(pc) or {}
+            if float(d.get("wake_requested_at") or 0) > asked_at:
+                return
+            if self.light(pc) == "on" and (d.get("status") or {}).get("button_action") == "sleep":
+                log.info("PC still on %ss after the software sleep: pressing the power button", SLEEP_CONFIRM_S)
+                self.press(pc, "power", TAP_MS, ["on"])
+        self._spawn(confirm)
+
+    def restart(self, did: str) -> dict:
+        return self._power_frame(did, "restart")
+
+    def shutdown(self, did: str) -> dict:
+        return self._power_frame(did, "shutdown")
+
+    def _power_frame(self, did: str, what: str) -> dict:
+        """A clean Windows restart / shutdown, carried out by jc-client on the PC."""
+        delivered = bool(self._send(did, {"type": "mac_power_set", "ts": self._clock(), what: True}))
+        if not delivered:
+            return {"ok": False, "error": f"The {self.noun(did)} isn't connected."}
+        self._update(did, keep_awake=False, wake_requested_at=None)
+        if self._is_pc(did):
+            self.on_sleeping(did)
+        return {"ok": True, "delivered": True}
+
+    def force(self, pc: str, action: str) -> dict:
+        """Force restart (reset button) or force off (hold power). Only after his Face ID (api/pc_power.py)."""
+        if action == "force_restart":
+            res = self.press(pc, "reset", TAP_MS, ["any"])
+        elif action == "force_off":
+            res = self.press(pc, "power", FORCE_OFF_MS, ["any"])
+        else:
+            return {"ok": False, "error": "Unknown power action."}
+        if res.get("ok"):
+            self.on_sleeping(pc)
+        return res
+
     def _wol_args(self, did: str) -> dict:
         status = (self._devices.get(did) or {}).get("status") or {}
         args = {"mac": str(status.get("wifi_mac") or "")}
@@ -268,7 +355,7 @@ class MacPowerStore:
 
     def wake(self, did: str) -> dict:
         if self._is_pc(did):
-            return self._wake_pc(did)
+            return self._wake_by_button(did) or self._wake_pc(did)
         d = self._update(did, wake_requested_at=self._clock())
         push = d.get("push") or {}
         pushed = False
@@ -361,10 +448,13 @@ class MacPowerStore:
         return {"ok": True, "delivered": self._send(did, {"type": "mac_power_set", "ts": self._clock(), "timer_on": bool(on)})}
 
     def let_sleep(self, did: str) -> dict:
+        asked_at = self._clock()
         self._update(did, keep_awake=False, wake_requested_at=None)
         delivered = self._send(did, {"type": "mac_power_set", "ts": self._clock(), "let_sleep": True})
         if delivered and self._is_pc(did):
             self.on_sleeping(did)   # the PC suspends at once (the Mac may decline: it says when it sleeps)
+        if self._is_pc(did):
+            self._sleep_fallback(did, asked_at)
         return {"ok": True, "delivered": delivered}
 
     def on_sleeping(self, did: str) -> None:
