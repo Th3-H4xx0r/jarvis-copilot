@@ -383,3 +383,14 @@ def test_light_wired_flag_round_trip(tmp_path):
     assert row(rig)["power_button"]["light_wired"] is True
     rig.store.set_light_wired(PC, False)
     assert row(rig)["power_button"]["light_wired"] is False
+
+
+
+def test_pc_app_cannot_turn_the_check_in_back_on_with_a_board(tmp_path):
+    # Live 2026-11-23: after it was switched off, the PC turned its 15-minute self-wake back on (its own setting).
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    rig.frames.clear()
+    rig.store.on_set(PC, {"timer_on": True})
+    assert rig.store.device(PC)["timer_on"] is False
+    assert any(d == PC and f.get("timer_on") is False for d, f in rig.frames)

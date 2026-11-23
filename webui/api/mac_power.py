@@ -564,6 +564,10 @@ class MacPowerStore:
             fields["keep_awake_at"] = self._clock()
         if "timer_on" in data:
             fields["timer_on"] = bool(data["timer_on"])
+            if fields["timer_on"] and self._is_pc(did) and self._linked_board(did):
+                # With the power button the 15-minute self-wake only wakes the PC for nothing (his ask): keep it off.
+                fields["timer_on"] = False
+                self._spawn(lambda: self.timer(did, False))
         if data.get("let_sleep"):
             fields.update(keep_awake=False, wake_requested_at=None)
         if fields:
