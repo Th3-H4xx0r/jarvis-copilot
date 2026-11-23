@@ -13,6 +13,7 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <esp_timer.h>
 #include <functional>
 
 #include "PcButton.h"
@@ -48,6 +49,11 @@ class PcRole {
 
  private:
   void release(pcbutton::Hold& h, uint8_t gpio);
+  /// One-shot hardware timers that let go of a button even if loop() is stuck in network I/O
+  /// (a 300 ms tap held past ~4 s would be a hard power-off).
+  static void release_cb(void* gpio);
+  esp_timer_handle_t power_timer_ = nullptr;
+  esp_timer_handle_t reset_timer_ = nullptr;
   String light_json(uint32_t now) const;
 
   EventSink sink_;

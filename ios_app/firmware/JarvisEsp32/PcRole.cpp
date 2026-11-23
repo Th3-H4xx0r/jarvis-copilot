@@ -1,6 +1,7 @@
 #include "PcRole.h"
 
 #include <Preferences.h>
+#include <driver/gpio.h>
 
 namespace jarvis {
 
@@ -17,9 +18,23 @@ const char* PcRole::catalogue() {
 {"name":"esp32_pc_press","description":"Press the PC's power or reset button for ms milliseconds. Refuses unless the power light is in expect (or expect has any).","input_schema":{"type":"object","properties":{"button":{"type":"string","enum":["power","reset"]},"ms":{"type":"integer","minimum":20,"maximum":10000,"default":300},"expect":{"type":"array","items":{"type":"string","enum":["on","asleep","off","unknown","any"]}}},"required":["button","expect"]}})JSON";
 }
 
+void PcRole::release_cb(void* gpio) {
+  // esp_timer task context: plain IDF call, no Arduino state. loop() then clears the Hold.
+  gpio_set_direction(static_cast<gpio_num_t>(reinterpret_cast<intptr_t>(gpio)), GPIO_MODE_INPUT);
+}
+
 void PcRole::begin(EventSink sink) {
   pinMode(power_gpio, INPUT);  // both buttons up before anything else runs
   pinMode(reset_gpio, INPUT);
+  esp_timer_create_args_t args = {};
+  args.callback = &PcRole::release_cb;
+  args.dispatch_method = ESP_TIMER_TASK;
+  args.arg = reinterpret_cast<void*>(static_cast<intptr_t>(power_gpio));
+  args.name = "pc_power_release";
+  esp_timer_create(&args, &power_timer_);
+  args.arg = reinterpret_cast<void*>(static_cast<intptr_t>(reset_gpio));
+  args.name = "pc_reset_release";
+  esp_timer_create(&args, &reset_timer_);
   sink_ = std::move(sink);
   Preferences prefs;
   if (prefs.begin(prefs_ns, /*readOnly=*/true)) {
@@ -123,6 +138,11 @@ bool PcRole::run_skill(const String& name, JsonVariantConst args, JsonDocument& 
   }
   pinMode(gpio, OUTPUT_OPEN_DRAIN);
   digitalWrite(gpio, LOW);  // pull the signal to ground: button down
+  esp_timer_handle_t t = is_power ? power_timer_ : reset_timer_;
+  if (t != nullptr) {
+    esp_timer_stop(t);
+    esp_timer_start_once(t, static_cast<uint64_t>(ms) * 1000ULL);  // the release no longer waits on loop()
+  }
   Serial.printf("[pc] %s pressed for %lu ms (light %s)\n", button.c_str(), static_cast<unsigned long>(ms),
                 pcbutton::light_name(before));
   result["ok"] = true;

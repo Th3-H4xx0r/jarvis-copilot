@@ -40,6 +40,7 @@ TAP_MS = 300                   # a short press: wake / boot / Windows' power-but
 FORCE_OFF_MS = 6000            # held past ~4 s the board cuts power
 WAKE_CONFIRM_S = 15.0          # no light after a wake press by then: try the Wi-Fi wake too
 SLEEP_CONFIRM_S = 25.0         # still lit after a software sleep by then: press the button
+WAKE_REPEAT_S = 20.0           # a second Wake this soon after a button wake never presses again (it would sleep it)
 MAC_TOPIC = "com.jarviscopilot.mac"
 # How a request can end without him needing a push about it.
 _QUIET_ENDINGS = frozenset({"Not allowed", "No answer in 2 minutes"})
@@ -226,11 +227,16 @@ class MacPowerStore:
             # Already on (or still booting from the last tap): a press now would sleep it.
             self._update(pc, wake_requested_at=self._clock())
             return {"ok": True, "already_on": True}
+        last = float((self._devices.get(pc) or {}).get("button_wake_at") or 0)
+        if self._clock() - last < WAKE_REPEAT_S:
+            # Still resuming from the last tap (the light isn't steady for ~3 s): one press only.
+            return {"ok": True, "sent": True, "via": "power button"}
         res = self.press(pc, "power", TAP_MS, ["asleep", "off", "unknown"])
         if not res.get("ok"):
             log.info("PC power button press didn't happen: %s", res.get("error"))
             return None
-        self._update(pc, wake_requested_at=self._clock())
+        now = self._clock()
+        self._update(pc, wake_requested_at=now, button_wake_at=now, power_action_at=now)
 
         def confirm() -> None:
             self._sleep(WAKE_CONFIRM_S)
@@ -249,8 +255,10 @@ class MacPowerStore:
         def confirm() -> None:
             self._sleep(SLEEP_CONFIRM_S)
             d = self._devices.get(pc) or {}
-            if float(d.get("wake_requested_at") or 0) > asked_at:
-                return
+            if float(d.get("wake_requested_at") or 0) > asked_at or float(d.get("power_action_at") or 0) > asked_at:
+                return   # woken or restarted since: never sleep it again
+            if float((d.get("light") or {}).get("since") or 0) > asked_at:
+                return   # the light changed after the request: it slept and came back (keyboard, mouse)
             if self.light(pc) == "on" and (d.get("status") or {}).get("button_action") == "sleep":
                 log.info("PC still on %ss after the software sleep: pressing the power button", SLEEP_CONFIRM_S)
                 self.press(pc, "power", TAP_MS, ["on"])
@@ -267,7 +275,7 @@ class MacPowerStore:
         delivered = bool(self._send(did, {"type": "mac_power_set", "ts": self._clock(), what: True}))
         if not delivered:
             return {"ok": False, "error": f"The {self.noun(did)} isn't connected."}
-        self._update(did, keep_awake=False, wake_requested_at=None)
+        self._update(did, keep_awake=False, wake_requested_at=None, power_action_at=self._clock())
         if self._is_pc(did):
             self.on_sleeping(did)
         return {"ok": True, "delivered": True}
@@ -281,6 +289,7 @@ class MacPowerStore:
         else:
             return {"ok": False, "error": "Unknown power action."}
         if res.get("ok"):
+            self._update(pc, power_action_at=self._clock())
             self.on_sleeping(pc)
         return res
 

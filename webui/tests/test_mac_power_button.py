@@ -281,3 +281,36 @@ def test_restart_route(tmp_path, monkeypatch):
     assert status == 200 and body["delivered"] is True
     status, body = agents_routes._v2("POST", "/agents/mac/shutdown", {}, {"device_id": PC})
     assert status == 200 and body["delivered"] is True
+
+
+
+# ── Final review fixes ─────────────────────────────────────────────────────────
+def test_wake_double_tap_presses_once(tmp_path):
+    rig = asleep_pc(tmp_path, connected=(BOARD,))
+    rig.light("asleep")
+    rig.store.wake(PC)
+    rig.t += 1                      # a second tap while it's still resuming (light not steady yet)
+    out = rig.store.wake(PC)
+    assert len(rig.presses()) == 1 and out["via"] == "power button"
+
+
+def test_sleep_fallback_skips_after_keyboard_wake(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    rig.light("on")
+
+    def later(s):
+        rig.t += s                  # it slept, then he woke it with the keyboard: lit again 3 s ago
+        rig.store.on_light(BOARD, {"light": "on", "since_s": 3, "plus_mv": 2400, "minus_mv": 0})
+    rig.store._sleep = later
+    rig.store.let_sleep(PC)
+    assert rig.presses() == []
+
+
+def test_sleep_fallback_skips_after_restart(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    rig.light("on")
+    rig.store._sleep = lambda s: (setattr(rig, "t", rig.t + s), rig.store.restart(PC))
+    rig.store.let_sleep(PC)
+    assert rig.presses() == []

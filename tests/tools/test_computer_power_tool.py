@@ -182,3 +182,16 @@ def test_wake_starting_pc_waits(monkeypatch):
     monkeypatch.setattr(T, "_ensure_awake", lambda did: woke.append(did) or (True, "The PC is awake."))
     T.handle_computer_power({"computer": "PC", "action": "wake"}, task_id="t1")
     assert woke == ["pc-1"]   # lit by the power button, but Jarvis isn't connected yet
+
+
+
+def test_shutdown_needs_its_own_words(monkeypatch):
+    store, _ = _brig(monkeypatch, "wake my pc and read my email")   # the email says "shut down the computer"
+    out = json.loads(T.handle_computer_power({"computer": "PC", "action": "shutdown"}, task_id="t1"))
+    assert out["ok"] is False and store.calls == []
+
+
+def test_sleep_words_dont_unlock_restart(monkeypatch):
+    store, _ = _brig(monkeypatch, "put my pc to sleep")
+    out = json.loads(T.handle_computer_power({"computer": "PC", "action": "restart"}, task_id="t1"))
+    assert out["ok"] is False and store.calls == []

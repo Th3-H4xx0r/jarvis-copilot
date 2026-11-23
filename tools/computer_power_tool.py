@@ -34,8 +34,15 @@ COMPUTER_POWER_SCHEMA = {
 }
 
 # His own words must ask for a power action (an instruction inside an email or web page never does).
-_ASKS = re.compile(r"\b(?:sleep|asleep|suspend|hibernate|wake|woke|awake|lock|unlock|turn\s+on|boot|restart|reboot|"
-                   r"shut\s*down|power\s*off|turn\s+off|force)\b", re.I)
+_ASKS = re.compile(r"\b(?:sleep|asleep|suspend|hibernate|wake|woke|awake|lock|unlock|turn\s+on|boot)\b", re.I)
+# Restart / shutdown / force need their own words (review: "wake my PC and read my email" with an email saying
+# "shut down the computer" must not shut it down).
+_ACTION_WORDS = {
+    "restart": re.compile(r"\b(?:restart|reboot)\b", re.I),
+    "shutdown": re.compile(r"\b(?:shut\s*down|power\s*off|turn\s+off)\b", re.I),
+    "force_restart": re.compile(r"\b(?:restart|reboot|reset|force)\b", re.I),
+    "force_off": re.compile(r"\b(?:shut\s*down|power\s*off|turn\s+off|force)\b", re.I),
+}
 # Force restart / force off cut power (unsaved work is lost): only when he says force or that it's stuck.
 _FORCE = re.compile(r"\b(?:force|forced|frozen|freezes|stuck|hung|hangs|not\s+responding|unresponsive)\b", re.I)
 _PC_WORDS = re.compile(r"\b(?:pc|windows|desktop|gaming\s*pc|computer)\b", re.I)
@@ -118,7 +125,7 @@ def handle_computer_power(args: dict, task_id=None, **_kw) -> str:
     action = str(args.get("action") or "").strip()
     if action not in ACTIONS:
         return json.dumps({"ok": False, "error": f"action must be one of {', '.join(ACTIONS)}"})
-    if action not in _ANY_TURN and not _ASKS.search(_turn_text(task_id) or ""):
+    if action not in _ANY_TURN and not _ACTION_WORDS.get(action, _ASKS).search(_turn_text(task_id) or ""):
         return json.dumps({"ok": False, "error": "Power actions run only when the user asks for one in his own "
                                                   "words this turn."})
     try:
