@@ -160,3 +160,39 @@ def test_boot_task_script_shape():
     assert "-TaskName 'jc-client-boot'" in ps and "-TaskPath '\\JarvisCopilot\\'" in ps
     assert "start --no-tray --boot" in ps and "jc-client.exe" in ps
     assert "RepetitionInterval" in ps          # the 5-minute watchdog brings it back after a crash or sign-out
+
+
+
+# ── live 2026-11-23: the boot client said "not paired" (Credential Manager is unreadable before sign-in) ──
+def _creds_rig(monkeypatch, tmp_path):
+    from jc_client import credentials as C
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(json.dumps({"server_url": "https://jarvis.example", "cert_fingerprint": "ab:cd", "device_id": "pc-1"}))
+    monkeypatch.setattr(C, "_CONFIG_FILE", cfg)
+    monkeypatch.setattr(C, "_BOOT_COPY", tmp_path / "boot-session.bin")
+    monkeypatch.setattr(C, "_try_keyring_get", lambda: None)            # what S4U sees
+    monkeypatch.setattr(C, "_try_keyring_get_user", lambda user: None)
+    return C
+
+
+def test_boot_load_falls_back_to_the_boot_copy(monkeypatch, tmp_path):
+    C = _creds_rig(monkeypatch, tmp_path)
+    C.save_boot_copy(C.Credentials(cookie="cookie-1", cf_client_secret="secret-1"))
+    monkeypatch.setenv(boot_mode.ENV, "1")
+    creds = C.load()
+    assert creds.cookie == "cookie-1" and creds.cf_client_secret == "secret-1" and creds.paired
+
+
+def test_normal_load_ignores_the_boot_copy(monkeypatch, tmp_path):
+    C = _creds_rig(monkeypatch, tmp_path)
+    C.save_boot_copy(C.Credentials(cookie="cookie-1"))
+    monkeypatch.delenv(boot_mode.ENV, raising=False)
+    assert C.load().cookie == ""
+
+
+def test_refresh_boot_copy_only_when_paired(monkeypatch, tmp_path):
+    C = _creds_rig(monkeypatch, tmp_path)
+    monkeypatch.setattr(C, "load", lambda: C.Credentials())
+    assert C.refresh_boot_copy() is False and not (tmp_path / "boot-session.bin").exists()
+    monkeypatch.setattr(C, "load", lambda: C.Credentials(server_url="https://j", cookie="c", cert_fingerprint="f"))
+    assert C.refresh_boot_copy() is True and C.load_boot_copy()["cookie"] == "c"

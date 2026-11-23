@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -29,6 +30,10 @@ from jc_client.logger import state_dir
 log = logging.getLogger(__name__)
 
 _CONFIG_FILE = state_dir() / "config.yaml"
+# Jarvis before sign-in (jc_client/boot_mode.py): the boot client runs as him with an S4U logon, which can't read
+# Credential Manager (DPAPI user keys need his sign-in). The signed-in client keeps this copy of the session for it,
+# DPAPI LocalMachine-encrypted in his profile (only he, SYSTEM and admins can open the file).
+_BOOT_COPY = state_dir() / "boot-session.bin"
 _KEYRING_SERVICE = "jarviscopilot-client"
 _KEYRING_USER = "session"
 _KEYRING_CF_USER = "cf_service_secret"
@@ -192,6 +197,11 @@ def load() -> Credentials:
     # Pull secrets from keyring first; the in-file copy is a fallback.
     cookie = _try_keyring_get() or data.get("cookie", "")
     cf_secret = _try_keyring_get_user(_KEYRING_CF_USER) or data.get("cf_client_secret", "")
+    from jc_client import boot_mode
+    if not cookie and boot_mode.is_boot():
+        copy = load_boot_copy()
+        cookie = copy.get("cookie", "")
+        cf_secret = cf_secret or copy.get("cf_secret", "")
     return Credentials(
         server_url=data.get("server_url", ""),
         lan_url=data.get("lan_url", ""),
@@ -206,6 +216,65 @@ def load() -> Credentials:
         notify_target=data.get("notify_target", ""),
         notify_events=data.get("notify_events", "all"),
     )
+
+
+def _dpapi(data: bytes, protect: bool) -> bytes:
+    """DPAPI LocalMachine on Windows (readable before sign-in); identity elsewhere (boot mode is Windows-only)."""
+    if sys.platform != "win32":
+        return data
+    import ctypes
+    from ctypes import wintypes
+
+    class BLOB(ctypes.Structure):
+        _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
+
+    src = ctypes.create_string_buffer(data, len(data))
+    blob_in, blob_out = BLOB(len(data), ctypes.cast(src, ctypes.POINTER(ctypes.c_char))), BLOB()
+    # Protect: CRYPTPROTECT_LOCAL_MACHINE | CRYPTPROTECT_UI_FORBIDDEN; unprotect: UI_FORBIDDEN only.
+    flags = 0x4 | 0x1 if protect else 0x1
+    fn = ctypes.windll.crypt32.CryptProtectData if protect else ctypes.windll.crypt32.CryptUnprotectData
+    ok = fn(ctypes.byref(blob_in), None, None, None, None, flags, ctypes.byref(blob_out))
+    if not ok:
+        raise OSError("DPAPI failed")
+    try:
+        return ctypes.string_at(blob_out.pbData, blob_out.cbData)
+    finally:
+        ctypes.windll.kernel32.LocalFree(blob_out.pbData)
+
+
+def save_boot_copy(creds: Credentials) -> None:
+    payload = json.dumps({"cookie": creds.cookie, "cf_secret": creds.cf_client_secret}).encode("utf-8")
+    blob = _dpapi(payload, protect=True)
+    try:
+        if _BOOT_COPY.exists() and _BOOT_COPY.read_bytes() == blob:
+            return
+    except OSError:
+        pass
+    _BOOT_COPY.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _BOOT_COPY.with_suffix(".tmp")
+    tmp.write_bytes(blob)
+    os.replace(tmp, _BOOT_COPY)
+
+
+def load_boot_copy() -> dict:
+    try:
+        data = json.loads(_dpapi(_BOOT_COPY.read_bytes(), protect=False).decode("utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def refresh_boot_copy() -> bool:
+    """Signed-in client: keep the boot client's copy of the session current. True when written."""
+    creds = load()
+    if not creds.paired:
+        return False
+    try:
+        save_boot_copy(creds)
+    except OSError as exc:
+        log.warning("couldn't keep the boot client's session copy: %s", exc)
+        return False
+    return True
 
 
 def save(creds: Credentials) -> None:
@@ -223,6 +292,11 @@ def save(creds: Credentials) -> None:
     if cf_in_keyring:
         payload.pop("cf_client_secret", None)
     _atomic_write(_CONFIG_FILE, json.dumps(payload, indent=2, sort_keys=True))
+    if sys.platform == "win32" and creds.cookie:
+        try:
+            save_boot_copy(creds)   # pairing: the boot client gets the new session too
+        except OSError as exc:
+            log.warning("couldn't keep the boot client's session copy: %s", exc)
 
 
 def clear() -> None:

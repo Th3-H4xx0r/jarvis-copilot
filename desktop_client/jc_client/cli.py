@@ -340,6 +340,8 @@ def cmd_start(args) -> int:
         # A boot instance may still hold the link from before he signed in: take over from it.
         from jc_client import boot_mode
         boot_mode.stop_boot_instance(BOOT_PID_FILE, is_running=_is_running, kill=_kill_boot)
+        if sys.platform == "win32":
+            credentials.refresh_boot_copy()   # the boot client can't read Credential Manager before sign-in
         pid = _read_pid()
         if pid and _is_running(pid):
             print(f"already running (pid {pid})", file=sys.stderr)
@@ -490,7 +492,7 @@ def _start_boot(args) -> int:
         other = 0
     if other and other != os.getpid() and _is_running(other):
         print(f"boot instance already running (pid {other})", file=sys.stderr)
-        return 1
+        return 0                      # not a failure: the task's restart-on-failure mustn't loop on it
     BOOT_PID_FILE.parent.mkdir(parents=True, exist_ok=True)
     BOOT_PID_FILE.write_text(str(os.getpid()))
     boot_mode.watch(BOOT_PID_FILE)
