@@ -157,7 +157,11 @@ public static class UnlockOutcome
 
     /// Null when Windows unlocked; otherwise the error for `{"ok":false}`. `typistExit` is null when
     /// the typist didn't finish in time; `typistSession` is the console session it was started in.
-    public static string? Error(int? typistExit, uint typistSession, ConsoleSession console)
+    /// `signedOutBefore`: the console wasn't his before typing (the sign-in screen after a restart, or the one
+    /// Remote Desktop leaves): then his session on the console, connected and flagged unlocked (not just "not
+    /// locked": an unreadable flag proves nothing), is enough — it only gets there once Windows took the password,
+    /// however long his profile takes to load past the typist's watch.
+    public static string? Error(int? typistExit, uint typistSession, ConsoleSession console, bool signedOutBefore = false)
     {
         switch (typistExit)
         {
@@ -165,6 +169,8 @@ public static class UnlockOutcome
             case TypistExit.NoPassword: return "No password was sent.";
             case TypistExit.NoSignIn: return "The sign-in screen didn't come up.";
         }
+        if (signedOutBefore && console.Id != ConsoleSession.None && console.His && console.Active && console.Lock == ConsoleLock.Unlocked)
+            return null;
         if (console.Id != typistSession)
         {
             // The console moved to another session: a PIN on the sign-in screen Remote Desktop leaves

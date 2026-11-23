@@ -17,5 +17,11 @@
     <!-- The IT agent's admin_run: his Face ID signature check and the pure request logic (tested in Jarvis.Tests). -->
     <Compile Include="..\Jarvis.Core\Unlock\UnlockApproval.cs" Link="UnlockApproval.cs" />
     <Compile Include="..\Jarvis.Core\Admin\AdminRun.cs" Link="AdminRun.cs" />
+    <!-- Signing in before he has (boot): the app's own unlock check, his unlock permission and the service's password
+         copy (HelperSignIn), with the JSON helpers they read requests with (all tested in Jarvis.Tests). -->
+    <Compile Include="..\Jarvis.Core\Unlock\UnlockCheck.cs" Link="UnlockCheck.cs" />
+    <Compile Include="..\Jarvis.Core\Unlock\UnlockGrant.cs" Link="UnlockGrant.cs" />
+    <Compile Include="..\Jarvis.Core\Unlock\HelperSignIn.cs" Link="HelperSignIn.cs" />
+    <Compile Include="..\Jarvis.Core\Link\Json.cs" Link="Json.cs" />
   </ItemGroup>
 </Project>

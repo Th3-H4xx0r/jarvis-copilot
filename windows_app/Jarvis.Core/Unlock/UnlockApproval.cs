@@ -40,6 +40,17 @@ public sealed class UnlockApproval
         return true;
     }
 
+    /// A yes acted on elsewhere (the app's own fill, checked there): its nonce can't pass here afterwards.
+    public void Spend(string nonce, DateTimeOffset now)
+    {
+        if (nonce.Length == 0) return;
+        lock (_lock)
+        {
+            foreach (var old in _used.Where(u => now - u.Value > Freshness * 2).Select(u => u.Key).ToList()) _used.Remove(old);
+            _used[nonce] = now;
+        }
+    }
+
     /// `publicKeyB64`: the x9.63 point (04 ‖ X ‖ Y, 65 bytes), as the iPhone registers it.
     /// `signatureB64`: DER (CryptoKit's derRepresentation).
     public static bool SignatureValid(byte[] message, string signatureB64, string publicKeyB64)

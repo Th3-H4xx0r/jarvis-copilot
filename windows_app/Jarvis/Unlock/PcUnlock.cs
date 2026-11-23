@@ -20,6 +20,10 @@ namespace Jarvis.Unlock;
 /// checks Windows really unlocked; anything less comes back as ok:false with why. Set up in
 /// Settings → PC power: trust the iPhone's key, save the password, install the helper (Face ID +
 /// UAC). The server never sees the password.
+///
+/// The helper also keeps its own copy of the password, for signing in from his iPhone at the sign-in screen after a
+/// restart, before this app runs (HelperSignIn; his copy here is DPAPI under his account, unreadable then): saving or
+/// clearing it here also stores or removes the helper's copy, and on start a missing copy is handed over once.
 public sealed class PcUnlock
 {
     private static readonly string Dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Jarvis");
@@ -32,6 +36,8 @@ public sealed class PcUnlock
     private readonly AdminRunner _admin;
     private readonly UnlockApproval _approval = new();
     private readonly Action<string> _log = FileLog.For("unlock");
+    private readonly object _helperQueueLock = new();
+    private Task _helperQueue = Task.CompletedTask;
 
     public PcUnlock(IJcLink link, ApiClient api, AdminRunner admin)
     {
@@ -39,6 +45,7 @@ public sealed class PcUnlock
         _api = api;
         _admin = admin;
         _link.Message += m => { if (J.S(m["type"]) == "password_fill") _ = FillAsync(m); };
+        SyncHelperCopy();
     }
 
     public event Action? Changed;
@@ -69,13 +76,67 @@ public sealed class PcUnlock
         Directory.CreateDirectory(Dir);
         File.WriteAllBytes(SecretPath, Dpapi.Protect(Encoding.UTF8.GetBytes(password)));
         Changed?.Invoke();
+        ToHelper("store_password", () => new JsonObject { ["store_password"] = password });
     }
 
     public void ForgetPassword()
     {
         if (File.Exists(SecretPath)) File.Delete(SecretPath);
         Changed?.Invoke();
+        ToHelper("forget_password", () => new JsonObject { ["forget_password"] = true });
     }
+
+    /// On start and after installing the helper: hand the helper his password once when it has no copy (installed
+    /// after he saved it, or older than its copies), and remove a copy left behind when he cleared his while the
+    /// helper couldn't be reached (HelperSignIn.Sync).
+    public void SyncHelperCopy() => QueueForHelper(() =>
+    {
+        if (!HelperInstalled) return;
+        switch (HelperSignIn.Sync(HasPassword, TryAskHelper(new JsonObject { ["has_password"] = true })))
+        {
+            case CopyStep.HandOver:
+                _log($"helper copy handed over: {Describe(TryAskHelper(new JsonObject { ["store_password"] = ReadPassword() }))}");
+                break;
+            case CopyStep.Forget:
+                _log($"helper copy left behind removed: {Describe(TryAskHelper(new JsonObject { ["forget_password"] = true }))}");
+                break;
+        }
+    });
+
+    private void ToHelper(string what, Func<JsonObject> request) => QueueForHelper(() =>
+    {
+        if (HelperInstalled) _log($"helper {what}: {Describe(TryAskHelper(request()))}");
+    });
+
+    /// Off the UI thread, in the order he did things (a save then a forget must leave no copy).
+    private void QueueForHelper(Action work)
+    {
+        lock (_helperQueueLock)
+        {
+            _helperQueue = _helperQueue.ContinueWith(_ =>
+            {
+                try { work(); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception
+                                              or System.Security.Cryptography.CryptographicException)
+                {
+                    _log("helper copy: " + e.Message);
+                }
+            }, TaskScheduler.Default);
+        }
+    }
+
+    private JsonObject? TryAskHelper(JsonObject request)
+    {
+        try { return AskHelper(request); }
+        catch (Exception e) when (e is TimeoutException or IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            _log("helper not reached: " + e.GetType().Name);
+            return null;
+        }
+    }
+
+    private static string Describe(JsonObject? reply) =>
+        reply is null ? "no answer" : J.B(reply["ok"]) ? "ok" : J.S(reply["error"], "refused");
 
     /// Face ID on his iPhone, then UAC: copies the helper to Program Files and starts the service.
     public async Task<AdminResult> InstallHelperAsync()
@@ -88,8 +149,8 @@ public sealed class PcUnlock
         var key = PinnedKey is { } k && AdminRun.ValidKey(k) ? " " + k : "";
         var result = await _admin.RunAsync($"\"{exe}\" --install {sid}{key}",
             "Install the helper that unlocks this PC and runs the admin steps you approve from your iPhone");
-        // The elevated install finishes after UAC; look again shortly.
-        _ = Task.Delay(TimeSpan.FromSeconds(8)).ContinueWith(_ => Changed?.Invoke());
+        // The elevated install finishes after UAC; look again shortly (and give the new helper its password copy).
+        _ = Task.Delay(TimeSpan.FromSeconds(8)).ContinueWith(_ => { Changed?.Invoke(); SyncHelperCopy(); });
         return result;
     }
 
@@ -110,34 +171,34 @@ public sealed class PcUnlock
     /// Null when the password was typed and Windows unlocked; otherwise why not.
     private string? Fill(JsonObject m)
     {
-        if (J.S(m["kind"]) != "unlock") return "This PC only fills its lock screen.";
-        if (PinnedKey is not { } key) return "Trust your iPhone in Jarvis Settings → PC power on the PC first.";
-        var proof = m["proof"] as JsonObject;
-        var ts = proof?["ts"] is JsonValue v && v.TryGetValue<double>(out var d) ? (long)d : 0;
-        if (m["grant"] is JsonObject grant)
-        {
-            // His standing unlock permission instead of a fresh Face ID (UnlockGrant: signed, unexpired, this PC).
-            if (UnlockGrant.Check(grant, J.S(m["device"]), key, DateTimeOffset.UtcNow) is { } why) return why;
-        }
-        else if (!_approval.Verify(J.S(m["context"]), "unlock", J.S(m["nonce"]), ts, J.S(proof?["signature"]), key, DateTimeOffset.UtcNow))
-            return "Your iPhone's approval didn't check out on the PC.";
+        // His Face ID yes or unlock permission, by the rule the helper checks a sign-in with too (UnlockCheck).
+        if (UnlockCheck.Refusal(m, PinnedKey, _approval, DateTimeOffset.UtcNow) is { } why) return why;
         if (!HasPassword) return "Save your Windows password in Jarvis Settings → PC power on the PC first.";
         if (!HelperInstalled) return "Install the unlock helper in Jarvis Settings → PC power on the PC first.";
-        var password = Encoding.UTF8.GetString(Dpapi.Unprotect(File.ReadAllBytes(SecretPath)));
+        var request = new JsonObject { ["password"] = ReadPassword() };
+        // The helper spends this Face ID yes too, so it can't come back there as a sign-in.
+        if (m["grant"] is not JsonObject) request["nonce"] = J.S(m["nonce"]);
         try
         {
-            using var pipe = new NamedPipeClientStream(".", "JarvisUnlock", PipeDirection.InOut);
-            pipe.Connect(3000);
-            var req = Encoding.UTF8.GetBytes(new JsonObject { ["password"] = password }.ToJsonString() + "\n");
-            pipe.Write(req, 0, req.Length);
-            pipe.Flush();
-            using var reader = new StreamReader(pipe, Encoding.UTF8);
-            var answer = J.Parse(reader.ReadLine() ?? "{}");
-            return UnlockReply.Error(answer);
+            return UnlockReply.Error(AskHelper(request));
         }
         catch (TimeoutException) { return "The unlock helper isn't running. Reinstall it in Settings → PC power."; }
         catch (IOException e) { return "Couldn't reach the unlock helper: " + e.Message; }
         catch (UnauthorizedAccessException) { return "The unlock helper was installed for another Windows account."; }
+    }
+
+    private static string ReadPassword() => Encoding.UTF8.GetString(Dpapi.Unprotect(File.ReadAllBytes(SecretPath)));
+
+    /// One request line to the JarvisUnlock service's pipe, one reply line back.
+    private static JsonObject AskHelper(JsonObject request)
+    {
+        using var pipe = new NamedPipeClientStream(".", "JarvisUnlock", PipeDirection.InOut);
+        pipe.Connect(3000);
+        var bytes = Encoding.UTF8.GetBytes(request.ToJsonString() + "\n");
+        pipe.Write(bytes, 0, bytes.Length);
+        pipe.Flush();
+        using var reader = new StreamReader(pipe, Encoding.UTF8);
+        return J.Parse(reader.ReadLine() ?? "{}");
     }
 }
 

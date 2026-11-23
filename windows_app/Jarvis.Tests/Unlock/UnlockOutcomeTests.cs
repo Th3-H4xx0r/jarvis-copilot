@@ -68,6 +68,30 @@ public class UnlockOutcomeTests
     }
 
     [Fact]
+    public void BootSignIn_HisSessionTookTheConsole_IsSignedIn_EvenPastTheTypistsWatch()
+    {
+        // After a restart no one was signed in on the console: his session appearing there (same session id: Windows
+        // signs in where the sign-in screen was) only happens once Windows took the password, however long his
+        // profile takes to load past the typist's 8 s watch.
+        Assert.Null(UnlockOutcome.Error(TypistExit.NotTaken, Typist, His(Typist), signedOutBefore: true));
+        Assert.Null(UnlockOutcome.Error(null, Typist, His(Typist), signedOutBefore: true));
+        Assert.Null(UnlockOutcome.Error(TypistExit.Unlocked, Typist, His(Typist), signedOutBefore: true));
+    }
+
+    [Fact]
+    public void BootSignIn_StillTheSignInScreen_OrNothingTyped_Fails()
+    {
+        Assert.Equal(UnlockOutcome.NotTaken, UnlockOutcome.Error(TypistExit.NotTaken, Typist, SignInScreen(Typist), signedOutBefore: true));
+        Assert.Equal(UnlockOutcome.NotTaken, UnlockOutcome.Error(TypistExit.NotTaken, Typist, His(Typist, ConsoleLock.Locked), signedOutBefore: true));
+        Assert.Equal(UnlockOutcome.NotTaken, UnlockOutcome.Error(TypistExit.NotTaken, Typist, His(Typist, active: false), signedOutBefore: true));
+        // an unreadable lock flag proves nothing (a failed WTS read before typing also looks "signed out")
+        Assert.Equal(UnlockOutcome.NotTaken, UnlockOutcome.Error(TypistExit.NotTaken, Typist, His(Typist, ConsoleLock.Unknown), signedOutBefore: true));
+        Assert.Equal("The sign-in screen didn't come up.", UnlockOutcome.Error(TypistExit.NoSignIn, Typist, His(Typist), signedOutBefore: true));
+        // A locked PC he was already signed in on keeps the stricter rule (the typist must have seen it unlock).
+        Assert.Equal(UnlockOutcome.NotTaken, UnlockOutcome.Error(TypistExit.NotTaken, Typist, His(Typist), signedOutBefore: false));
+    }
+
+    [Fact]
     public void NotTaken_TellsHimWindowsDidntTakeIt()
     {
         Assert.Contains("didn't take the PIN", UnlockOutcome.NotTaken);

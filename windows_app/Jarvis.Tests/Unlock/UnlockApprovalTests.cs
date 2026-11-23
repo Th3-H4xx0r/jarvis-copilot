@@ -52,6 +52,19 @@ public class UnlockApprovalTests
     }
 
     [Fact]
+    public void Spend_AYesActedOnElsewhere_CantPassAgain()
+    {
+        var (pub, sign) = Phone();
+        var ts = Now.ToUnixTimeSeconds();
+        var sig = sign(UnlockApproval.Message("unlock", "n3", ts, "Unlock PC"));
+        var a = new UnlockApproval();
+        a.Spend("n3", Now);
+        Assert.False(a.Verify("Unlock PC", "unlock", "n3", ts, sig, pub, Now));
+        a.Spend("", Now);   // nothing to spend
+        Assert.True(a.Verify("Unlock PC", "unlock", "n4", ts, sign(UnlockApproval.Message("unlock", "n4", ts, "Unlock PC")), pub, Now));
+    }
+
+    [Fact]
     public void Fingerprint_IsFirst8HexOfSha256()
     {
         var (pub, _) = Phone();

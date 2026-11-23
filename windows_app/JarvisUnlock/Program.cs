@@ -20,7 +20,13 @@ namespace JarvisUnlock;
 /// the sign-in desktop of the console session, which lifts the lock-screen picture if it's up and
 /// types into the PIN / password box, never anywhere else; then it checks Windows really unlocked
 /// (the typist watches the screen, the service asks Windows whose session is on the console) and
-/// says so when it didn't. Nothing is stored here and nothing is typed anywhere else.
+/// says so when it didn't. Nothing is typed anywhere else.
+///
+/// Before he signs in (after a restart) there's no Jarvis app: jc-client's boot instance sends the Face ID yes (or his
+/// unlock permission) here as `{"signin":…}`, and this service checks it itself (Jarvis.Core.Unlock.UnlockCheck, the
+/// app's own rule) and types ITS OWN copy of his password (HelperSignIn), DPAPI LocalMachine in an admin-only file next
+/// to the pinned key: the app's copy is DPAPI under his account, unreadable before he signs in. The app keeps that copy
+/// in step (`store_password` / `forget_password`). Never logged.
 ///
 /// It also runs the IT agent's admin steps (admin_run, W4): ONE command per Face ID approval from his
 /// iPhone, checked here against the approval key pinned in Program Files at install, run as him with
@@ -98,6 +104,10 @@ internal static class Installer
     /// His iPhone's approval key for admin_run, copied here (admin-only) at install from the app's pinned
     /// key: the app's own copy is in his profile, which anything running as him could rewrite.
     public static string KeyPath => Path.Combine(Dir, AdminRun.KeyFileName);
+    /// The sign-in copy of his password (SignInCopy): next to the key, admin-only.
+    public static string PasswordPath => Path.Combine(Dir, PasswordCopy.FileName);
+
+    public static string? ReadKey() => File.Exists(KeyPath) ? File.ReadAllText(KeyPath).Trim() : null;
 
     public static int Install(string sid, string? key = null)
     {
@@ -143,8 +153,11 @@ internal static class Installer
         Sc("stop", Program.ServiceName);
         Thread.Sleep(1500);
         Sc("delete", Program.ServiceName);
-        try { File.Delete(KeyPath); }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        foreach (var path in new[] { KeyPath, PasswordPath, PasswordPath + ".new" })
+        {
+            try { File.Delete(path); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        }
         // The service's process may still be exiting: try for up to 10 s.
         for (var i = 0; i < 20 && File.Exists(Exe); i++)
         {
@@ -176,6 +189,9 @@ internal static class Service
     /// Held while a child is started with inherited handles: no child inherits another request's pipe
     /// (the unlock's stdin carries his password).
     internal static readonly object SpawnLock = new();
+    /// Sign-in before he has signed in, and the service's own password copy (Jarvis.Core.Unlock.HelperSignIn). Shares
+    /// the nonce memory with admin_run and the app's fills.
+    private static readonly HelperSignIn SignIn = new(SignInCopy.Open(), Installer.ReadKey, Approval, TypeSignIn, Log.Write);
     private static string _sid = "";
     private static IntPtr _status;
     private static readonly ServiceMain MainDelegate = ServiceEntry;
@@ -234,7 +250,8 @@ internal static class Service
     }
 
     /// Up to 4 connections at once, each on its own task, so an admin command running for minutes never
-    /// holds up an unlock. `{"password":"…"}`, `{"rdp":"on|off"}` or `{"admin_run":{…}}` →
+    /// holds up an unlock. `{"password":"…"}`, `{"rdp":"on|off"}`, `{"admin_run":{…}}`, `{"signin":{…}}`,
+    /// `{"store_password":"…"}`, `{"forget_password":true}` or `{"has_password":true}` →
     /// `{"ok":true,…}` or `{"ok":false,"error":"…"}`.
     private static void Serve(CancellationToken stop)
     {
@@ -269,7 +286,10 @@ internal static class Service
             try
             {
                 var node = JsonNode.Parse(ReadLine(pipe));
-                if (node?["admin_run"] is { } admin)
+                var now = DateTimeOffset.UtcNow;
+                if (node is JsonObject request && SignIn.Reply(request, now) is { } handled)
+                    reply = handled;
+                else if (node?["admin_run"] is { } admin)
                     reply = AdminRunReply(admin);
                 else if (node?["rdp"]?.GetValue<string>() is { } rdp)
                 {
@@ -279,7 +299,12 @@ internal static class Service
                 {
                     var password = node?["password"]?.GetValue<string>() ?? "";
                     if (password.Length == 0) reply = Error("No password was sent.");
-                    else lock (Serial) reply = TypeOnLockScreen(password);
+                    else
+                    {
+                        // The app checked his Face ID yes: spend it here too, so it can't come back as a sign-in.
+                        if (node is JsonObject fill) SignIn.NoteAppFill(fill, now);
+                        lock (Serial) reply = TypeOnLockScreen(password);
+                    }
                 }
             }
             catch (Exception e) when (e is JsonException or InvalidOperationException or IOException)
@@ -307,8 +332,7 @@ internal static class Service
     {
         var req = AdminRun.Parse(request, out var bad);
         if (req == null) return Error(bad);
-        var key = File.Exists(Installer.KeyPath) ? File.ReadAllText(Installer.KeyPath).Trim() : null;
-        var refusal = AdminRun.Refusal(req, key, Approval, DateTimeOffset.UtcNow);
+        var refusal = AdminRun.Refusal(req, Installer.ReadKey(), Approval, DateTimeOffset.UtcNow);
         if (refusal != null)
         {
             Log.Write($"admin_run refused ({refusal}): {Short(req.Command)}");
@@ -361,6 +385,12 @@ internal static class Service
 
     private static string Error(string why) => new JsonObject { ["ok"] = false, ["error"] = why }.ToJsonString();
 
+    /// A checked sign-in (HelperSignIn): the same typist path as the app's `{"password":…}`, one at a time.
+    private static string TypeSignIn(string password)
+    {
+        lock (Serial) return TypeOnLockScreen(password);
+    }
+
     /// Starts `--type` as SYSTEM in the console session, on its sign-in desktop, hands it the
     /// password on stdin, then confirms with Windows: `{"ok":true,"checked":true}` only when his
     /// session is unlocked on the console (Jarvis.Core.Unlock.UnlockOutcome decides).
@@ -368,6 +398,9 @@ internal static class Service
     {
         var session = WTSGetActiveConsoleSessionId();
         if (session == ConsoleSession.None) return Error("No one is signed in at the PC.");
+        // Signed out on the console (the sign-in screen after a restart): his session showing up there afterwards is
+        // the sign-in itself, however long his profile takes (UnlockOutcome).
+        var signedOutBefore = !ReadConsole().His;
         if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, out var own)) return Error("Couldn't read the service's token.");
         var token = IntPtr.Zero;
         int? exit;
@@ -423,14 +456,14 @@ internal static class Service
         }
         // Windows' side: whose session is on the console now, and is it unlocked. A sign-in after
         // Remote Desktop reconnects his session a moment after Enter: look for up to 4 s.
-        var error = UnlockOutcome.Error(exit, session, ReadConsole());
+        var error = UnlockOutcome.Error(exit, session, ReadConsole(), signedOutBefore);
         for (var i = 0; error != null && !UnlockOutcome.Final(exit) && i < 16; i++)
         {
             Thread.Sleep(250);
-            error = UnlockOutcome.Error(exit, session, ReadConsole());
+            error = UnlockOutcome.Error(exit, session, ReadConsole(), signedOutBefore);
         }
         var now = ReadConsole();
-        Log.Write($"type finished: {(exit is { } c ? c.ToString() : "timed out")} in session {session}; console {now.Id} his={now.His} active={now.Active} {now.Lock} -> {error ?? "unlocked"}");
+        Log.Write($"type finished: {(exit is { } c ? c.ToString() : "timed out")} in session {session}{(signedOutBefore ? " (signed out before)" : "")}; console {now.Id} his={now.His} active={now.Active} {now.Lock} -> {error ?? "unlocked"}");
         return error == null ? new JsonObject { ["ok"] = true, ["checked"] = true }.ToJsonString() : Error(error);
     }
 
@@ -545,6 +578,70 @@ internal static class Service
 
     [DllImport("kernel32.dll")]
     private static extern bool CloseHandle(IntPtr handle);
+}
+
+/// The service's own copy of his Windows password (HelperSignIn), for signing in before he has: DPAPI LocalMachine —
+/// readable before anyone signs in, which his own DPAPI copy isn't — in Program Files next to the pinned key, with an
+/// ACL only SYSTEM and Administrators can read (Program Files lets every account read by default, and LocalMachine
+/// DPAPI lets any account on the PC decrypt: the ACL is what keeps it his). Never logged.
+internal static class SignInCopy
+{
+    public static PasswordCopy Open() => new(Installer.PasswordPath, Protect, Unprotect, WriteAdminOnly);
+
+    /// Created under the admin-only ACL (never readable by anyone else, not even for a moment), then moved over the
+    /// old copy: a move keeps the file's own protected ACL.
+    private static void WriteAdminOnly(string path, byte[] bytes)
+    {
+        var security = new FileSecurity();
+        security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+        foreach (var who in new[] { WellKnownSidType.LocalSystemSid, WellKnownSidType.BuiltinAdministratorsSid })
+            security.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(who, null), FileSystemRights.FullControl, AccessControlType.Allow));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var temp = path + ".new";
+        File.Delete(temp);
+        using (var file = new FileInfo(temp).Create(FileMode.CreateNew, FileSystemRights.Write, FileShare.None, 4096, FileOptions.WriteThrough, security))
+            file.Write(bytes, 0, bytes.Length);
+        File.Move(temp, path, overwrite: true);
+    }
+
+    private static byte[] Protect(byte[] data) => Dpapi(data, protect: true);
+    private static byte[] Unprotect(byte[] data) => Dpapi(data, protect: false);
+
+    private static byte[] Dpapi(byte[] data, bool protect)
+    {
+        var input = new Blob { cbData = data.Length, pbData = Marshal.AllocHGlobal(Math.Max(1, data.Length)) };
+        var output = new Blob();
+        try
+        {
+            Marshal.Copy(data, 0, input.pbData, data.Length);
+            var ok = protect
+                ? CryptProtectData(ref input, "Jarvis sign-in", IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, CRYPTPROTECT_UI_FORBIDDEN | CRYPTPROTECT_LOCAL_MACHINE, ref output)
+                : CryptUnprotectData(ref input, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, CRYPTPROTECT_UI_FORBIDDEN, ref output);
+            if (!ok) throw new System.Security.Cryptography.CryptographicException(Marshal.GetLastWin32Error());
+            var result = new byte[output.cbData];
+            Marshal.Copy(output.pbData, result, 0, output.cbData);
+            return result;
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(input.pbData);
+            if (output.pbData != IntPtr.Zero) LocalFree(output.pbData);
+        }
+    }
+
+    private const int CRYPTPROTECT_UI_FORBIDDEN = 0x1, CRYPTPROTECT_LOCAL_MACHINE = 0x4;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Blob { public int cbData; public IntPtr pbData; }
+
+    [DllImport("crypt32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool CryptProtectData(ref Blob data, string description, IntPtr entropy, IntPtr reserved, IntPtr prompt, int flags, ref Blob output);
+
+    [DllImport("crypt32.dll", SetLastError = true)]
+    private static extern bool CryptUnprotectData(ref Blob data, IntPtr description, IntPtr entropy, IntPtr reserved, IntPtr prompt, int flags, ref Blob output);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr LocalFree(IntPtr mem);
 }
 
 /// Runs one approved admin command (W4) as him, elevated: his linked full token in the console session
