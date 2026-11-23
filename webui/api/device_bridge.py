@@ -131,6 +131,9 @@ def _notify_registry_change() -> None:
 # injected or overheard request switch the siren off or blind the alarm without Face ID.
 SERVER_ONLY_SKILLS = frozenset({"esp32_door_configure", "esp32_door_set", "esp32_door_forget",
                                 "door_alarm_ring",
+                                # PC power button: only mac_power presses (it checks the power light
+                                # and Face ID for force actions); the chat model never reaches the pins.
+                                "esp32_pc_press", "esp32_pc_power_state",
                                 # PC lighting + specs: the server's pc_lighting tools apply the LED map
                                 # and the Power switch; a raw call would bypass both.
                                 "lighting_state_set", "lighting_map_set", "lighting_probe", "lighting_status",

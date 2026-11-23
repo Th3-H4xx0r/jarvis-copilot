@@ -33,6 +33,9 @@ KEEP_AWAKE_MAX = 12 * 3600.0   # "Keep Mac awake" turns itself off after this
 PC_STATUS_FRESH = 150.0        # the PC reports every 60 s: three missed reports = not awake
 SLEEP_QUIET = 10.0             # an "awake" report this soon after a sleep mark is its last one going down
 REQUEST_TTL = 120.0
+LIGHT_FRESH = 150.0            # the power button board reports its light every 60 s (PcRole.cpp)
+BUTTON_SKILL = "esp32_pc_press"
+LIGHTS = frozenset({"on", "asleep", "off", "unknown"})
 MAC_TOPIC = "com.jarviscopilot.mac"
 # How a request can end without him needing a push about it.
 _QUIET_ENDINGS = frozenset({"Not allowed", "No answer in 2 minutes"})
@@ -75,6 +78,7 @@ class MacPowerStore:
         self._skills_of = skills_of
         self._name_of = name_of
         self._spawn = lambda fn: threading.Thread(target=fn, daemon=True, name="mac-power-wol").start()
+        self._sleep = time.sleep
         self._lock = threading.RLock()
         self._requests: dict = {}
         try:
@@ -118,6 +122,80 @@ class MacPowerStore:
     def noun(self, did: str) -> str:
         """"PC" for the Windows PC, "Mac" otherwise — what his messages call it."""
         return "PC" if self._is_pc(did) else "Mac"
+
+    # ── the PC power button (spec 2026-11-23) ────────────────────────────
+    # An ESP32 on the PC's front-panel header (JarvisEsp32 pc_button role) presses its power and
+    # reset buttons and reports the power light: steady = on, blinking = asleep, dark = off.
+    def _boards(self) -> list:
+        return [d for d in self._connected() if BUTTON_SKILL in set(self._skills_of(d))]
+
+    def _pcs(self) -> list:
+        with self._lock:
+            return [did for did, d in self._devices.items() if (d.get("status") or {}) and self._is_pc(did)]
+
+    def _autolink(self) -> None:
+        """One board and one PC: link them. Anything else is ambiguous and stays unlinked."""
+        boards, pcs = self._boards(), self._pcs()
+        if len(boards) != 1 or len(pcs) != 1:
+            return
+        with self._lock:
+            d = self.device(pcs[0])
+            if d.get("button_board") != boards[0]:
+                d["button_board"] = boards[0]
+                self._save()
+
+    def _linked_board(self, pc: str) -> str:
+        if not (self._devices.get(pc) or {}).get("button_board"):
+            self._autolink()
+        return str((self._devices.get(pc) or {}).get("button_board") or "")
+
+    def button_board(self, pc: str) -> str:
+        """The PC's linked power button board, when it's connected (else "")."""
+        if not self._is_pc(pc):
+            return ""
+        board = self._linked_board(pc)
+        return board if board and board in set(self._connected()) else ""
+
+    def _pc_of_board(self, board: str) -> str:
+        with self._lock:
+            return next((did for did, d in self._devices.items() if d.get("button_board") == board), "")
+
+    def on_light(self, board: str, data: dict) -> None:
+        """The board's pc_power_light event: on a change and every 60 s."""
+        pc = self._pc_of_board(board)
+        if not pc:
+            self._autolink()
+            pc = self._pc_of_board(board)
+        if not pc:
+            return
+        state = str(data.get("light") or "unknown")
+        state = state if state in LIGHTS else "unknown"
+        now = self._clock()
+        try:
+            since = now - max(0.0, float(data.get("since_s") or 0))
+        except (TypeError, ValueError):
+            since = now
+        with self._lock:
+            d = self.device(pc)
+            prev = (d.get("light") or {}).get("light")
+            d["light"] = {"light": state, "since": since, "at": now}
+            self._save()
+        if prev != state:
+            self._changed()
+
+    def light(self, pc: str) -> str:
+        """"on" | "asleep" | "off" | "unknown" (no board, board offline, or no news for LIGHT_FRESH)."""
+        if not self.button_board(pc):
+            return "unknown"
+        cur = (self._devices.get(pc) or {}).get("light") or {}
+        if not cur or self._clock() - float(cur.get("at") or 0) > LIGHT_FRESH:
+            return "unknown"
+        return str(cur.get("light") or "unknown")
+
+    def _power_button(self, pc: str) -> dict:
+        board = self._linked_board(pc)
+        return {"linked": bool(board), "connected": bool(board) and board in set(self._connected()),
+                "name": (self._name_of(board) or "Power button") if board else "", "light": self.light(pc)}
 
     def _wol_args(self, did: str) -> dict:
         status = (self._devices.get(did) or {}).get("status") or {}
@@ -347,7 +425,7 @@ class MacPowerStore:
 
     def on_status(self, did: str, data: dict) -> None:
         keep = ("state", "held", "reason", "keep_awake", "timer_on", "battery", "on_ac", "lid",
-                "os", "wifi_mac", "wifi_ip", "wake", "app")
+                "os", "wifi_mac", "wifi_ip", "wake", "app", "button_action")
         fields = {"status": {k: data.get(k) for k in keep}, "seen_at": self._clock()}
         slept = (self._devices.get(did) or {}).get("sleeping_at")
         going_down = slept is not None and self._clock() - float(slept) < SLEEP_QUIET and self._is_pc(did)
@@ -440,10 +518,19 @@ class MacPowerStore:
                 awake = did in connected and d.get("sleeping_at") is None
                 if awake and self._is_pc(did) and now - float(d.get("seen_at") or 0) > PC_STATUS_FRESH:
                     awake = False  # it stopped reporting: asleep (its socket can look open for minutes)
+                state, reason = ("awake", status.get("reason") or "") if awake else ("sleeping", "")
+                button = self._power_button(did) if self._is_pc(did) else None
+                if button and not awake:
+                    # The power light fills in while jc-client isn't reporting (a live report wins:
+                    # a miswired light must never hide a running PC).
+                    if button["light"] == "on":
+                        state, reason = "awake", "starting"
+                    elif button["light"] == "off":
+                        state = "off"
                 macs.append({"device_id": did, "name": name_of(did) or self.noun(did),
-                             "state": "awake" if awake else "sleeping",
+                             "state": state,
                              "held": bool(status.get("held")) if awake else False,
-                             "reason": (status.get("reason") or "") if awake else "",
+                             "reason": reason,
                              "keep_awake": self._keep(d), "timer_on": bool(d.get("timer_on", True)),
                              "battery": status.get("battery"), "on_ac": status.get("on_ac"),
                              "lid": status.get("lid"), "seen_at": d.get("seen_at"),
@@ -453,7 +540,8 @@ class MacPowerStore:
                              # The PC: jc-client up but the Jarvis app gone (None = not reported, a Mac).
                              "app_running": status.get("app") if awake and "app" in status else None,
                              "wake_reason": (status.get("wake") or {}).get("reason"),
-                             "unlock_grant_until": (self._grant_live(d) or {}).get("until")})
+                             "unlock_grant_until": (self._grant_live(d) or {}).get("until"),
+                             **({"power_button": button} if button else {})})
         return {"mac": macs, "password_requests": requests}
 
 
@@ -506,6 +594,7 @@ def store() -> MacPowerStore:
                                    os_of=device_bridge.device_os,
                                    skills_of=lambda d: [s.get("name") for s in device_bridge.skills_for_device(d)],
                                    name_of=device_bridge.device_name)
+            device_bridge.on_device_event("pc_power_light", _STORE.on_light)
         return _STORE
 
 
