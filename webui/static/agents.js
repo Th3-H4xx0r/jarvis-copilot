@@ -598,6 +598,7 @@
     manual: 'Keep awake on', session: 'Claude working', grace: 'Staying up after the last turn',
     remote: 'Woken from your phone', password: 'Waiting on a password',
     starting: 'Starting up · Jarvis isn’t connected yet',
+    signed_out: 'At the sign-in screen',   // the boot client (jc_client/boot_mode.py): nobody signed in yet
   };
   const PW_TITLES = {
     sudo: 'sudo in Claude session', admin: 'Admin password', keychain: 'Keychain access', rdp: 'Remote Desktop',

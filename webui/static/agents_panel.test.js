@@ -391,3 +391,11 @@ test('No power button: no force actions and no power button line', async () => {
   assert.doesNotMatch(html, /Power button ·/);
   assert.doesNotMatch(html, /pc-force-/);
 });
+
+
+test('A PC whose boot client is up shows it is at the sign-in screen, with Unlock', async () => {
+  const h = await pcHarness(pcRow({ reason: 'signed_out', power_button: undefined }));
+  const html = h.els.agentsListInner.innerHTML;
+  assert.match(html, /At the sign-in screen/);
+  assert.match(html, /data-act="mac-unlock"/);
+});

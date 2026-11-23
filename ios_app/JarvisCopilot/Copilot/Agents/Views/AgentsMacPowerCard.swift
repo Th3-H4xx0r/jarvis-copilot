@@ -507,6 +507,7 @@ enum AgentsMacPowerCopy {
         case "remote": return "Woken from iPhone"
         case "password": return "Waiting for a password"
         case "starting": return "Jarvis isn't connected yet"   // power light on, jc-client not in yet
+        case "signed_out": return "At the sign-in screen"       // the boot client: online before he signs in
         default: return nil
         }
     }

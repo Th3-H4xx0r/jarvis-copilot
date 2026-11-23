@@ -116,6 +116,8 @@ final class AgentsMacPowerTests: XCTestCase {
         XCTAssertEqual(AgentsMacPowerCopy.reason("grace"), "A session just finished")
         XCTAssertEqual(AgentsMacPowerCopy.reason("remote"), "Woken from iPhone")
         XCTAssertNil(AgentsMacPowerCopy.reason("rtc/Alarm"), "an unknown reason says nothing")
+        // Jarvis before sign-in (the boot client): online, nobody signed in yet.
+        XCTAssertEqual(AgentsMacPowerCopy.reason("signed_out"), "At the sign-in screen")
     }
 
     func testFriendlyName() {
