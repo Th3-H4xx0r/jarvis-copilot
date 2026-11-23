@@ -88,7 +88,8 @@ public sealed class UpdateCard : NoActivateWindow
     /// Starts JarvisUpdater.exe with its arguments (no shell, so no Mark-of-the-Web prompt).
     public static void Launch(string exe, string[] args)
     {
-        var psi = new ProcessStartInfo(exe) { UseShellExecute = false, CreateNoWindow = true };
+        // Its own folder as the working directory, never ours (it moves our folder aside).
+        var psi = new ProcessStartInfo(exe) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = System.IO.Path.GetDirectoryName(exe)! };
         foreach (var a in args) psi.ArgumentList.Add(a);
         Process.Start(psi);
     }

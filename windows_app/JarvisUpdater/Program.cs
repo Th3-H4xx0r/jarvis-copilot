@@ -9,6 +9,9 @@ internal static class Program
 {
     private static int Main(string[] args)
     {
+        // An old Jarvis starts us with its working directory: if that's the app folder, we'd hold the folder we're
+        // about to move aside (live 2026-11-23: "couldn't move the old app aside", update after update).
+        try { Environment.CurrentDirectory = AppContext.BaseDirectory; } catch (Exception) { }
         var a = ParseArgs(args);
         if (a == null)
         {
@@ -95,7 +98,9 @@ internal sealed class RealProcessOps : IProcessOps
 
     public int Start(string exe)
     {
-        var psi = new ProcessStartInfo(exe) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(exe)! };
+        // Not the app folder: the new app (and everything it starts) would hold it, and the next update fails.
+        Directory.CreateDirectory(Jarvis.Core.Update.SafeCwd.DataDir);
+        var psi = new ProcessStartInfo(exe) { UseShellExecute = false, WorkingDirectory = Jarvis.Core.Update.SafeCwd.DataDir };
         using var p = Process.Start(psi) ?? throw new InvalidOperationException($"couldn't start {exe}");
         return p.Id;
     }

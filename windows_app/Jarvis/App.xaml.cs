@@ -14,6 +14,9 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        // Never sit in the app folder: the updater couldn't move it aside (live 2026-11-23), and every process we
+        // start (the updater, jc-client) inherits this working directory.
+        Jarvis.Core.Update.SafeCwd.LeaveAppFolder(AppContext.BaseDirectory);
         // A bug in one feature must not take the whole app down mid-game: log it and carry on.
         DispatcherUnhandledException += (_, ex) =>
         {
