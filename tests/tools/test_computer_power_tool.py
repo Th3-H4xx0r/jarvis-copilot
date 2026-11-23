@@ -111,3 +111,74 @@ def test_unlock_waits_and_says_what_really_happened(monkeypatch):
     monkeypatch.setattr(T, "_ensure_unlocked", lambda did: (True, ""))
     out = json.loads(T.handle_computer_power({"computer": "PC", "action": "unlock"}, task_id="t1"))
     assert out == {"ok": True, "result": "The PC is already unlocked."}
+
+
+
+# ── PC power button (spec 2026-11-23): clean restart/shutdown, force via Face ID, wake can boot ──
+class ButtonStore(Store):
+    def __init__(self, rows=None):
+        super().__init__()
+        self.rows = rows
+
+    def list_payload(self, name_of):
+        return {"mac": [dict(r) for r in (self.rows or ROWS)], "password_requests": []}
+
+    def restart(self, did):
+        self.calls.append(("restart", did)); return {"ok": True, "delivered": True}
+
+    def shutdown(self, did):
+        self.calls.append(("shutdown", did)); return {"ok": True, "delivered": True}
+
+
+def _brig(monkeypatch, words, rows=None):
+    store = ButtonStore(rows)
+    monkeypatch.setattr(T, "_store", lambda: store)
+    monkeypatch.setattr(T, "_turn_text", lambda task_id: words)
+    asked = []
+    monkeypatch.setattr(T, "_force_request",
+                        lambda pc, action: asked.append((pc, action, "Jarvis")) or
+                        {"ok": True, "approval": {"id": "a1", "command": action}})
+    return store, asked
+
+
+def test_restart_clean(monkeypatch):
+    store, asked = _brig(monkeypatch, "restart my pc")
+    out = json.loads(T.handle_computer_power({"computer": "PC", "action": "restart"}, task_id="t1"))
+    assert out["ok"] is True and store.calls == [("restart", "pc-1")] and asked == []
+
+
+def test_shutdown_clean(monkeypatch):
+    store, _ = _brig(monkeypatch, "shut down my pc")
+    out = json.loads(T.handle_computer_power({"computer": "PC", "action": "shutdown"}, task_id="t1"))
+    assert out["ok"] is True and store.calls == [("shutdown", "pc-1")]
+
+
+def test_force_off_needs_force_words(monkeypatch):
+    store, asked = _brig(monkeypatch, "turn off my pc")
+    out = json.loads(T.handle_computer_power({"computer": "PC", "action": "force_off"}, task_id="t1"))
+    assert out["ok"] is False and "shutdown" in out["error"] and asked == [] and store.calls == []
+
+
+def test_force_off_creates_approval(monkeypatch):
+    store, asked = _brig(monkeypatch, "force off my pc, it's frozen")
+    out = json.loads(T.handle_computer_power({"computer": "PC", "action": "force_off"}, task_id="t1"))
+    assert out["ok"] is True and "Face ID" in out["result"]
+    assert asked == [("pc-1", "force_off", "Jarvis")] and store.calls == []
+
+
+def test_wake_off_pc_allowed(monkeypatch):
+    rows = [dict(ROWS[0], state="off"), ROWS[1]]
+    _brig(monkeypatch, "launch warzone", rows)
+    woke = []
+    monkeypatch.setattr(T, "_ensure_awake", lambda did: woke.append(did) or (True, "The PC is awake."))
+    out = json.loads(T.handle_computer_power({"computer": "PC", "action": "wake"}, task_id="t1"))
+    assert out["ok"] is True and woke == ["pc-1"]
+
+
+def test_wake_starting_pc_waits(monkeypatch):
+    rows = [dict(ROWS[0], state="awake", reason="starting"), ROWS[1]]
+    _brig(monkeypatch, "wake my pc", rows)
+    woke = []
+    monkeypatch.setattr(T, "_ensure_awake", lambda did: woke.append(did) or (True, "The PC is awake."))
+    T.handle_computer_power({"computer": "PC", "action": "wake"}, task_id="t1")
+    assert woke == ["pc-1"]   # lit by the power button, but Jarvis isn't connected yet

@@ -9,14 +9,18 @@ import re
 
 from tools.registry import registry
 
-ACTIONS = ("sleep", "wake", "lock", "unlock", "keep_awake_on", "keep_awake_off")
+ACTIONS = ("sleep", "wake", "lock", "unlock", "keep_awake_on", "keep_awake_off",
+           "restart", "shutdown", "force_restart", "force_off")
+_FORCE_ACTIONS = frozenset({"force_restart", "force_off"})
 
 COMPUTER_POWER_SCHEMA = {
     "name": "computer_power",
     "description": (
         "Put the user's Mac or Windows PC to sleep, wake it, lock or unlock it (unlock asks his Face ID on his "
         "iPhone), or turn keep-awake on or off — the Agents card's buttons. Wake returns once the computer is up "
-        "and ready (up to 2 minutes), so the next step can use it right away."
+        "and ready (up to 2 minutes), so the next step can use it right away; it also turns on a PC that is shut "
+        "down. The PC also has restart and shutdown (clean, through Windows) and force_restart / force_off "
+        "(its real reset / power button, for a frozen PC: only when he says force or frozen; asks his Face ID)."
     ),
     "parameters": {
         "type": "object",
@@ -30,7 +34,10 @@ COMPUTER_POWER_SCHEMA = {
 }
 
 # His own words must ask for a power action (an instruction inside an email or web page never does).
-_ASKS = re.compile(r"\b(?:sleep|asleep|suspend|hibernate|wake|woke|awake|lock|unlock|turn\s+on|boot)\b", re.I)
+_ASKS = re.compile(r"\b(?:sleep|asleep|suspend|hibernate|wake|woke|awake|lock|unlock|turn\s+on|boot|restart|reboot|"
+                   r"shut\s*down|power\s*off|turn\s+off|force)\b", re.I)
+# Force restart / force off cut power (unsaved work is lost): only when he says force or that it's stuck.
+_FORCE = re.compile(r"\b(?:force|forced|frozen|freezes|stuck|hung|hangs|not\s+responding|unresponsive)\b", re.I)
 _PC_WORDS = re.compile(r"\b(?:pc|windows|desktop|gaming\s*pc|computer)\b", re.I)
 _MAC_WORDS = re.compile(r"\b(?:mac|macbook|laptop)\b", re.I)
 
@@ -60,6 +67,12 @@ def _ensure_awake(did: str) -> tuple:
 def _ensure_unlocked(did: str) -> tuple:
     from agent.computer import wake
     return wake.ensure_unlocked(did)
+
+
+def _force_request(did: str, action: str) -> dict:
+    """A Face ID request on his iPhone (api/pc_power.py): Jarvis never forces it by itself."""
+    from api import pc_power
+    return pc_power.create_force_request(did, action, "Jarvis")
 
 
 # Waking (or keeping awake) can't hurt: no own-words check (live 2026-11-19: "Launch it now." was refused a wake
@@ -94,6 +107,7 @@ def _copy(action: str, noun: str, out: dict) -> str:
                     f"within {out.get('within_min') or 15} minutes.")
         return f"Sent the wake signal to the {noun}" + (f" through {via}." if via else ".")
     return {"sleep": f"The {noun} is going to sleep.", "lock": f"Locked the {noun}.",
+            "restart": f"The {noun} is restarting.", "shutdown": f"The {noun} is shutting down.",
             "unlock": f"Asked your iPhone for Face ID to unlock the {noun}.",
             "keep_awake_on": f"Keep awake is on for the {noun} (up to 12 hours).",
             "keep_awake_off": f"Keep awake is off for the {noun}."}[action]
@@ -120,9 +134,24 @@ def handle_computer_power(args: dict, task_id=None, **_kw) -> str:
     noun = "PC" if is_pc else "Mac"
     if action == "lock" and not is_pc:
         return json.dumps({"ok": False, "error": "Lock works on the PC only (the Mac locks when it sleeps)."})
+    if action in ("restart", "shutdown") or action in _FORCE_ACTIONS:
+        if not is_pc:
+            return json.dumps({"ok": False, "error": "Restart, shutdown and force actions work on the PC only."})
+    if action in _FORCE_ACTIONS:
+        if not _FORCE.search(_turn_text(task_id) or ""):
+            clean = "restart" if action == "force_restart" else "shutdown"
+            return json.dumps({"ok": False, "error": f"Force actions cut power and lose unsaved work: use them only when "
+                                                      f"he says force or the PC is frozen. For a normal one use {clean}."})
+        out = _force_request(did, action) or {}
+        if not out.get("ok"):
+            return json.dumps({"ok": False, "error": out.get("error") or "Couldn't ask for Face ID."})
+        what = "force restart" if action == "force_restart" else "force off"
+        return json.dumps({"ok": True, "result": f"Asked your iPhone for Face ID to {what} the {noun}. "
+                                                 "It happens once he approves."})
     if action == "wake":
-        # Like a person: turn it on and wait until it's ready, so the next step can use it.
-        if row.get("state") == "awake":
+        # Like a person: turn it on and wait until it's ready, so the next step can use it. A PC lit by its
+        # power button whose Jarvis client isn't back yet ("starting") still needs the wait.
+        if row.get("state") == "awake" and row.get("reason") != "starting":
             return json.dumps({"ok": True, "result": f"The {noun} is already awake."})
         ok, note = _ensure_awake(did)
         return json.dumps({"ok": True, "result": note or f"The {noun} is awake."} if ok else {"ok": False, "error": note})
@@ -135,6 +164,7 @@ def handle_computer_power(args: dict, task_id=None, **_kw) -> str:
         return json.dumps({"ok": True, "result": f"The {noun} is unlocked." if note else f"The {noun} is already unlocked."})
     out = (store.wake(did) if action == "wake" else store.let_sleep(did) if action == "sleep"
            else store.lock(did) if action == "lock" else store.unlock(did) if action == "unlock"
+           else store.restart(did) if action == "restart" else store.shutdown(did) if action == "shutdown"
            else store.keep_awake(did, action == "keep_awake_on")) or {}
     if not out.get("ok"):
         return json.dumps({"ok": False, "error": out.get("error") or f"The {noun} didn't take it."})

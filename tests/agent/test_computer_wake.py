@@ -109,3 +109,16 @@ def test_the_screen_is_turned_on_before_the_lock_check(monkeypatch):
     monkeypatch.setattr(W, "_locked", lambda did: order.append("check") or False)
     assert W.ensure_unlocked("pc", clock=lambda: 0.0, sleep=lambda s: None) == (True, "")
     assert order[:2] == ["screen", "check"]
+
+
+
+def test_sleeping_computers_includes_off(monkeypatch):
+    _rig(monkeypatch, rows=[dict(PC_ROW, state="off")])
+    rows = W.sleeping_computers()
+    assert rows and rows[0]["device_id"] == "pc" and rows[0]["off"] is True
+
+
+def test_a_starting_pc_is_waited_for(monkeypatch):
+    store, clock, sleep = _rig(monkeypatch, up_after=10, rows=[dict(PC_ROW, state="awake", reason="starting")])
+    ok, note = W.ensure_awake("pc", clock=clock, sleep=sleep)
+    assert ok is True and "awake" in note

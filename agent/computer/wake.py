@@ -49,7 +49,7 @@ def _rows() -> list:
 def sleeping_computers() -> list:
     """Paired Macs/PCs that are asleep now, as picker offers ({device_id, device_name, device_os, asleep})."""
     return [{"device_id": r["device_id"], "device_name": r.get("name") or "", "device_os": r.get("os") or "macos",
-             "name": "ui_look", "asleep": True}
+             "name": "ui_look", "asleep": True, "off": r.get("state") == "off"}
             for r in _rows() if r.get("device_id") and r.get("state") != "awake"]
 
 
@@ -62,7 +62,8 @@ def ensure_awake(device_id: str, wait_s: float = WAIT_S, *, clock: Callable[[], 
     """``(True, note)`` once the computer is up (note "" when it already was or isn't one we power), else
     ``(False, why)`` in his words."""
     row = next((r for r in _rows() if r.get("device_id") == device_id), None)
-    if row is None or row.get("state") == "awake":
+    # "starting": lit by its power button, Jarvis client not back yet — wait for it like a wake.
+    if row is None or (row.get("state") == "awake" and row.get("reason") != "starting"):
         return True, ""
     noun = "PC" if (row.get("os") or "") == "windows" else "Mac"
     try:
