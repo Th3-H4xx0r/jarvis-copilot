@@ -205,7 +205,8 @@ final class JarvisMenu: NSObject {
     @objc private func demo() { onDemo?() }
     @objc private func dashboard() { model.trayAction("dashboard") }
     @objc private func openVoiceWindow() { showVoiceWindow() }
-    @objc private func repair() { model.trayAction("repair") }
+    /// The app's own "Pair with your iPhone" screen (never jc-client's old Python window).
+    @objc private func repair() { PairWindow.show() }
     @objc private func logs() { model.trayAction("logs") }
     @objc private func restart() { model.trayAction("restart") }
 

@@ -52,6 +52,10 @@ final class AppModel {
     /// Time to ask about a newer Mac build: jc-client said hello (nil — the
     /// server address is known now) or the server pushed `app_update` (its data).
     @ObservationIgnored var onAppUpdate: (([String: Any]?) -> Void)?
+    /// jc-client says this Mac isn't paired: open "Pair with your iPhone" (PairWindow).
+    @ObservationIgnored var onNeedsPairing: (() -> Void)?
+    /// jc-client's `pair_state` broadcast, for the open pair screen.
+    @ObservationIgnored var onPairState: (([String: Any]) -> Void)?
     /// Jobs already read out: a feed sent again (a reconnect) doesn't repeat one.
     @ObservationIgnored private var spokenJobs: Set<String> = []
     @ObservationIgnored private var jobsPrune: Task<Void, Never>?
@@ -113,6 +117,7 @@ final class AppModel {
             if let codex = msg["usage_codex"] as? [String: Any], let u = MacPlanUsage(json: codex) { codexUsage = u }
             onServer = J.arr(msg["moved"]).map(MacMovedSession.init(json:))
             onAppUpdate?(nil)
+            checkPairing()
             refreshPower()
             HoloDrop.shared.serverReady()
             JcLink.shared.request(["type": "password_pending"]) { [weak self] reply in
@@ -128,6 +133,8 @@ final class AppModel {
             passwordRequests.removeAll { J.s($0["id"]) == id }
         case "password_fill":
             MacPasswordFiller.shared.handle(msg)
+        case "pair_state":
+            onPairState?(msg)
         case "power_install_done":
             installResult = msg
             refreshPower()
@@ -170,6 +177,14 @@ final class AppModel {
             }
         default:
             break
+        }
+    }
+
+    /// Every hello: an unpaired Mac opens the pair screen by itself. An older jc-client (no
+    /// `pair_status`) or a link that's down never does.
+    func checkPairing(link: PairLink = JcLink.shared) {
+        link.request(["type": "pair_status"]) { [weak self] reply in
+            if PairFlow.needsPairing(reply) { self?.onNeedsPairing?() }
         }
     }
 

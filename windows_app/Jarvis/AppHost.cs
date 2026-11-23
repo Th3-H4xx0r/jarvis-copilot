@@ -11,6 +11,7 @@ using Jarvis.Core.Input;
 using Jarvis.Core.Island;
 using Jarvis.Core.Link;
 using Jarvis.Core.Model;
+using Jarvis.Core.Pairing;
 using Jarvis.Core.Power;
 using Jarvis.Core.PowerInt;
 using Jarvis.Core.Prefs;
@@ -32,6 +33,7 @@ using Jarvis.Notes;
 using Jarvis.Flow;
 using Jarvis.Core.Flow;
 using Jarvis.Live;
+using Jarvis.Pairing;
 using Jarvis.Platform;
 using Jarvis.Recap;
 using Jarvis.Settings;
@@ -444,6 +446,63 @@ public sealed class AppHost : IAsyncDisposable
         TrayHandlers[TrayCommand.Live] = ShowLive;
         TrayHandlers[TrayCommand.Quit] = () => Application.Current.Shutdown();
         State.IslandRequested += (tab, _) => { if (tab == "recap") ShowRecap(); };
+
+        // ── QR pairing: "Pair with your iPhone" (the tray's Re-pair, Settings → General → Pair again,
+        // and by itself whenever jc-client says this PC isn't paired). Never jc-client's Python window.
+        State.PairState += m =>
+        {
+            if (J.S(m["state"]) == "paired") _pairWanted = false;
+            _pairWindow?.Flow.Handle(m);
+        };
+        State.HelloReceived += () => _ = CheckPairingAsync();
+        TrayHandlers[TrayCommand.Repair] = () => ShowPairing();
+        GeneralPane.Extras.Add(PairingSection);
+    }
+
+    private PairWindow? _pairWindow;
+    /// jc-client isn't paired but the screen couldn't show yet (a fullscreen game was in front).
+    private bool _pairWanted;
+
+    /// jc-client said hello: if it says it isn't paired, the pair screen opens by itself.
+    private async Task CheckPairingAsync()
+    {
+        using var probe = new PairFlow(Link, Time);
+        _pairWanted = PairFlow.NeedsPairing(await probe.CheckAsync());
+        if (_pairWanted) ShowPairing(auto: true);
+    }
+
+    /// The "Pair with your iPhone" screen. On its own (`auto`) it waits while a game is in front
+    /// (OnPresentationMaybeChanged brings it up after) and never stacks a second one.
+    public void ShowPairing(bool auto = false)
+    {
+        if (_pairWindow is { } open)
+        {
+            if (!auto) open.Activate();
+            return;
+        }
+        if (auto && !Gate.CanPresent) return;
+        _pairWanted = false;
+        var window = new PairWindow(new PairFlow(Link, Time));
+        window.Closed += (_, _) => { if (ReferenceEquals(_pairWindow, window)) _pairWindow = null; };
+        _pairWindow = window;
+        window.Show();
+        window.Activate();
+    }
+
+    /// Settings → General → Pairing: what this PC is paired with, and Pair again (the QR screen).
+    private FrameworkElement PairingSection()
+    {
+        var line = Th.Text("…", 13, "JcSetSecondary");
+        _ = FillAsync();
+        async Task FillAsync()
+        {
+            using var probe = new PairFlow(Link, Time);
+            await probe.CheckAsync();
+            line.Text = PairFlow.Summary(probe.IsPaired, probe.Server);
+        }
+        return Pane.Group(Pane.Section("Pairing"),
+            Pane.Labeled("Jarvis server", Th.Row(10, line, Th.Button("Pair again", () => ShowPairing())),
+                "Shows a code to scan with Jarvis on your iPhone (or type one)."));
     }
 
     /// The foreground or game mode changed: everything that floats re-checks whether it may draw.
@@ -452,6 +511,7 @@ public sealed class AppHost : IAsyncDisposable
         Island.Recheck();
         Orb.Update();
         if (!Gate.CanPresent) Glow.HideGlow();
+        if (_pairWanted && Gate.CanPresent) ShowPairing(auto: true);
         _updateShareBanner?.Invoke();   // never over a fullscreen game
     }
 
@@ -706,6 +766,7 @@ public sealed class AppHost : IAsyncDisposable
             case "chat-menu": Island.Pinned = true; Island.Open(IslandTab.Chat); Dispatcher.BeginInvoke(() => _chatTab?.ShowMenu(), DispatcherPriority.Background); break;
             case "slowmo": IslandWindow.TimeScale = double.TryParse(Arg(1), System.Globalization.CultureInfo.InvariantCulture, out var k) && k >= 1 ? k : 1; break;
             case "settings": ShowSettings(rest.Length > 1 ? rest[1] : null); break;
+            case "pair": ShowPairing(); break;
             case "settings-shot": Settings.SettingsWindow.Snapshot(State, Arg(1), Arg(2)); break;
             case "encode-bench": _ = Task.Run(() => Screen.EncodeBench.Run(Arg(1))); break;
             case "stats-board": _statsWindow?.ShowBoard(Arg(1)); break;   // switches without a click (no focus taken)

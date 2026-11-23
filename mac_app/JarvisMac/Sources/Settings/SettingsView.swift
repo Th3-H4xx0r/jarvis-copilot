@@ -139,6 +139,7 @@ private struct GeneralSettings: View {
             Section("Startup") {
                 Toggle("Open Jarvis at login", isOn: $login).onChange(of: login) { _, v in Prefs.launchAtLogin = v }
             }
+            PairingSettingsSection()
         }
         .formStyle(.grouped)
     }

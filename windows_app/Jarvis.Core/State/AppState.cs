@@ -73,6 +73,8 @@ public sealed class AppState
     public event Action<GameMode>? GameModeChanged;
     /// Every hello (Holo Drop's ServerReady, the screen-share poll, the OTA check hang off it).
     public event Action? HelloReceived;
+    /// jc-client's `pair_state` broadcast, for the pair screen (PairFlow).
+    public event Action<JsonObject>? PairState;
 
     // ── link ───────────────────────────────────────────────────────────
 
@@ -139,6 +141,9 @@ public sealed class AppState
             case "holo_drop":
                 HoloFrame?.Invoke(msg);
                 break;
+            case "pair_state":
+                PairState?.Invoke(msg);
+                return;
             case "config":
                 ApprovalsOn = J.B(msg["approvals"]);
                 InstructionsOn = J.B(msg["instructions"]);

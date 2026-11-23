@@ -314,4 +314,14 @@ public class AppStateTests
         _state.Handle(Sessions(("s1", "working")));
         Assert.True(changed >= 1);
     }
+
+    [Fact]
+    public void PairState_IsPassedOnToThePairScreen()
+    {
+        JsonObject? got = null;
+        _state.PairState += m => got = m;
+        _state.Handle(new JsonObject { ["type"] = "pair_state", ["state"] = "paired", ["device_name"] = "Gaming PC" });
+        Assert.Equal("paired", J.S(got?["state"]));
+        Assert.Equal("Gaming PC", J.S(got?["device_name"]));
+    }
 }

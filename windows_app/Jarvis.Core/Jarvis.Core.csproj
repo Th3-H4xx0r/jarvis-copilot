@@ -9,4 +9,9 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Jarvis.Tests" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Private: only the app (and the tests) draw the pair QR, so they reference it themselves and
+         the updater and the camera pieces don't carry it. -->
+    <PackageReference Include="Net.Codecrete.QrCodeGenerator" PrivateAssets="all" />
+  </ItemGroup>
 </Project>

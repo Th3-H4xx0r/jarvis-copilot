@@ -179,17 +179,26 @@ public class TerminalTargetTests
 public class TrayMenuTests
 {
     [Fact]
-    public async Task TrayRepair_SendsTrayAction()
+    public async Task TrayLogs_SendsTrayAction()
     {
         var link = new FakeLink();
         var state = new AppState(link, new ManualTime());
-        await TrayMenu.RunLinkAction(TrayCommand.Repair, state)!;
         await TrayMenu.RunLinkAction(TrayCommand.Logs, state)!;
-        Assert.Equal(new[] { "repair", "logs" }, link.SentOfType("tray").Select(m => (string)m["action"]!));
+        Assert.Equal(new[] { "logs" }, link.SentOfType("tray").Select(m => (string)m["action"]!));
         Assert.Null(TrayMenu.RunLinkAction(TrayCommand.Settings, state));
         // Restart / Stop are the app's (they must work while jc-client is down, so not over the link)
         Assert.Null(TrayMenu.RunLinkAction(TrayCommand.Restart, state));
         Assert.Null(TrayMenu.RunLinkAction(TrayCommand.StopService, state));
+    }
+
+    [Fact]
+    public void TrayRepair_IsTheAppsOwnPairScreen_NotThePythonWindow()
+    {
+        var link = new FakeLink();
+        var state = new AppState(link, new ManualTime());
+        Assert.Null(TrayMenu.LinkAction(TrayCommand.Repair));
+        Assert.Null(TrayMenu.RunLinkAction(TrayCommand.Repair, state));
+        Assert.Empty(link.SentOfType("tray"));
     }
 
     [Fact]

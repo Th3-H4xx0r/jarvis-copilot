@@ -20,6 +20,8 @@
     <PackageReference Include="Microsoft.ML.OnnxRuntime" />
     <PackageReference Include="SIPSorcery" />
     <PackageReference Include="SIPSorceryMedia.Encoders" />
+    <!-- Jarvis.Core's PairQr encodes with it (private there). -->
+    <PackageReference Include="Net.Codecrete.QrCodeGenerator" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Orb\OrbShader.hlsl" LogicalName="Jarvis.OrbShader.hlsl" />

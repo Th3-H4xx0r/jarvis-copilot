@@ -40,6 +40,10 @@
   <SolidColorBrush x:Key="JcButtonSelected" Color="{StaticResource JcButtonSelectedColor}" />
   <SolidColorBrush x:Key="JcHairline" Color="{StaticResource JcHairlineColor}" />
   <SolidColorBrush x:Key="JcPrimaryText" Color="{StaticResource JcPrimaryTextColor}" />
+  <!-- The pair screen's QR (Pairing/PairWindow): black modules on white, whatever the accent is, so
+       every phone camera reads it. -->
+  <SolidColorBrush x:Key="JcQrLight" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="JcQrDark" Color="#FF000000" />
   <SolidColorBrush x:Key="JcOrange" Color="{StaticResource JcOrangeColor}" />
   <SolidColorBrush x:Key="JcOrbRed" Color="{StaticResource JcOrbRedColor}" />
   <SolidColorBrush x:Key="JcSysGreen" Color="{StaticResource JcSysGreenColor}" />

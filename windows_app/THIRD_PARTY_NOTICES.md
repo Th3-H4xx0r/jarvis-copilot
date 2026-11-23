@@ -35,3 +35,9 @@ SOFTWARE.
 Media Foundation interop used by the camera's media source and its setup tool,
 https://github.com/smourier/DirectN. Copyright (c) 2017-2026 Simon Mourier, MIT License (the
 same terms as above).
+
+## QR Code Generator for .NET (Net.Codecrete.QrCodeGenerator package)
+
+Encodes the "Pair with your iPhone" QR (Jarvis.Core/Pairing/PairQr.cs),
+https://github.com/manuelbl/QrCodeGenerator. Copyright (c) Manuel Bleichenbacher (and Project
+Nayuki, whose generator it ports), MIT License (the same terms as above).

@@ -58,6 +58,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             _ = session
         }
         model.onAppUpdate = { AppUpdater.shared.signal($0) }
+        model.onNeedsPairing = { PairWindow.show() }
+        model.onPairState = { PairWindow.handle($0) }
         model.attach()
         HoloDrop.shared.start()
         GameStreaming.shared.start()

@@ -43,10 +43,10 @@ public static class TrayMenu
         return items;
     }
 
-    /// The commands jc-client does itself (`{"type":"tray","action":…}`).
+    /// The commands jc-client does itself (`{"type":"tray","action":…}`). Re-pair is the app's own
+    /// "Pair with your iPhone" screen, never jc-client's old Python pairing window.
     public static string? LinkAction(TrayCommand c) => c switch
     {
-        TrayCommand.Repair => "repair",
         TrayCommand.Logs => "logs",
         _ => null,
     };

@@ -161,15 +161,16 @@ try {
 # 'Continue' locally: jc-client logs to stderr, and in Windows PowerShell 5.1 a redirected
 # program's stderr throws under 'Stop'.
 $Paired = & { $ErrorActionPreference = 'Continue'; (& $JcExe status 2>$null | Select-String -Pattern 'paired:\s+yes' -Quiet) }
-if ($Paired) {
-    Start-ScheduledTask -TaskPath '\JarvisCopilot\' -TaskName 'jc-client'
-    $PidFile = Join-Path $env:USERPROFILE '.jarviscopilot-client\jc-client.pid'
-    for ($i = 0; $i -lt 30 -and -not (Test-Path $PidFile); $i++) { Start-Sleep -Milliseconds 500 }
-} else {
-    Disable-ScheduledTask -TaskPath '\JarvisCopilot\' -TaskName 'jc-client' | Out-Null
-    if (-not $NoTray) { Info "Pair in the dialog; the client starts at your next sign-in (or run: jc-client start)" }
-}
-if (-not $NoTray) {
+# The service runs paired or not: unpaired, it serves the Jarvis app's QR pairing screen (jc_client/pair_listener.py).
+Start-ScheduledTask -TaskPath '\JarvisCopilot\' -TaskName 'jc-client'
+$PidFile = Join-Path $env:USERPROFILE '.jarviscopilot-client\jc-client.pid'
+for ($i = 0; $i -lt 30 -and -not (Test-Path $PidFile); $i++) { Start-Sleep -Milliseconds 500 }
+$JarvisApp = Join-Path $env:LOCALAPPDATA 'Programs\Jarvis\app\Jarvis.exe'
+if (-not $Paired -and (Test-Path $JarvisApp)) {
+    # The Jarvis app shows "Pair with your iPhone" (a QR to scan in Devices -> Add computer); no Python dialog.
+    Info "Pair from the Jarvis app: scan its QR code with your iPhone (Devices -> Add computer)"
+    $null = Start-Process -FilePath $JarvisApp
+} elseif (-not $NoTray) {
     Info "Launching tray ..."
     $null = Start-Process -WindowStyle Hidden -FilePath $JcExe -ArgumentList 'tray'
 }
@@ -177,7 +178,7 @@ if (-not $NoTray) {
 Ok "Installed at $Dir"
 Write-Host ""
 Write-Host "The tray is now running in your system tray (look for a coloured 'JC' disc)." -ForegroundColor Cyan
-Write-Host "If this is the first run, it should have opened a pairing dialog." -ForegroundColor Cyan
+Write-Host "If this is the first run, pair from the Jarvis app (QR code) or the tray's pairing dialog." -ForegroundColor Cyan
 Write-Host ""
 Write-Host "CLI:"
 Write-Host "  jc-client pair               (interactive Tk dialog)"
