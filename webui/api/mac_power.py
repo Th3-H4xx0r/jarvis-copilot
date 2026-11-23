@@ -184,6 +184,9 @@ class MacPowerStore:
             d = self.device(pc)
             prev = (d.get("light") or {}).get("light")
             d["light"] = {"light": state, "since": since, "at": now}
+            if state in ("on", "asleep"):
+                # Unwired LED pins read 0 V, the same as a dark light: trust "off" only once it has been lit.
+                d["light_trusted"] = True
             self._save()
         if prev != state:
             self._changed()
@@ -192,8 +195,9 @@ class MacPowerStore:
         """"on" | "asleep" | "off" | "unknown" (no board, board offline, or no news for LIGHT_FRESH)."""
         if not self.button_board(pc):
             return "unknown"
-        cur = (self._devices.get(pc) or {}).get("light") or {}
-        if not cur or self._clock() - float(cur.get("at") or 0) > LIGHT_FRESH:
+        rec = self._devices.get(pc) or {}
+        cur = rec.get("light") or {}
+        if not cur or not rec.get("light_trusted") or self._clock() - float(cur.get("at") or 0) > LIGHT_FRESH:
             return "unknown"
         return str(cur.get("light") or "unknown")
 
@@ -289,7 +293,8 @@ class MacPowerStore:
         else:
             return {"ok": False, "error": "Unknown power action."}
         if res.get("ok"):
-            self._update(pc, power_action_at=self._clock())
+            # Off or restarting now: drop any wake in flight (live: Force off left the card on "Waking…").
+            self._update(pc, power_action_at=self._clock(), wake_requested_at=None)
             self.on_sleeping(pc)
         return res
 

@@ -314,3 +314,25 @@ def test_sleep_fallback_skips_after_restart(tmp_path):
     rig.store._sleep = lambda s: (setattr(rig, "t", rig.t + s), rig.store.restart(PC))
     rig.store.let_sleep(PC)
     assert rig.presses() == []
+
+
+
+# ── Live 2026-11-23: Force off left "Waking…"; an unwired power light read "off" ──
+def test_force_clears_waking(tmp_path):
+    rig = asleep_pc(tmp_path, connected=(BOARD,))
+    rig.light("asleep")
+    rig.store.wake(PC)
+    assert rig.store.device(PC)["wake_requested_at"] is not None
+    rig.store.force(PC, "force_off")
+    assert rig.store.device(PC)["wake_requested_at"] is None
+    assert row(rig)["wake_requested_at"] is None
+
+
+def test_light_untrusted_until_seen_lit(tmp_path):
+    rig = asleep_pc(tmp_path, connected=(BOARD,))
+    rig.light("off")                      # LED pins not wired: 0 V reads like a dark light
+    assert rig.store.light(PC) == "unknown"
+    assert row(rig)["state"] == "sleeping"
+    rig.light("on")                       # wired: once it has been seen lit, dark means off
+    rig.light("off")
+    assert rig.store.light(PC) == "off"
