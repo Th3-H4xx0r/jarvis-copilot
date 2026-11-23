@@ -197,11 +197,17 @@ def load() -> Credentials:
     # Pull secrets from keyring first; the in-file copy is a fallback.
     cookie = _try_keyring_get() or data.get("cookie", "")
     cf_secret = _try_keyring_get_user(_KEYRING_CF_USER) or data.get("cf_client_secret", "")
-    from jc_client import boot_mode
-    if not cookie and boot_mode.is_boot():
+    if not cookie:
+        # The boot client can't read Credential Manager; and live 2026-11-23 the entry was gone after a restart
+        # even in his session. The DPAPI-machine copy keeps both online.
         copy = load_boot_copy()
         cookie = copy.get("cookie", "")
         cf_secret = cf_secret or copy.get("cf_secret", "")
+        from jc_client import boot_mode
+        if cookie and not boot_mode.is_boot():
+            _try_keyring_set(cookie)          # put it back where it belongs (his session can write it)
+            if cf_secret:
+                _try_keyring_set_user(_KEYRING_CF_USER, cf_secret)
     return Credentials(
         server_url=data.get("server_url", ""),
         lan_url=data.get("lan_url", ""),

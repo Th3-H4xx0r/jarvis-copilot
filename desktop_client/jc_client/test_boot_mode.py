@@ -183,11 +183,18 @@ def test_boot_load_falls_back_to_the_boot_copy(monkeypatch, tmp_path):
     assert creds.cookie == "cookie-1" and creds.cf_client_secret == "secret-1" and creds.paired
 
 
-def test_normal_load_ignores_the_boot_copy(monkeypatch, tmp_path):
+def test_normal_load_falls_back_to_the_copy_too(monkeypatch, tmp_path):
+    # Live 2026-11-23: after a restart Credential Manager had lost the session even in his own session, and the
+    # client sat on "reconnecting". The copy keeps it online, and the session goes back into Credential Manager.
     C = _creds_rig(monkeypatch, tmp_path)
-    C.save_boot_copy(C.Credentials(cookie="cookie-1"))
+    C.save_boot_copy(C.Credentials(cookie="cookie-1", cf_client_secret="secret-1"))
+    put = []
+    monkeypatch.setattr(C, "_try_keyring_set", lambda v: put.append(("session", v)) or True)
+    monkeypatch.setattr(C, "_try_keyring_set_user", lambda u, v: put.append((u, v)) or True)
     monkeypatch.delenv(boot_mode.ENV, raising=False)
-    assert C.load().cookie == ""
+    creds = C.load()
+    assert creds.cookie == "cookie-1" and creds.paired
+    assert ("session", "cookie-1") in put
 
 
 def test_refresh_boot_copy_only_when_paired(monkeypatch, tmp_path):
