@@ -110,6 +110,9 @@ def _mac_locked() -> bool:
 def screen_locked() -> dict:
     # Live 2026-11-20: woken from sleep, the PC sat at its lock screen and nothing noticed; the server checks this
     # before driving the screen, and unlocks first (agent/computer/wake.py ensure_unlocked).
+    from jc_client import boot_mode
+    if boot_mode.is_boot():
+        return {"locked": True, "signed_out": True}   # the boot client runs only while nobody is signed in
     if sys.platform == "win32":
         # Windows' session state first (live 2026-11-20: the input-desktop check said "unlocked" on a locked PC).
         locked = session_locked()

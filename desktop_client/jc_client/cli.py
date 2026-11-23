@@ -37,6 +37,8 @@ log = logging.getLogger(__name__)
 
 PID_FILE = state_dir() / "jc-client.pid"
 TRAY_PID_FILE = state_dir() / "jc-client-tray.pid"
+# The boot instance (jc_client/boot_mode.py): runs before he signs in, from the \\JarvisCopilot\\jc-client-boot task.
+BOOT_PID_FILE = state_dir() / "jc-client-boot.pid"
 
 
 # ── PID file helpers ──────────────────────────────────────────────────────
@@ -332,7 +334,12 @@ def cmd_start(args) -> int:
     is loaded, then open the menubar tray. If no supervisor is
     installed, runs the service in a background thread via the tray."""
     # Headless mode: explicit, used by LaunchAgent/systemd themselves.
+    if getattr(args, "no_tray", False) and getattr(args, "boot", False):
+        return _start_boot(args)
     if getattr(args, "no_tray", False):
+        # A boot instance may still hold the link from before he signed in: take over from it.
+        from jc_client import boot_mode
+        boot_mode.stop_boot_instance(BOOT_PID_FILE, is_running=_is_running, kill=_kill_boot)
         pid = _read_pid()
         if pid and _is_running(pid):
             print(f"already running (pid {pid})", file=sys.stderr)
@@ -421,6 +428,38 @@ def cmd_start(args) -> int:
     finally:
         try:
             PID_FILE.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _kill_boot(pid: int) -> None:
+    os.kill(pid, signal.SIGTERM)   # TerminateProcess on Windows
+
+
+def _start_boot(args) -> int:
+    """Before sign-in (jc_client/boot_mode.py): hold the Jarvis link at the sign-in screen, then step aside."""
+    from jc_client import boot_mode
+    os.environ[boot_mode.ENV] = "1"
+    if boot_mode.user_signed_in():
+        return 0                      # he's signed in: the normal client runs in his session
+    pid = _read_pid()
+    if pid and _is_running(pid):
+        return 0                      # the normal client is up (e.g. right after a sign-out)
+    try:
+        other = int(BOOT_PID_FILE.read_text().strip())
+    except (OSError, ValueError):
+        other = 0
+    if other and other != os.getpid() and _is_running(other):
+        print(f"boot instance already running (pid {other})", file=sys.stderr)
+        return 1
+    BOOT_PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+    BOOT_PID_FILE.write_text(str(os.getpid()))
+    boot_mode.watch(BOOT_PID_FILE)
+    try:
+        return service.run(verbose=args.verbose)
+    finally:
+        try:
+            BOOT_PID_FILE.unlink()
         except FileNotFoundError:
             pass
 
@@ -1253,6 +1292,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Headless: run only the service, no menubar icon "
              "(used by the LaunchAgent / systemd unit)",
+    )
+    start.add_argument(
+        "--boot",
+        action="store_true",
+        help="Windows: the pre-sign-in instance (the jc-client-boot task); exits once he signs in",
     )
     start.set_defaults(func=cmd_start)
 

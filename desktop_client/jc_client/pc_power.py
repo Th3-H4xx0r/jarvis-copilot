@@ -384,7 +384,9 @@ class PcPower:
         battery, on_ac = self._battery()
         with self._state_lock:
             keep = self._keep
-        return {"os": "windows", "state": "awake", "held": keep, "reason": "manual" if keep else "",
+        from jc_client import boot_mode
+        reason = "signed_out" if boot_mode.is_boot() else "manual" if keep else ""   # at the sign-in screen (boot)
+        return {"os": "windows", "state": "awake", "held": keep, "reason": reason,
                 "keep_awake": keep, "timer_on": bool(getattr(self.power, "timer_on", False)), "battery": battery, "on_ac": on_ac, "lid": None,
                 "wifi_mac": mac, "wifi_ip": self._lan_ip(), "wake": dict(wake),
                 "button_action": self._button_action(), **self._app()}
@@ -470,6 +472,13 @@ class PcPower:
         """password_fill to the Jarvis app (broadcast); it answers with password_fill_result.
         An approved IT command skips the app: admin_run goes to the elevated helper (which checks his
         signature itself), pc_run runs here, unelevated."""
+        from jc_client import boot_mode
+        if boot_mode.is_boot() and msg.get("type") == "password_fill":
+            # Before sign-in there's no Jarvis app: the JarvisUnlock service checks his approval and signs him in.
+            from jc_client import helper_pipe
+            fields = {k: msg[k] for k in ("kind", "context", "nonce", "proof", "grant", "device") if k in msg}
+            out = helper_pipe.signin(fields, timeout) or {}
+            return {"ok": True} if out.get("ok") else {"ok": False, "error": str(out.get("error") or "Sign-in failed")}
         if msg.get("type") == "admin_run":
             from jc_client import helper_pipe
             proof = msg.get("proof") or {}

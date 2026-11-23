@@ -962,6 +962,9 @@ class Service:
         # supports it accumulates. Older servers (no append support) end
         # up with only the last chunk's skills — degraded but not broken.
         manifest = skills.all_manifest(disabled=creds.skills_disabled)
+        from jc_client import boot_mode
+        if boot_mode.is_boot():
+            manifest = boot_mode.filter_manifest(manifest)   # before sign-in: no desktop skills
         chunks = _chunk_manifest(manifest, max_bytes=6 * 1024)
         for i, chunk in enumerate(chunks):
             frame = {"type": "register", "skills": chunk}

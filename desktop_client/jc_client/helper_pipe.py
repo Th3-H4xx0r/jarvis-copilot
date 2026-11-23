@@ -50,11 +50,25 @@ def _read_line(pipe, timeout: float):
 
 def admin_run(command: str, nonce: str, ts, signature: str, timeout_s: int, *, opener=None,
               connect_wait_s: float = 5.0, start_helper: Optional[Callable[[], bool]] = None) -> dict:
+    return _request({"admin_run": {"command": command, "nonce": nonce, "ts": ts, "signature": signature,
+                                   "timeout_s": int(timeout_s)}}, timeout_s, opener=opener,
+                    connect_wait_s=connect_wait_s, start_helper=start_helper)
+
+
+def signin(msg: dict, timeout_s: float, *, opener=None, connect_wait_s: float = 5.0,
+           start_helper: Optional[Callable[[], bool]] = None) -> dict:
+    """Before sign-in (jc_client/boot_mode.py): the helper checks his Face ID approval (or unlock permission)
+    itself and types its own copy of his password on the sign-in screen."""
+    return _request({"signin": msg}, timeout_s, opener=opener, connect_wait_s=connect_wait_s,
+                    start_helper=start_helper)
+
+
+def _request(obj: dict, timeout_s, *, opener=None, connect_wait_s: float = 5.0,
+             start_helper: Optional[Callable[[], bool]] = None) -> dict:
     opener = opener or _open_pipe
     start_helper = start_helper or _start_service
     started = False
-    line = json.dumps({"admin_run": {"command": command, "nonce": nonce, "ts": ts, "signature": signature,
-                                     "timeout_s": int(timeout_s)}}) + "\n"
+    line = json.dumps(obj) + "\n"
     deadline = time.monotonic() + connect_wait_s
     while True:
         try:
