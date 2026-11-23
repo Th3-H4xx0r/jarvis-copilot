@@ -58,7 +58,7 @@ python3 "$MG" settings --clip-length 60 --video-mode 1080p60
 
 | Skill | Arguments | What it does |
 |---|---|---|
-| `meta_glasses_status` | — | `battery_percent`, `charging`, `worn`, `folded`, `in_case`, `in_range`, `heat`, `camera_unavailable_because`, `storage_free_gb`, `photos_on_glasses`, `videos_on_glasses`, `streaming`, `recording_seconds`, `volume`, `video_mode`, `clip_length_seconds`. |
+| `meta_glasses_status` | — | `battery_percent`, `charging`, `worn`, `folded`, `in_case`, `in_range`, `heat`, `camera_unavailable_because`, `storage_free_gb`, `photos_on_glasses`, `videos_on_glasses`, `streaming`, `recording_seconds`, `volume`, `video_mode`, `clip_length_seconds`, `phone_call` (`none`/`ringing`/`active`; never who's calling, and there is no call tool: he answers on the glasses). |
 | `meta_glasses_photo` | `question`, `confirm: true` | A still from the glasses camera (what the wearer sees), returned as an image for vision; the full 12 MP stays on the glasses. |
 | `meta_glasses_look` | — | Whether the camera can capture now and why not; while live streaming, the current frame as an image. |
 | `meta_glasses_video` | `action`: `record` (default) \| `start` \| `stop` \| `toggle`; `seconds` (1–180); `confirm: true` to start | `record` waits for an N-second clip; `start` returns at once and records until `stop` or the clip length; `toggle` starts or stops (one ring button). Capped by the clip length setting; `stopped_early` says why one ended early. |
@@ -91,6 +91,8 @@ below 10 % battery; the wake word and assistant need them worn.
    and heat.
 
 ## Pitfalls
+
+- **On a call** (`phone_call` is `ringing` or `active`): the glasses' mic and speakers belong to the call, so don't speak through them or start a live view; answering and rejecting are his (double-tap / hold on the glasses, or "Hey Meta, answer").
 
 - **`confirm: true` is required** for `meta_glasses_photo` and `meta_glasses_video`. It's the
   owner's rule for the camera. Only pass it when the wearer asked for a photo or clip (or asked
