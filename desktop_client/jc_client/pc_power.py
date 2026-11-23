@@ -108,7 +108,7 @@ _WIFI_PS = (
 
 def _run(argv: list, timeout: float = 15.0) -> str:
     try:
-        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
+        return subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=timeout,
                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout or ""
     except (OSError, subprocess.SubprocessError):
         return ""
@@ -523,10 +523,12 @@ class PcPower:
         if change.get("lock") and not stale:
             self._lock()
         # Clean restart / shutdown from the card or Jarvis (the power button board is for frozen PCs).
+        if change.get("restart") or change.get("shutdown"):
+            log.info("pc power: %s from the card (stale=%s)", "restart" if change.get("restart") else "shutdown", stale)
         if change.get("restart") and not stale:
-            self._run(["shutdown", "/r", "/t", "0"])
+            log.info("pc power: shutdown /r -> %r", (self._run(["shutdown", "/r", "/t", "0"]) or "")[:300])
         if change.get("shutdown") and not stale:
-            self._run(["shutdown", "/s", "/t", "0"])
+            log.info("pc power: shutdown /s -> %r", (self._run(["shutdown", "/s", "/t", "0"]) or "")[:300])
 
     def ui_request(self, req: dict) -> dict:
         kind = req.get("type")
