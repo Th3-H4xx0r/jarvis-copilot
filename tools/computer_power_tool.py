@@ -49,6 +49,52 @@ _PC_WORDS = re.compile(r"\b(?:pc|windows|desktop|gaming\s*pc|computer)\b", re.I)
 _MAC_WORDS = re.compile(r"\b(?:mac|macbook|laptop)\b", re.I)
 
 
+# computer_do → here: a power request worded at the computer itself (live 2026-11-23: "Can you shut down my PC
+# now?" by voice went to computer_do, which drove the PC's screen and tried to open Terminal).
+_TARGET = r"(?:the\s+|my\s+|your\s+|this\s+)?(?:windows\s+|gaming\s+)?(?P<obj>pc|computer|desktop|macbook|mac)\b"
+_INTENTS = (
+    ("shutdown", re.compile(r"\b(?:shut\s*down|power\s*(?:off|down)|turn\s*off)\s+" + _TARGET, re.I)),
+    ("shutdown", re.compile(r"\b(?:shut|power|turn)\s+" + _TARGET + r"\s+(?:down|off)\b", re.I)),
+    ("restart", re.compile(r"\b(?:restart|reboot)\s+" + _TARGET, re.I)),
+    ("sleep", re.compile(r"\bput\s+" + _TARGET + r"\s+to\s+sleep\b", re.I)),
+    ("sleep", re.compile(r"\bsleep\s+" + _TARGET, re.I)),
+    ("lock", re.compile(r"\block\s+" + _TARGET, re.I)),
+)
+_NOT = re.compile(r"\b(?:don'?t|do\s+not|never|without|instead\s+of)\b", re.I)
+
+
+def power_intent(text):
+    """(action, 'pc' | 'mac' | 'computer') when the words ask for a power action on the computer itself, else None."""
+    text = str(text or "")
+    if _NOT.search(text):
+        return None
+    for action, rx in _INTENTS:
+        m = rx.search(text)
+        if m:
+            obj = m.group("obj").lower()
+            kind = "mac" if obj.startswith("mac") else "computer" if obj == "computer" else "pc"
+            if action in ("restart", "shutdown") and _FORCE.search(text):
+                action = "force_restart" if action == "restart" else "force_off"
+            return action, kind
+    return None
+
+
+def hand_over(goal, computer, task_id, chat_os):
+    """computer_do's power requests come here (its result), or None to let the fast hands do it. chat_os() is
+    the chat's computer ("windows" / "macos"), asked only for a bare "my computer"."""
+    intent = power_intent(goal)
+    if not intent:
+        return None
+    action, kind = intent
+    if kind == "computer":
+        want = str(computer or "")
+        kind = ("mac" if _MAC_WORDS.search(want) else "pc" if _PC_WORDS.search(want)
+                else "mac" if chat_os() == "macos" else "pc")
+    if kind == "mac" and action != "sleep":
+        return None   # the Mac's restart / shutdown / lock aren't this tool's
+    return handle_computer_power({"computer": "Mac" if kind == "mac" else "PC", "action": action}, task_id=task_id)
+
+
 def _store():
     from api import mac_power
     return mac_power.store()

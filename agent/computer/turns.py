@@ -153,6 +153,17 @@ def tool_result(result: _loop.Result):
     return json.dumps(payload, ensure_ascii=False)
 
 
+def _power_hand_over(goal, task_id) -> Optional[str]:
+    """computer_power's result when the words ask to shut down / restart / sleep / lock the computer, else None."""
+    try:
+        from agent.it_agent import handover
+        from tools import computer_power_tool as power
+        return power.hand_over(goal, "", task_id, lambda: handover.device_os(task_id))
+    except Exception:  # noqa: BLE001 — never block the fast hands on it
+        logger.warning("computer: power hand-over failed", exc_info=True)
+        return None
+
+
 def computer_first(agent, messages: list, user_text, task_id) -> Optional[str]:
     """Run a Route → Computer turn's fast loop before any model call.
 
@@ -167,6 +178,22 @@ def computer_first(agent, messages: list, user_text, task_id) -> Optional[str]:
     if mac_browser_gate.block_message(TOOL_NAME, task_id, {"goal": goal}):
         return None     # he took his computers back, or it's web browsing he didn't ask his computer for
     call_id = f"call_computer_{uuid.uuid4().hex[:12]}"
+    powered = _power_hand_over(goal, task_id)
+    if powered is not None:
+        # "Shut down my PC" is a power action, not clicks (live 2026-11-23: the screen loop opened Terminal).
+        messages.append({"role": "assistant", "content": "", "tool_calls": [{
+            "id": call_id, "type": "function",
+            "function": {"name": TOOL_NAME, "arguments": json.dumps({"goal": goal}, ensure_ascii=False)}}]})
+        from agent.tool_dispatch_helpers import make_tool_result_message
+        messages.append(make_tool_result_message(TOOL_NAME, powered, call_id))
+        try:
+            out = json.loads(powered)
+        except ValueError:
+            out = {}
+        if out.get("ok") and out.get("result"):
+            messages.append({"role": "assistant", "content": str(out["result"])})
+            return str(out["result"])
+        return None   # refused or failed: the node's model reads why and answers
     cb = getattr(agent, "tool_progress_callback", None)
     if cb:
         try:

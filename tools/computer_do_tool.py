@@ -59,6 +59,10 @@ def handle_computer_do(args: dict, task_id=None, **_kw):
     goal = str((args or {}).get("goal") or "").strip()
     if not goal:
         return json.dumps({"ok": False, "error": "goal is required"})
+    from tools import computer_power_tool as power
+    powered = power.hand_over(goal, (args or {}).get("computer"), task_id, lambda: handover.device_os(task_id))
+    if powered:
+        return powered   # shut down / restart / sleep / lock the computer itself → the real power path
     handed = handover.maybe_hand_over(goal, task_id)   # installs/setup on the PC → the IT agent
     if handed:
         return handed

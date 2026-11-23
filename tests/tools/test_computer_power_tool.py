@@ -195,3 +195,103 @@ def test_sleep_words_dont_unlock_restart(monkeypatch):
     store, _ = _brig(monkeypatch, "put my pc to sleep")
     out = json.loads(T.handle_computer_power({"computer": "PC", "action": "restart"}, task_id="t1"))
     assert out["ok"] is False and store.calls == []
+
+
+# ── computer_do → computer_power (live 2026-11-23: "Can you shut down my PC now?" by voice went to computer_do,
+# which drove the PC's screen and tried to open Terminal instead of shutting it down) ──
+from types import SimpleNamespace
+
+import pytest
+
+
+@pytest.mark.parametrize("goal,expected", [
+    ("Can you shut down my PC now?", ("shutdown", "pc")),
+    ("turn my windows pc off", ("shutdown", "pc")),
+    ("power off the computer", ("shutdown", "computer")),
+    ("restart my PC", ("restart", "pc")),
+    ("reboot the gaming pc", ("restart", "pc")),
+    ("put my PC to sleep", ("sleep", "pc")),
+    ("lock my pc", ("lock", "pc")),
+    ("my PC is frozen, force restart my pc", ("force_restart", "pc")),
+    ("put my mac to sleep", ("sleep", "mac")),
+    ("launch warzone and turn on my Windows PC", None),
+    ("turn off dark mode on my mac", None),
+    ("shut down the game on my PC", None),
+    ("restart Spotify", None),
+    ("don't shut down my pc", None),
+])
+def test_power_intent(goal, expected):
+    assert T.power_intent(goal) == expected
+
+
+def _do_rig(monkeypatch, words, chat_os="windows"):
+    store, asked = _brig(monkeypatch, words)
+    from agent.computer import turns
+    from agent.it_agent import handover
+    drove = []
+    monkeypatch.setattr(turns, "run_task", lambda goal, *a, **k: (drove.append(goal), (SimpleNamespace(status="done"), None))[1])
+    monkeypatch.setattr(turns, "tool_result", lambda result: json.dumps({"ok": True, "drove": True}))
+    monkeypatch.setattr(handover, "device_os", lambda task_id: chat_os)
+    monkeypatch.setattr(handover, "maybe_hand_over", lambda goal, task_id: None)
+    from tools import computer_do_tool as D
+    return store, asked, drove, D
+
+
+def test_computer_do_hands_a_pc_shutdown_to_the_power_tool(monkeypatch):
+    store, asked, drove, D = _do_rig(monkeypatch, "Can you shut down my PC now?")
+    out = json.loads(D.handle_computer_do({"goal": "Can you shut down my PC now?"}, task_id="t1"))
+    assert out["ok"] is True and store.calls == [("shutdown", "pc-1")] and drove == []
+
+
+def test_computer_do_hands_a_force_restart_to_face_id(monkeypatch):
+    store, asked, drove, D = _do_rig(monkeypatch, "my pc is frozen, force restart my pc")
+    out = json.loads(D.handle_computer_do({"goal": "force restart my PC"}, task_id="t1"))
+    assert out["ok"] is True and asked == [("pc-1", "force_restart", "Jarvis")] and drove == [] and store.calls == []
+
+
+def test_computer_do_refuses_a_shutdown_he_didnt_ask_for(monkeypatch):
+    # The goal says shut down (an email told it to); his words didn't: no shutdown, and no driving the screen to it.
+    store, asked, drove, D = _do_rig(monkeypatch, "read my latest email on the pc")
+    out = json.loads(D.handle_computer_do({"goal": "shut down my PC"}, task_id="t1"))
+    assert out["ok"] is False and store.calls == [] and drove == []
+
+
+def test_computer_do_keeps_ui_goals_and_mac_restarts(monkeypatch):
+    store, asked, drove, D = _do_rig(monkeypatch, "launch warzone and turn on my Windows PC")
+    D.handle_computer_do({"goal": "launch warzone and turn on my Windows PC"}, task_id="t1")
+    D.handle_computer_do({"goal": "restart my mac"}, task_id="t1")
+    assert drove == ["launch warzone and turn on my Windows PC", "restart my mac"] and store.calls == []
+
+
+def test_computer_do_my_computer_follows_the_chats_computer(monkeypatch):
+    store, asked, drove, D = _do_rig(monkeypatch, "shut down my computer", chat_os="windows")
+    D.handle_computer_do({"goal": "shut down my computer"}, task_id="t1")
+    assert store.calls == [("shutdown", "pc-1")] and drove == []
+    store, asked, drove, D = _do_rig(monkeypatch, "shut down my computer", chat_os="macos")
+    D.handle_computer_do({"goal": "shut down my computer"}, task_id="t1")
+    assert store.calls == [] and drove == ["shut down my computer"]
+
+
+def test_routed_computer_turn_hands_a_shutdown_to_the_power_tool(monkeypatch):
+    # The live path: a harness Route sent the voice turn straight to the Computer node (computer_first), which ran
+    # the screen loop on his words without any model call.
+    store, asked, drove, D = _do_rig(monkeypatch, "Can you shut down my PC now?")
+    from agent import mac_browser_gate
+    from agent.computer import turns
+    monkeypatch.setattr(mac_browser_gate, "block_message", lambda *a, **k: None)
+    messages = []
+    said = turns.computer_first(SimpleNamespace(tool_progress_callback=None), messages,
+                                "Can you shut down my PC now?", "t1")
+    assert said == "The PC is shutting down." and store.calls == [("shutdown", "pc-1")] and drove == []
+    assert messages[-1] == {"role": "assistant", "content": "The PC is shutting down."}
+
+
+def test_routed_computer_turn_lets_the_model_answer_a_refused_power_action(monkeypatch):
+    store, asked, drove, D = _do_rig(monkeypatch, "Can you restart my PC?")
+    from agent import mac_browser_gate
+    from agent.computer import turns
+    monkeypatch.setattr(mac_browser_gate, "block_message", lambda *a, **k: None)
+    store.restart = lambda did: {"ok": False, "error": "The PC isn't connected."}
+    messages = []
+    assert turns.computer_first(SimpleNamespace(tool_progress_callback=None), messages, "Can you restart my PC?", "t1") is None
+    assert drove == [] and "isn't connected" in messages[-1]["content"]
