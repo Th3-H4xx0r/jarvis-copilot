@@ -112,6 +112,8 @@ final class Esp32Manager: NSObject, ObservableObject {
     @Published private(set) var cloud: Esp32Protocol.CloudStatus?
     /// nil until the board answers NOTIFY_RELAY (older firmware never does).
     @Published private(set) var relay: Esp32Protocol.RelayStatus?
+    /// The PC power button role and the power light; nil until the board answers PC_ROLE (older firmware never does).
+    @Published private(set) var pcButton: Esp32Protocol.PcRoleState?
     /// What the app knows about the script it (or Jarvis, through it) last installed.
     @Published private(set) var scriptInfo: Esp32ScriptInfo?
     /// print() lines, errors and relayed Jarvis calls from the running script, newest last.
@@ -400,7 +402,7 @@ final class Esp32Manager: NSObject, ObservableObject {
         reconnectTask?.cancel(); reconnectTask = nil
         teardownLinks()
         connected = nil
-        info = nil; pins = []; pinStates = [:]; wifi = nil; ledBlinking = false; relay = nil; script = nil
+        info = nil; pins = []; pinStates = [:]; wifi = nil; ledBlinking = false; relay = nil; pcButton = nil; script = nil
         activeLink = nil
         state = .idle
     }
@@ -711,6 +713,7 @@ final class Esp32Manager: NSObject, ObservableObject {
             try? await refreshScript()
             try? await refreshCloud()
             try? await refreshRelay()
+            _ = try? await pcRole()
             scriptInfo = Esp32ScriptInfo.load(for: info.deviceID)
             let name = connected?.name ?? info.deviceID
             let peripheralID = peripheral?.identifier.uuidString
@@ -882,6 +885,32 @@ final class Esp32Manager: NSObject, ObservableObject {
             guard let n = Esp32Protocol.parseIosNotification(p) else { return }
             relayToGlasses(n)
         }
+    }
+
+    // MARK: - PC power button
+
+    /// Reads the PC power button role and the power light. Not a Jarvis skill: only this screen
+    /// switches the role, so the chat model can never take the PC's buttons.
+    @discardableResult
+    func pcRole() async throws -> Esp32Protocol.PcRoleState {
+        do {
+            guard let role = Esp32Protocol.parsePcRole(try await request(.pcRole)) else { throw Esp32Error.malformedReply }
+            pcButton = role
+            return role
+        } catch Esp32Error.status(.unknownOp) {
+            pcButton = nil  // firmware without the role
+            throw Esp32Error.status(.unknownOp)
+        }
+    }
+
+    /// Switches the role. The board saves it and restarts to apply it (its skills and reserved pins
+    /// never change mid-session); the session reconnects by itself.
+    func setPcRole(_ on: Bool) async throws {
+        guard state == .ready else { throw Esp32Error.notConnected }
+        guard let role = Esp32Protocol.parsePcRole(try await request(.pcRole, payload: [on ? 1 : 0])) else {
+            throw Esp32Error.malformedReply
+        }
+        pcButton = role
     }
 
     // MARK: - iPhone notifications → glasses

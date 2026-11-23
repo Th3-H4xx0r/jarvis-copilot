@@ -34,6 +34,8 @@ enum Esp32Protocol {
         case wifiSet = 0x40, wifiStatus = 0x41, wifiForget = 0x42, auth = 0x44, claim = 0x45, wifiScan = 0x46, resetOwner = 0x47
         case cloudSet = 0x48, cloudStatus = 0x49, cloudForget = 0x4A, cloudPause = 0x4B
         case notifyRelay = 0x4C
+        /// The PC power button role (2026-11-23): `[]` reads it, `[on]` sets it (the board restarts to apply).
+        case pcRole = 0x4D
         case scriptBegin = 0x50, scriptChunk = 0x51, scriptCommit = 0x52, scriptStop = 0x53, scriptStart = 0x54
         case scriptStatus = 0x55, scriptDelete = 0x56, jarvisResult = 0x57
     }
@@ -74,6 +76,29 @@ enum Esp32Protocol {
         let message: String
 
         static let incomingCallCategory: UInt8 = 1
+    }
+
+    /// The PC's front-panel power light, as the PC-button board reads it.
+    enum PcLight: UInt8 {
+        case unknown = 0, on, asleep, off
+
+        var label: String {
+            switch self {
+            case .unknown: return "Not settled yet"
+            case .on:      return "On"
+            case .asleep:  return "Asleep (blinking)"
+            case .off:     return "Off"
+            }
+        }
+    }
+
+    struct PcRoleState: Hashable {
+        /// "Use as PC power button" is on (GPIO 25, 26, 34 and 35 are then the PC's).
+        let on: Bool
+        let light: PcLight
+        /// Millivolts on PLED+ (GPIO 34) and PLED− (GPIO 35), for the first-run check.
+        let plusMv: Int
+        let minusMv: Int
     }
 
     enum CloudState: UInt8 {
@@ -455,6 +480,14 @@ enum Esp32Protocol {
     static func parseRelayStatus(_ p: [UInt8]) -> RelayStatus? {
         guard p.count >= 4, let state = RelayState(rawValue: p[1]) else { return nil }
         return RelayStatus(on: p[0] != 0, state: state, forwarded: Int(p[2]) << 8 | Int(p[3]))
+    }
+
+    /// PC_ROLE response: on, light, plus_mv (u16 BE), minus_mv (u16 BE). A light value this app doesn't
+    /// know reads as unknown.
+    static func parsePcRole(_ p: [UInt8]) -> PcRoleState? {
+        guard p.count >= 6 else { return nil }
+        return PcRoleState(on: p[0] != 0, light: PcLight(rawValue: p[1]) ?? .unknown,
+                           plusMv: Int(p[2]) << 8 | Int(p[3]), minusMv: Int(p[4]) << 8 | Int(p[5]))
     }
 
     /// `ios_notification` event: category, app_len, app…, title_len, title…, msg_len, msg…

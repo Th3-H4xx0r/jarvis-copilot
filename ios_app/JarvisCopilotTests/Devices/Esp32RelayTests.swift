@@ -75,3 +75,55 @@ final class Esp32NamesTests: XCTestCase {
         XCTAssertEqual(WearableNames.shared.esp32Name(id: b, fallback: "x"), "ESP32 Alarm Proxy")
     }
 }
+
+/// The PC power button role (2026-11-23): PC_ROLE (0x4D) as the firmware answers it —
+/// status, on, light, PLED+ mV (u16 BE), PLED− mV (u16 BE).
+final class Esp32PcRoleTests: XCTestCase {
+    private func frame(_ op: UInt8, _ payload: [UInt8]) -> [UInt8] {
+        let body = [op] + payload
+        var f: [UInt8] = [Esp32Protocol.sync, UInt8(body.count)] + body
+        f.append(Esp32Protocol.crc8(f[1...]))
+        return f
+    }
+
+    func testParsePcRole() throws {
+        guard case .response(let op, let status, let p)? =
+                Esp32Protocol.decode(frame(0x4D | 0x80, [0x00, 1, 2, 0x09, 0x60, 0x00, 0x00])) else {
+            return XCTFail("not decoded as a response")
+        }
+        XCTAssertEqual(op, Esp32Protocol.Op.pcRole.rawValue)
+        XCTAssertEqual(status, .ok)
+        let role = try XCTUnwrap(Esp32Protocol.parsePcRole(p))
+        XCTAssertTrue(role.on)
+        XCTAssertEqual(role.light, .asleep)
+        XCTAssertEqual(role.plusMv, 2400)
+        XCTAssertEqual(role.minusMv, 0)
+    }
+
+    func testPcRoleOffAndUnknownLight() throws {
+        let role = try XCTUnwrap(Esp32Protocol.parsePcRole([0, 0, 0x01, 0x2C, 0x00, 0x0A]))
+        XCTAssertFalse(role.on)
+        XCTAssertEqual(role.light, .unknown)
+        XCTAssertEqual(role.plusMv, 300)
+        XCTAssertEqual(role.minusMv, 10)
+        XCTAssertEqual(Esp32Protocol.parsePcRole([1, 9, 0, 0, 0, 0])?.light, .unknown, "a newer light value reads as unknown")
+    }
+
+    func testPcRoleRejectsAShortReply() {
+        XCTAssertNil(Esp32Protocol.parsePcRole([1, 2, 0x09, 0x60, 0x00]))
+        XCTAssertNil(Esp32Protocol.parsePcRole([]))
+    }
+
+    func testMillivoltsReadout() {
+        let role = Esp32Protocol.PcRoleState(on: true, light: .on, plusMv: 2400, minusMv: 12)
+        XCTAssertEqual(Esp32PcButtonCopy.millivolts(role), "2400 mV / 12 mV")
+        XCTAssertTrue(Esp32PcButtonCopy.footer.contains("restarts to apply"))
+    }
+
+    func testPcLightWords() {
+        XCTAssertEqual(Esp32Protocol.PcLight.on.label, "On")
+        XCTAssertEqual(Esp32Protocol.PcLight.asleep.label, "Asleep (blinking)")
+        XCTAssertEqual(Esp32Protocol.PcLight.off.label, "Off")
+        XCTAssertEqual(Esp32Protocol.PcLight.unknown.label, "Not settled yet")
+    }
+}

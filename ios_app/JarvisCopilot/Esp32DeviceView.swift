@@ -38,6 +38,7 @@ struct Esp32DeviceView: View {
                 quickActions
                 program
                 connection
+                pcPowerButton
                 pins
                 consoleCard
                 sharing
@@ -520,6 +521,50 @@ struct Esp32DeviceView: View {
         }
     }
 
+    // MARK: PC power button
+
+    /// "Use as PC power button" (2026-11-23) and, while it's on, the power light the board reads —
+    /// state plus raw millivolts for the first run. Only on firmware that knows the role.
+    @ViewBuilder private var pcPowerButton: some View {
+        if let role = manager.pcButton {
+            CardGroup("PC power button", footer: Esp32PcButtonCopy.footer) {
+                Row {
+                    Toggle("Use as PC power button", isOn: Binding(
+                        get: { role.on },
+                        set: { on in manager.perform { try await manager.setPcRole(on) } }))
+                }
+                .disabled(!ready)
+                if role.on {
+                    Row {
+                        HStack {
+                            Text("Power light")
+                            Spacer()
+                            Text(role.light.label).foregroundStyle(JcTheme.muted)
+                        }
+                    }
+                    Row {
+                        HStack {
+                            Text("PLED+ / PLED−")
+                            Spacer()
+                            Text(Esp32PcButtonCopy.millivolts(role))
+                                .font(.system(.subheadline, design: .monospaced))
+                                .foregroundStyle(JcTheme.muted)
+                        }
+                    }
+                }
+            }
+            // Live while the screen is open and the role is on: every 2 s.
+            .task(id: ready && role.on) {
+                guard ready && role.on else { return }
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(2))
+                    guard !Task.isCancelled, manager.state == .ready else { continue }
+                    _ = try? await manager.pcRole()
+                }
+            }
+        }
+    }
+
     // MARK: Sharing
 
     private var relayFooter: String {
@@ -864,5 +909,15 @@ private struct DetailRow: View {
             }
             .padding(.vertical, 8)
         }
+    }
+}
+
+/// The board screen's PC power button words, kept pure for the tests.
+enum Esp32PcButtonCopy {
+    static let footer = "Presses the PC's power and reset buttons and reads its power light (GPIO 25, 26, 34 and 35 "
+        + "are kept for it). The board restarts to apply this."
+
+    static func millivolts(_ role: Esp32Protocol.PcRoleState) -> String {
+        "\(role.plusMv) mV / \(role.minusMv) mV"
     }
 }
