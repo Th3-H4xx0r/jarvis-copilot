@@ -150,3 +150,13 @@ def test_normal_start_takes_over_from_boot(monkeypatch, tmp_path):
     class A:
         no_tray, boot, verbose = True, False, False
     assert cli.cmd_start(A()) == 0 and stops == [1]
+
+
+
+def test_boot_task_script_shape():
+    from jc_client import cli
+    ps = cli._boot_task_ps(r"C:\\Users\\krish\\AppData\\Local\\Programs\\jc-client\\.venv\\Scripts\\jc-client.exe")
+    assert "-AtStartup" in ps and "-LogonType S4U" in ps
+    assert "-TaskName 'jc-client-boot'" in ps and "-TaskPath '\\JarvisCopilot\\'" in ps
+    assert "start --no-tray --boot" in ps and "jc-client.exe" in ps
+    assert "RepetitionInterval" in ps          # the 5-minute watchdog brings it back after a crash or sign-out

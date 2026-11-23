@@ -432,6 +432,44 @@ def cmd_start(args) -> int:
             pass
 
 
+def _boot_task_ps(exe: str) -> str:
+    """PowerShell that registers \\JarvisCopilot\\jc-client-boot: at startup (+ a 5-minute watchdog), as him with
+    an S4U logon (runs before he signs in, no stored password). Needs an elevated shell."""
+    return (
+        "$ErrorActionPreference = 'Stop'; "
+        "$Me = \"$env:USERDOMAIN\\$env:USERNAME\"; "
+        f"$Action = New-ScheduledTaskAction -Execute \"$env:SystemRoot\\System32\\conhost.exe\" "
+        f"-Argument '--headless \"{exe}\" start --no-tray --boot'; "
+        "$Boot = New-ScheduledTaskTrigger -AtStartup; "
+        "$Watch = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5); "
+        "$Settings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) "
+        "-ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew; "
+        "$Principal = New-ScheduledTaskPrincipal -UserId $Me -LogonType S4U -RunLevel Limited; "
+        "Register-ScheduledTask -TaskPath '\\JarvisCopilot\\' -TaskName 'jc-client-boot' -Action $Action "
+        "-Trigger @($Boot, $Watch) -Settings $Settings -Principal $Principal -Force | Out-Null; "
+        "'registered'"
+    )
+
+
+def cmd_install_boot_task(args) -> int:
+    """Windows: run Jarvis before sign-in (jc_client/boot_mode.py). Run once from an elevated shell."""
+    if sys.platform != "win32":
+        print("only on Windows", file=sys.stderr)
+        return 1
+    import base64
+    exe = str(Path(sys.executable).parent / "jc-client.exe")
+    script = _boot_task_ps(exe)
+    enc = base64.b64encode(script.encode("utf-16-le")).decode()
+    r = subprocess.run(["powershell", "-NoProfile", "-EncodedCommand", enc], capture_output=True, text=True,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    out = (r.stdout + r.stderr).strip()
+    if r.returncode != 0 or "registered" not in out:
+        print("couldn't register the boot task (run this from an elevated shell): " + out[-400:], file=sys.stderr)
+        return 1
+    print("registered \\JarvisCopilot\\jc-client-boot (Jarvis before sign-in)")
+    return 0
+
+
 def _kill_boot(pid: int) -> None:
     os.kill(pid, signal.SIGTERM)   # TerminateProcess on Windows
 
@@ -1300,6 +1338,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     start.set_defaults(func=cmd_start)
 
+    sub.add_parser("install-boot-task", help="Windows: run Jarvis before sign-in (elevated, once)") \
+        .set_defaults(func=cmd_install_boot_task)
     sub.add_parser("stop", help="Stop the running daemon").set_defaults(func=cmd_stop)
     sub.add_parser("restart", help="Stop then re-spawn").set_defaults(func=cmd_restart)
     sub.add_parser("status", help="Show paired server + connection state").set_defaults(func=cmd_status)

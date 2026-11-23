@@ -135,6 +135,20 @@ Register-ScheduledTask -TaskPath '\JarvisCopilot\' -TaskName 'jc-client' -Action
     -Settings $Settings -Principal $Principal -Force | Out-Null
 Info "Scheduled task \JarvisCopilot\jc-client registered (logon + restart on crash)"
 
+# Jarvis before sign-in (jc_client/boot_mode.py): a second task at startup, as you with an S4U logon (no stored
+# password). Registering an S4U task needs an elevated shell; otherwise run "jc-client install-boot-task" from one.
+try {
+    $BootAction = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\conhost.exe" `
+        -Argument "--headless `"$JcExe`" start --no-tray --boot" -WorkingDirectory $Dir
+    $BootTrig  = New-ScheduledTaskTrigger -AtStartup
+    $BootPrin  = New-ScheduledTaskPrincipal -UserId $Me -LogonType S4U -RunLevel Limited
+    Register-ScheduledTask -TaskPath '\JarvisCopilot\' -TaskName 'jc-client-boot' -Action $BootAction `
+        -Trigger @($BootTrig, $Watch) -Settings $Settings -Principal $BootPrin -Force | Out-Null
+    Info "Scheduled task \JarvisCopilot\jc-client-boot registered (Jarvis before sign-in)"
+} catch {
+    Info "Jarvis before sign-in: run 'jc-client install-boot-task' once from an elevated PowerShell"
+}
+
 # Paired already: the task runs the service now, and the tray (started after its pid file
 # exists) only shows it - never a second service. Not paired: the tray's pairing dialog runs
 # the service itself this time; the task takes over from the next logon.
