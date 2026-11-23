@@ -91,6 +91,7 @@ private struct MetaTalkCard: View {
     /// The finger is down: the gesture reports every movement, so start the mic once per press.
     @State private var pressing = false
     @StateObject private var listener = MetaSimWakeListener()
+    @ObservedObject private var realCalls = MetaRealCallWatch.shared
     @AppStorage("meta.sim.listenWake") private var listenWake = false
     @State private var enrolling = false
     @State private var visible = false
@@ -153,6 +154,7 @@ private struct MetaTalkCard: View {
         .onChange(of: sim.assistantBusy) { _, _ in updateListener() }
         .onChange(of: handingOff) { _, _ in updateListener() }
         .onChange(of: sim.hw.call.isActive) { _, _ in updateListener() }
+        .onChange(of: realCalls.busy) { _, _ in updateListener() }
         .onChange(of: scenePhase) { _, _ in updateListener() }
         .sheet(isPresented: $enrolling) {
             MetaWakeEnrolmentView(phrase: "Hey Jarvis") { samples in
@@ -201,7 +203,8 @@ private struct MetaTalkCard: View {
             onScreen: visible, appActive: scenePhase == .active, switchOn: listenWake,
             enrolled: sim.wakePhrase != nil, turnRunning: runner.isRunning, pressing: pressing,
             handingOff: handingOff, capturingQuestion: sim.capturingQuestion,
-            assistantBusy: sim.assistantBusy, jarvisSpeaking: sim.hw.voiceActive, onCall: sim.hw.call.isActive)
+            assistantBusy: sim.assistantBusy, jarvisSpeaking: sim.hw.voiceActive,
+            onCall: sim.hw.call.isActive || realCalls.busy)
         if want, !listener.isListening {
             let phrase = sim.wakePhrase ?? "Hey Jarvis"
             Task { await listener.start(phrase: phrase) }

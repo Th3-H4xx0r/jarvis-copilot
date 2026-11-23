@@ -427,4 +427,20 @@ final class MetaGlassesCallSimTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(80))
         XCTAssertEqual(rig.chime.played.count, chimes)
     }
+
+    // MARK: Real calls (FaceTime crash, 2026-11-22)
+
+    func testTheWakeListenerNeverTapsAMicWithNoRateOrChannels() {
+        XCTAssertFalse(MetaSimWakeListener.micFormatUsable(sampleRate: 0, channels: 0), "a call holds the mic")
+        XCTAssertFalse(MetaSimWakeListener.micFormatUsable(sampleRate: 48_000, channels: 0))
+        XCTAssertFalse(MetaSimWakeListener.micFormatUsable(sampleRate: 0, channels: 1))
+        XCTAssertTrue(MetaSimWakeListener.micFormatUsable(sampleRate: 48_000, channels: 1))
+    }
+
+    func testARealCallKeepsTheWakeListenerOff() {
+        XCTAssertFalse(MetaSimWakeListener.shouldListen(onScreen: true, appActive: true, switchOn: true, enrolled: true,
+                                                        turnRunning: false, pressing: false, handingOff: false,
+                                                        capturingQuestion: false, assistantBusy: false, jarvisSpeaking: false,
+                                                        onCall: true))
+    }
 }

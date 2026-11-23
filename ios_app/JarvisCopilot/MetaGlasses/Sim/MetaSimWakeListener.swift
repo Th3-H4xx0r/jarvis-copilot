@@ -1,5 +1,30 @@
 import AVFoundation
+import CallKit
 import Speech
+
+/// Whether a real phone or FaceTime call is ringing or on (CallKit tells any app that much, never
+/// who). The simulator's hands-free listener stays off the mic while one is: FaceTime owns it, and
+/// starting an audio tap then crashed the app (2026-11-22, installTap on a 0 Hz input).
+@MainActor
+final class MetaRealCallWatch: NSObject, ObservableObject, CXCallObserverDelegate {
+    static let shared = MetaRealCallWatch()
+    @Published private(set) var busy = false
+    private let observer = CXCallObserver()
+
+    override init() {
+        super.init()
+        observer.setDelegate(self, queue: .main)
+        refresh()
+    }
+
+    nonisolated func callObserver(_ callObserver: CXCallObserver, callChanged call: CXCall) {
+        Task { @MainActor in self.refresh() }
+    }
+
+    private func refresh() {
+        busy = observer.calls.contains { !$0.hasEnded }
+    }
+}
 
 /// Hands-free "Hey Jarvis" for the simulated glasses: while the Sim screen is open and the switch
 /// is on, the phone mic stands in for the glasses' always-on wake detector. On-device speech
@@ -76,9 +101,19 @@ final class MetaSimWakeListener: ObservableObject {
         return await AVAudioApplication.requestRecordPermission()
     }
 
+    /// A tap on an input with no rate or channels throws an Objective-C exception (the app dies):
+    /// that's what the mic looks like while a call or another app holds it.
+    nonisolated static func micFormatUsable(sampleRate: Double, channels: UInt32) -> Bool {
+        sampleRate > 0 && channels > 0
+    }
+
     private func startEngine() throws {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
+        guard Self.micFormatUsable(sampleRate: format.sampleRate, channels: format.channelCount) else {
+            throw NSError(domain: "MetaSimWakeListener", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "the mic is busy (a call or another app). Hey Jarvis comes back after"])
+        }
         capture.configure(from: format)
         input.removeTap(onBus: 0)
         let capture = self.capture
