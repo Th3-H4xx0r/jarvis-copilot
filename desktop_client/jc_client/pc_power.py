@@ -25,6 +25,9 @@ import time
 from typing import Callable, Optional
 
 STALE_COMMAND_S = 20.0   # a Sleep/Lock older than this was queued while the PC slept
+BUTTON_ACTION_TTL = 3600.0   # Windows' power-button action, re-read hourly (powercfg is slow)
+# powercfg PBUTTONACTION index → what a short press on the case's power button does.
+_BUTTON_ACTIONS = {0: "nothing", 1: "sleep", 2: "hibernate", 3: "shutdown", 4: "display off"}
 log = logging.getLogger(__name__)
 
 ES_CONTINUOUS = 0x80000000
@@ -260,8 +263,12 @@ class PcPower:
                  spawn: Optional[Callable[..., None]] = None,
                  app_linked: Callable[[], Optional[bool]] = lambda: None,
                  api_origin: Callable[[], Optional[str]] = lambda: None, wake=None, device_id: str = "",
-                 grants=None) -> None:
+                 grants=None, run: Callable[..., str] = _run, clock: Callable[[], float] = time.monotonic) -> None:
         self._send_up = send_up
+        # The PC power button (spec 2026-11-23): clean restart/shutdown, and what a press means.
+        self._run = run
+        self._clock = clock
+        self._button_action_cache: Optional[tuple] = None
         self._origin = api_origin
         # Whether the Jarvis app is linked to jc-client (it captures Screen, answers Remote Desktop and
         # sends PC Stats): the card says so instead of "offline" when it isn't.
@@ -379,7 +386,20 @@ class PcPower:
             keep = self._keep
         return {"os": "windows", "state": "awake", "held": keep, "reason": "manual" if keep else "",
                 "keep_awake": keep, "timer_on": bool(getattr(self.power, "timer_on", False)), "battery": battery, "on_ac": on_ac, "lid": None,
-                "wifi_mac": mac, "wifi_ip": self._lan_ip(), "wake": dict(wake), **self._app()}
+                "wifi_mac": mac, "wifi_ip": self._lan_ip(), "wake": dict(wake),
+                "button_action": self._button_action(), **self._app()}
+
+    def _button_action(self) -> Optional[str]:
+        """What a short press on the power button does (the server's sleep fallback presses only for Sleep).
+        The setting is hidden, so /qh."""
+        now = self._clock()
+        if self._button_action_cache and now - self._button_action_cache[0] < BUTTON_ACTION_TTL:
+            return self._button_action_cache[1]
+        out = self._run(["powercfg", "/qh", "SCHEME_CURRENT", "SUB_BUTTONS", "PBUTTONACTION"]) or ""
+        m = re.search(r"Current AC Power Setting Index:\s*0x([0-9a-fA-F]+)", out)
+        action = _BUTTON_ACTIONS.get(int(m.group(1), 16)) if m else None
+        self._button_action_cache = (now, action)
+        return action
 
     def _app(self) -> dict:
         try:
@@ -491,6 +511,11 @@ class PcPower:
             self._suspend()   # no status report first: its "awake" undid the server's sleep mark (live)
         if change.get("lock") and not stale:
             self._lock()
+        # Clean restart / shutdown from the card or Jarvis (the power button board is for frozen PCs).
+        if change.get("restart") and not stale:
+            self._run(["shutdown", "/r", "/t", "0"])
+        if change.get("shutdown") and not stale:
+            self._run(["shutdown", "/s", "/t", "0"])
 
     def ui_request(self, req: dict) -> dict:
         kind = req.get("type")

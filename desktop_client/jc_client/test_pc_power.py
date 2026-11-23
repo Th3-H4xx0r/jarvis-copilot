@@ -31,7 +31,7 @@ def test_status_event_shape():
     ev = rig.power.status_event()
     assert ev["type"] == "event" and ev["name"] == "mac_power_status"
     assert set(ev["data"]) == {"os", "state", "held", "reason", "keep_awake", "timer_on", "battery", "on_ac",
-                               "lid", "wifi_mac", "wifi_ip", "wake"}
+                               "lid", "wifi_mac", "wifi_ip", "wake", "button_action"}
     d = ev["data"]
     assert d["os"] == "windows" and d["state"] == "awake" and d["wifi_mac"] == "aa:bb:cc:dd:ee:ff"
     assert d["wifi_ip"] == "192.168.1.80"
@@ -330,3 +330,75 @@ def test_the_reconnect_gate_budget_starts_fresh_for_each_wake():
     stop.wait = tick
     p.wait_while_quiet(stop, limit=1.5)
     assert len(budget) == 5                              # 2 ticks, a fresh budget, 3 more (3 in all without it)
+
+
+
+# ── PC power button (spec 2026-11-23): clean restart/shutdown, power-button action in the status ──
+POWERCFG = """Power Scheme GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (Balanced)
+  Subgroup GUID: 4f971e89-eebd-4455-a8de-9e59040e7347  (Power buttons and lid)
+    Power Setting GUID: 7648efa3-dd9c-4e3e-b566-50f929386280  (Power button action)
+      Possible Setting Index: 001
+      Possible Setting Friendly Name: Sleep
+    Current AC Power Setting Index: 0x00000001
+    Current DC Power Setting Index: 0x00000001
+"""
+
+
+class ButtonRig(Rig):
+    def __init__(self, powercfg=POWERCFG):
+        self.cmds, self.powercfg_calls, self.t = [], [], 1000.0
+
+        def run(argv, timeout=15.0):
+            if argv[:1] == ["powercfg"]:
+                self.powercfg_calls.append(argv)
+                return powercfg
+            self.cmds.append(argv)
+            return ""
+        self.sent, self.states, self.locks, self.suspends = [], [], [], []
+        self.power = PcPower(lambda f: self.sent.append(f) or True,
+                             set_state=lambda flags: self.states.append(flags) or 1,
+                             lock=lambda: self.locks.append(1), suspend=lambda: self.suspends.append(1),
+                             probe=lambda: pc_power.probe(lambda: DEVQUERY, lambda: WIFI),
+                             battery=lambda: (None, None), lan_ip=lambda: "192.168.1.80",
+                             run=run, clock=lambda: self.t)
+
+
+def test_status_reports_button_action():
+    rig = ButtonRig()
+    assert rig.power.status()["button_action"] == "sleep"
+
+
+def test_button_action_unknown_when_powercfg_says_nothing():
+    rig = ButtonRig(powercfg="")
+    assert rig.power.status()["button_action"] is None
+
+
+def test_button_action_cached():
+    rig = ButtonRig()
+    rig.power.status()
+    rig.power.status()
+    assert len(rig.powercfg_calls) == 1
+    rig.t += 3601
+    rig.power.status()
+    assert len(rig.powercfg_calls) == 2
+
+
+def test_restart_frame_runs_shutdown_r():
+    import time as _t
+    rig = ButtonRig()
+    rig.power.handle_frame({"type": "mac_power_set", "restart": True, "ts": _t.time()})
+    assert rig.cmds == [["shutdown", "/r", "/t", "0"]]
+
+
+def test_shutdown_frame_runs_shutdown_s():
+    import time as _t
+    rig = ButtonRig()
+    rig.power.handle_frame({"type": "mac_power_set", "shutdown": True, "ts": _t.time()})
+    assert rig.cmds == [["shutdown", "/s", "/t", "0"]]
+
+
+def test_stale_restart_dropped():
+    import time as _t
+    rig = ButtonRig()
+    rig.power.handle_frame({"type": "mac_power_set", "restart": True, "ts": _t.time() - 60})
+    assert rig.cmds == []
