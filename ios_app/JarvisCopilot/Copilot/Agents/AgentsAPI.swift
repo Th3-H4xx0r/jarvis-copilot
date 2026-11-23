@@ -183,6 +183,17 @@ struct AgentsAPI {
         _ = try await api.post("/api/coding/agents/mac/\(action)", json: body)
     }
 
+    /// `POST /api/pc-power/force {device_id, action, source}` → `{approval}`: a Face ID request for the PC's
+    /// power-button board to force restart (`force_restart`) or force off (`force_off`) the PC.
+    func pcForce(action: String, deviceId: String) async throws -> FaceIDApproval {
+        let body: [String: Any] = ["device_id": deviceId, "action": action, "source": "iPhone"]
+        let o = try await api.post("/api/pc-power/force", json: body, timeout: 20).object()
+        guard let approval = FaceIDApproval(json: CodingJSON.dict(o["approval"]) ?? [:]) else {
+            throw APIError.badResponse("the server sent no approval")
+        }
+        return approval
+    }
+
     /// `POST /api/coding/agents/mac/unlock-grant {device_id, grant}` — his signed unlock permission; a nil grant
     /// stops it (`{device_id, revoke: true}`).
     func macUnlockGrant(deviceId: String, grant: [String: Any]?) async throws {

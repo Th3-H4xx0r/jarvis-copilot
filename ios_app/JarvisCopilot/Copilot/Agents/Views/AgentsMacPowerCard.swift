@@ -14,6 +14,10 @@ struct AgentsMacPowerCard: View {
     @State private var pending: AgentsStore.MacPowerAction?
     @State private var taps = 0
     @State private var askGrant = false
+    /// What a force action's Face ID approval did ("Holding the power button for 6 seconds").
+    @State private var notice: String?
+    /// The Power menu item waiting on its confirmation.
+    @State private var confirming: AgentsStore.MacPowerAction?
 
     private var busy: Bool { store.macBusy.contains(mac.deviceId) }
     private var name: String { AgentsMacPowerCopy.cardName(mac.name, os: mac.os) }
@@ -37,6 +41,10 @@ struct AgentsMacPowerCard: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("Lists the tools you can map to buttons")
+                if let line = AgentsMacPowerCopy.powerButtonLine(mac) {
+                    // The ESP32 on the front-panel header (2026-11-23): presses power / reset, reads the light.
+                    JcRow(symbol: "power.circle", title: "Power button", subtitle: line)
+                }
                 if mac.isPC && PowerState.shared.isOn("remote-desktop") {
                     // The full RDP session (Screen stays the watch-and-steer view).
                     JcRow(symbol: "display", title: "Remote Desktop",
@@ -69,7 +77,15 @@ struct AgentsMacPowerCard: View {
                         .accessibilityHint(AgentsMacPowerCopy.keepAwakeSubtitle(on: mac.keepAwake))
                 }
                 JcRowSeparator()
-                actions
+                actions(status)
+                if let notice {
+                    Label { Text(notice) } icon: { Image(systemName: "checkmark.circle.fill") }
+                        .font(.footnote)
+                        .foregroundStyle(JcTheme.muted)
+                        .padding(.horizontal, JcUnified.cardPadding)
+                        .padding(.bottom, 14)
+                        .transition(.opacity)
+                }
                 if let error {
                     Label { Text(error) } icon: { Image(systemName: "exclamationmark.triangle.fill") }
                         .font(.footnote)
@@ -81,7 +97,13 @@ struct AgentsMacPowerCard: View {
             }
         }
         .animation(.snappy(duration: 0.25), value: error)
+        .animation(.snappy(duration: 0.25), value: notice)
         .animation(.snappy(duration: 0.25), value: mac.isAwake)
+        .task(id: notice) {
+            guard notice != nil else { return }
+            try? await Task.sleep(for: .seconds(8))
+            if !Task.isCancelled { notice = nil }
+        }
         .sensoryFeedback(.impact(weight: .light), trigger: taps)
         .sensoryFeedback(trigger: error) { _, new in new == nil ? nil : .error }
     }
@@ -195,9 +217,9 @@ struct AgentsMacPowerCard: View {
         }
     }
 
-    private var actions: some View {
+    private func actions(_ status: AgentsMacPowerCopy.Status) -> some View {
         HStack(spacing: 10) {
-            if mac.isAwake {
+            if mac.isAwake && status.tone != .waking {
                 actionButton(.letSleep, title: "Sleep", symbol: "moon.fill",
                              hint: mac.isPC ? "Puts the PC to sleep now" : "Lets the Mac go to sleep now")
                 if mac.isPC {
@@ -223,19 +245,75 @@ struct AgentsMacPowerCard: View {
                 .accessibilityHint(mac.isPC ? "Watch and control the PC's screen live"
                                             : "Watch and control the Mac's screen live")
             } else {
-                actionButton(.wake, title: AgentsMacPowerCopy.wakeTitle(os: mac.os), symbol: "power",
-                             prominent: true,
-                             hint: mac.isPC ? "Sends the PC a wake signal over Wi-Fi from your other computer"
-                                            : "Asks the Mac to wake up. It can take up to 15 minutes from deep sleep")
-                    .disabled(mac.isPC && mac.wakeCapable == false)
+                actionButton(.wake, title: AgentsMacPowerCopy.wakeTitle(os: mac.os, off: mac.isOff), symbol: "power",
+                             prominent: true, hint: AgentsMacPowerCopy.wakeHint(mac))
+                    .disabled(!AgentsMacPowerCopy.canWake(mac))
             }
+            powerMenu
         }
         .padding(.horizontal, JcUnified.cardPadding)
         .padding(.top, 14)
         .padding(.bottom, 16)
     }
 
-    private var compactRow: Bool { mac.isPC && mac.isAwake }
+    /// The PC's Power menu: Restart / Shut down (clean, while awake) and Force restart / Force off
+    /// (the power-button board, Face ID), each behind a confirmation.
+    @ViewBuilder private var powerMenu: some View {
+        let items = AgentsMacPowerCopy.powerMenu(for: mac)
+        if !items.isEmpty {
+            Menu {
+                ForEach(items.filter { !$0.isForce }, id: \.path) { item in
+                    Button { confirming = item } label: {
+                        Label(AgentsMacPowerCopy.menuTitle(item), systemImage: AgentsMacPowerCopy.menuSymbol(item))
+                    }
+                }
+                let force = items.filter(\.isForce)
+                if !force.isEmpty {
+                    Section("Frozen PC · Face ID") {
+                        ForEach(force, id: \.path) { item in
+                            Button(role: .destructive) { confirming = item } label: {
+                                Label(AgentsMacPowerCopy.menuTitle(item), systemImage: AgentsMacPowerCopy.menuSymbol(item))
+                            }
+                        }
+                    }
+                }
+            } label: {
+                let layout = compactRow ? AnyLayout(VStackLayout(spacing: 4)) : AnyLayout(HStackLayout(spacing: 7))
+                layout {
+                    if busy, let pending, items.contains(pending) {
+                        JcLoader(size: 16).foregroundStyle(JcButton.label)
+                    } else {
+                        Image(systemName: "power").font(.subheadline.weight(.semibold))
+                    }
+                    Text("Power").lineLimit(1).minimumScaleFactor(0.85)
+                        .font(compactRow ? .caption.weight(.semibold) : nil)
+                }
+                .font(.body.weight(.semibold))
+                .foregroundStyle(JcButton.label)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous), prominent: false)
+                .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .disabled(busy)
+            .opacity(busy ? JcButton.disabledOpacity : 1)
+            .accessibilityLabel("Power")
+            .accessibilityHint("Restart, shut down, or force restart or force off a frozen PC")
+            .confirmationDialog(confirming.map { "\(AgentsMacPowerCopy.menuTitle($0)) \(name)?" } ?? "",
+                                isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
+                                titleVisibility: .visible, presenting: confirming) { item in
+                Button(AgentsMacPowerCopy.menuTitle(item), role: item.isForce ? .destructive : nil) {
+                    item.isForce ? runForce(item) : run(item)
+                }
+            } message: { item in
+                Text(AgentsMacPowerCopy.confirmMessage(item))
+            }
+        }
+    }
+
+    /// An awake PC's row holds four or five buttons: icon over label so they fit.
+    private var compactRow: Bool { mac.isPC && mac.isAwake && !AgentsMacPowerCopy.isBooting(mac, now: Date()) }
 
     private func actionButton(_ action: AgentsStore.MacPowerAction, title: String, symbol: String,
                               prominent: Bool = false, hint: String) -> some View {
@@ -258,8 +336,23 @@ struct AgentsMacPowerCard: View {
         .accessibilityHint(hint)
     }
 
+    /// Force restart / Force off: the server's request, then Face ID here approves it at once.
+    private func runForce(_ action: AgentsStore.MacPowerAction) {
+        error = nil
+        notice = nil
+        pending = action
+        taps += 1
+        Task {
+            if let answer = await store.forcePower(mac, action) {
+                if answer.ok { notice = answer.text } else { error = answer.text }
+            }
+            if pending == action { pending = nil }
+        }
+    }
+
     private func run(_ action: AgentsStore.MacPowerAction) {
         error = nil
+        notice = nil
         pending = action
         taps += 1
         Task {
@@ -313,6 +406,7 @@ private struct MacStatusDot: View {
             case .waking: PulsingDot(color: JcTheme.amber, size: 7)
             case .asleep: Circle().fill(JcTheme.muted).frame(width: 7, height: 7)
             case .offline: Circle().strokeBorder(JcTheme.muted, lineWidth: 1.5).frame(width: 7, height: 7)
+            case .off: Circle().fill(JcTheme.muted.opacity(0.35)).frame(width: 7, height: 7)
             }
         }
         .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
@@ -361,7 +455,7 @@ enum AgentsMacPowerCopy {
     /// "Keep awake" turns itself off after this (`mac_power.py` KEEP_AWAKE_MAX).
     static let keepAwakeHours = 12
 
-    enum Tone: Equatable { case awake, waking, asleep, offline }
+    enum Tone: Equatable { case awake, waking, asleep, offline, off }
 
     /// The card's status: the dot's tone, its word, and what follows the dot.
     struct Status: Equatable {
@@ -371,20 +465,31 @@ enum AgentsMacPowerCopy {
     }
 
     static func status(_ mac: AgentMacPower, now: Date = Date()) -> Status {
-        if mac.isAwake {
+        if mac.isAwake && !isBooting(mac, now: now) {
             return Status(tone: .awake, label: "Awake", detail: reason(mac.reason))
         }
-        if let asked = mac.wakeRequestedAt {
-            let waited = now.timeIntervalSince(asked)
-            if waited < (mac.isPC ? pcWakeExpiresAfter : wakeExpiresAfter) {
-                // Jarvis on the PC only starts after he signs in: a woken PC can sit at the sign-in screen.
-                let slow = mac.isPC ? "It may be at the sign-in screen" : "up to 15 min from deep sleep"
-                return Status(tone: .waking, label: "Waking…", detail: waited > slowWakeAfter ? slow : nil)
-            }
+        if let waited = waitedForWake(mac, now: now) {
+            // Jarvis on the PC only starts after he signs in: a woken PC can sit at the sign-in screen.
+            let slow = mac.isPC ? "It may be at the sign-in screen" : "up to 15 min from deep sleep"
+            return Status(tone: .waking, label: "Waking…", detail: waited > slowWakeAfter ? slow : nil)
         }
+        let seen = mac.seenAt.map { "last seen \(ago($0, now: now))" }
+        if mac.isOff { return Status(tone: .off, label: "Off", detail: seen) }
         let asleep = mac.state == .sleeping
-        return Status(tone: asleep ? .asleep : .offline, label: asleep ? "Asleep" : "Offline",
-                      detail: mac.seenAt.map { "last seen \(ago($0, now: now))" })
+        return Status(tone: asleep ? .asleep : .offline, label: asleep ? "Asleep" : "Offline", detail: seen)
+    }
+
+    /// How long ago a still-live wake was asked for; nil when none is.
+    static func waitedForWake(_ mac: AgentMacPower, now: Date) -> TimeInterval? {
+        guard let asked = mac.wakeRequestedAt else { return nil }
+        let waited = now.timeIntervalSince(asked)
+        return waited < (mac.isPC ? pcWakeExpiresAfter : wakeExpiresAfter) ? waited : nil
+    }
+
+    /// The PC's power light is on but jc-client hasn't reported yet, right after a wake: it's still
+    /// "Waking…" (and offers Wake, which won't press again), so Sleep isn't the next tap.
+    static func isBooting(_ mac: AgentMacPower, now: Date) -> Bool {
+        mac.isAwake && mac.reason == "starting" && waitedForWake(mac, now: now) != nil
     }
 
     /// "Awake · Claude is working", "Asleep · last seen 5 min ago", "Waking…".
@@ -401,6 +506,7 @@ enum AgentsMacPowerCopy {
         case "grace": return "A session just finished"
         case "remote": return "Woken from iPhone"
         case "password": return "Waiting for a password"
+        case "starting": return "Jarvis isn't connected yet"   // power light on, jc-client not in yet
         default: return nil
         }
     }
@@ -422,8 +528,68 @@ enum AgentsMacPowerCopy {
         }
     }
 
-    /// "Wake Mac" / "Wake PC".
-    static func wakeTitle(os: String) -> String { os == "windows" ? "Wake PC" : "Wake Mac" }
+    /// "Wake Mac" / "Wake PC"; "Turn on PC" when it's shut down.
+    static func wakeTitle(os: String, off: Bool = false) -> String {
+        guard os == "windows" else { return "Wake Mac" }
+        return off ? "Turn on PC" : "Wake PC"
+    }
+
+    /// What Wake / Turn on does, for VoiceOver.
+    static func wakeHint(_ mac: AgentMacPower) -> String {
+        guard mac.isPC else { return "Asks the Mac to wake up. It can take up to 15 minutes from deep sleep" }
+        if mac.buttonReady { return "Presses the PC's power button" }
+        return "Sends the PC a wake signal over Wi-Fi from your other computer"
+    }
+
+    /// Wake can do something: the Mac always tries; a PC needs its power-button board online or a
+    /// Wi-Fi adapter that can be woken.
+    static func canWake(_ mac: AgentMacPower) -> Bool {
+        !(mac.isPC && mac.wakeCapable == false) || mac.buttonReady
+    }
+
+    /// The PC's "Power button" row: nil with no board linked (none, or two to choose from).
+    static func powerButtonLine(_ mac: AgentMacPower) -> String? {
+        guard let button = mac.powerButton, button.linked else { return nil }
+        return button.connected ? "Connected" : "Offline · using Wi-Fi wake"
+    }
+
+    /// The PC's Power menu, in order: a clean Restart / Shut down while it's awake (jc-client runs
+    /// them), and the board's Force restart / Force off whenever the board is online. Empty for the
+    /// Mac, and for a PC with nothing to offer.
+    static func powerMenu(for mac: AgentMacPower) -> [AgentsStore.MacPowerAction] {
+        guard mac.isPC else { return [] }
+        var out: [AgentsStore.MacPowerAction] = mac.isAwake ? [.restart, .shutdown] : []
+        if mac.buttonReady { out += [.forceRestart, .forceOff] }
+        return out
+    }
+
+    static func menuTitle(_ action: AgentsStore.MacPowerAction) -> String {
+        switch action {
+        case .restart: return "Restart"
+        case .shutdown: return "Shut down"
+        case .forceRestart: return "Force restart"
+        case .forceOff: return "Force off"
+        default: return ""
+        }
+    }
+
+    static func menuSymbol(_ action: AgentsStore.MacPowerAction) -> String {
+        switch action {
+        case .restart, .forceRestart: return "arrow.clockwise"
+        default: return "power"
+        }
+    }
+
+    /// The confirmation under "Force off Pranav-Desktop?" and the others.
+    static func confirmMessage(_ action: AgentsStore.MacPowerAction) -> String {
+        switch action {
+        case .restart: return "Windows restarts it now. Save open work first."
+        case .shutdown: return "Windows shuts it down now. Save open work first."
+        case .forceRestart: return "Presses the PC's reset button. Anything unsaved is lost. Only for a frozen PC. Face ID next."
+        case .forceOff: return "Holds the PC's power button for 6 seconds. Anything unsaved is lost. Only for a frozen PC. Face ID next."
+        default: return ""
+        }
+    }
 
     /// jc-client up, the Jarvis app gone: Screen, Remote Desktop and PC Stats need it.
     static let appDownLine = "The Jarvis app isn't running on this PC · open it there"
@@ -437,6 +603,7 @@ enum AgentsMacPowerCopy {
 
     /// The PC's ⋯ line about waking it.
     static func wakeLine(_ mac: AgentMacPower) -> String {
+        if mac.buttonReady { return "Wakes with its power button · Wi-Fi as the backup" }
         switch mac.wakeCapable {
         case .some(true): return "Wakes over Wi-Fi from your other computer"
         case .some(false): return mac.wakeReason ?? "This PC's Wi-Fi adapter can't be woken remotely"

@@ -307,7 +307,11 @@ final class AgentsStore {
     enum MacPowerAction: Equatable {
         case wake, letSleep, unlock, lock
         case keepAwake(Bool), timer(Bool)
+        /// The PC only (2026-11-23): a clean restart / shut down by jc-client, and the power-button
+        /// board's force restart (reset) / force off (6 s hold), which need his Face ID.
+        case restart, shutdown, forceRestart, forceOff
 
+        /// `/api/coding/agents/mac/<path>`; for a force action, the `action` of `POST /api/pc-power/force`.
         var path: String {
             switch self {
             case .wake: return "wake"
@@ -316,8 +320,15 @@ final class AgentsStore {
             case .lock: return "lock"
             case .keepAwake: return "keep-awake"
             case .timer: return "timer"
+            case .restart: return "restart"
+            case .shutdown: return "shutdown"
+            case .forceRestart: return "force_restart"
+            case .forceOff: return "force_off"
             }
         }
+
+        /// Goes through a Face ID approval (`FaceIDApprovals.pcPower`), not the Agents route.
+        var isForce: Bool { self == .forceRestart || self == .forceOff }
 
         var on: Bool? {
             switch self {
@@ -339,8 +350,12 @@ final class AgentsStore {
             case .wake: list?.mac[i].wakeRequestedAt = Date()
             case .keepAwake(let on): list?.mac[i].keepAwake = on
             case .timer(let on): list?.mac[i].timerOn = on
-            case .letSleep, .unlock, .lock: break
+            case .letSleep, .unlock, .lock, .restart, .shutdown, .forceRestart, .forceOff: break
             }
+        }
+        if action.isForce {
+            guard let answer = await forcePower(mac, action) else { return nil }
+            return answer.ok ? nil : answer.text
         }
         macBusy.insert(mac.deviceId)
         defer { macBusy.remove(mac.deviceId) }
@@ -353,6 +368,29 @@ final class AgentsStore {
             await refresh()
             return message
         }
+    }
+
+    /// Force restart / Force off: the server makes a Face ID request and his Face ID here approves it
+    /// at once (his tap plus Face ID is the approval; the server checks the signature). Nil when he
+    /// cancelled Face ID — the request is withdrawn — else the answer to show.
+    func forcePower(_ mac: AgentMacPower, _ action: MacPowerAction,
+                    approvals: FaceIDApprovals? = nil) async -> FaceIDApprovals.Answer? {
+        guard action.isForce else { return nil }
+        let approvals = approvals ?? .pcPower
+        macBusy.insert(mac.deviceId)
+        defer { macBusy.remove(mac.deviceId) }
+        let approval: FaceIDApproval
+        do {
+            approval = try await api.pcForce(action: action.path, deviceId: mac.deviceId)
+        } catch {
+            return FaceIDApprovals.Answer(text: apiErrorMessage(error), ok: false)
+        }
+        guard let answer = await approvals.approve(approval) else {
+            await approvals.deny(approval)
+            return nil
+        }
+        await refresh()
+        return answer
     }
 
     /// Allow (Face ID, then the signed yes) or Deny a Mac password prompt. Nil

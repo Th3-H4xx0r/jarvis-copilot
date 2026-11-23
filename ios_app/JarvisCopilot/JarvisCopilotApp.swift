@@ -65,6 +65,8 @@ struct JarvisCopilotApp: App {
                     FaceIDApprovals.power.scenePhaseChanged(to: phase)
                     // And run-as-admin requests from his Windows PC.
                     FaceIDApprovals.pcAdmin.scenePhaseChanged(to: phase)
+                    // And force restart / force off of the PC asked for on the web or by Jarvis.
+                    FaceIDApprovals.pcPower.scenePhaseChanged(to: phase)
                     if phase == .active { Task { await PowerState.shared.refresh() } }
                     // The share sheet's "Save to Vault" uploads with the paired server's credentials.
                     if phase == .active { VaultSession.shareServerChanged(); VaultTemp.clearAtLaunch() }

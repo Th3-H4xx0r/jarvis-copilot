@@ -71,6 +71,8 @@ final class FaceIDApprovals: ObservableObject {
     static let power = FaceIDApprovals(domain: PowerApprovalDomain())
     /// Run-as-admin requests from his Windows PC (PcAdminApprovals.swift).
     static let pcAdmin = FaceIDApprovals(domain: PcAdminApprovalDomain())
+    /// Force restart / force off of his PC through its power-button board (PcPowerApprovals.swift).
+    static let pcPower = FaceIDApprovals(domain: PcPowerApprovalDomain())
 
     struct Answer: Equatable {
         let text: String
@@ -121,11 +123,15 @@ final class FaceIDApprovals: ObservableObject {
         updateWindow()
     }
 
-    func approve(_ approval: FaceIDApproval) async {
-        guard !working else { return }
+    /// Face ID, then the signed yes. The answer it showed; nil when nothing was answered (he
+    /// cancelled Face ID, or another answer was already running).
+    @discardableResult
+    func approve(_ approval: FaceIDApproval) async -> Answer? {
+        guard !working else { return nil }
         guard let title = domain.title(for: approval) else {
-            await finish(approval, Answer(text: "Jarvis asked for something this app doesn't approve.", ok: false))
-            return
+            let refused = Answer(text: "Jarvis asked for something this app doesn't approve.", ok: false)
+            await finish(approval, refused)
+            return refused
         }
         working = true
         let result: Answer
@@ -135,7 +141,7 @@ final class FaceIDApprovals: ObservableObject {
             result = try await domain.approve(approval, proof: proof)
         } catch CarSignError.cancelled {
             working = false   // still waiting: he can try again or deny
-            return
+            return nil
         } catch {
             if case .http(403, _)? = error as? APIError { approver.forgetRegistration() }
             result = Answer(text: apiErrorMessage(error), ok: false)
@@ -144,6 +150,7 @@ final class FaceIDApprovals: ObservableObject {
         await finish(approval, result)
         await domain.answered()
         await refresh()
+        return result
     }
 
     func deny(_ approval: FaceIDApproval) async {

@@ -178,7 +178,27 @@ struct AgentSleepCard: Equatable {
 /// from `webui/api/mac_power.py`): awake or not, what holds it up, the
 /// keep-awake and timer switches, and a pending wake.
 struct AgentMacPower: Identifiable, Equatable {
-    enum State: String, Equatable { case awake, sleeping, offline }
+    /// `off`: shut down, read from the PC's power light by its power-button board (2026-11-23).
+    enum State: String, Equatable { case awake, sleeping, offline, off }
+
+    /// The ESP32 on the PC's front-panel header that presses power / reset and reads the power light
+    /// (`power_button` on a PC row; nil from a server without it).
+    struct PowerButton: Equatable {
+        /// A board is linked to this PC (none, or two to choose from: false).
+        let linked: Bool
+        /// That board is online now, so it can press.
+        let connected: Bool
+        let name: String
+        /// "on", "asleep", "off" or "unknown".
+        let light: String
+
+        init(json: [String: Any]) {
+            linked = CodingJSON.bool(json["linked"])
+            connected = CodingJSON.bool(json["connected"])
+            name = CodingJSON.text(json["name"])
+            light = CodingJSON.str(json["light"]) ?? "unknown"
+        }
+    }
 
     let deviceId: String
     let name: String
@@ -208,8 +228,13 @@ struct AgentMacPower: Identifiable, Equatable {
     let appRunning: Bool?
     /// Until when Jarvis may unlock it without his Face ID (his signed permission; nil = Face ID each time).
     let unlockGrantUntil: Date?
+    /// The PC's power-button board, when the server has one to report.
+    let powerButton: PowerButton?
 
     var isPC: Bool { os == "windows" }
+    var isOff: Bool { state == .off }
+    /// A linked board that's online: it can press the PC's buttons right now.
+    var buttonReady: Bool { powerButton.map { $0.linked && $0.connected } ?? false }
 
     var id: String { deviceId }
     var isAwake: Bool { state == .awake }
@@ -234,6 +259,7 @@ struct AgentMacPower: Identifiable, Equatable {
         appRunning = json["app_running"] is NSNumber ? CodingJSON.bool(json["app_running"]) : nil
         unlockGrantUntil = CodingJSON.double(json["unlock_grant_until"])
             .flatMap { $0 > 0 ? Date(timeIntervalSince1970: $0) : nil }
+        powerButton = CodingJSON.dict(json["power_button"]).map(PowerButton.init(json:))
     }
 }
 

@@ -73,6 +73,25 @@ final class ComputerToolsTests: XCTestCase {
         XCTAssertNil(ComputerPowerAction.wake.unavailable(ServerComputer(os: "macos", awake: false), name: "Mac"))
     }
 
+    /// The PC power button (2026-11-23): the server presses it first, so Wake isn't blocked by a
+    /// Wi-Fi adapter that can't wake the PC while the board is linked and online.
+    func testThePowerButtonUnblocksWakeOnAPcItsWiFiCantWake() {
+        func pc(linked: Bool, connected: Bool) -> AgentMacPower {
+            AgentMacPower(json: ["device_id": "pc-1", "name": "PC", "os": "windows", "state": "sleeping",
+                                 "wake_capable": false, "wake_reason": "This Wi-Fi adapter can't wake the PC",
+                                 "power_button": ["linked": linked, "connected": connected, "name": "PC Button",
+                                                  "light": "asleep"]])
+        }
+        let ready = ServerComputer(pc(linked: true, connected: true))
+        XCTAssertTrue(ready.buttonReady)
+        XCTAssertNil(ComputerPowerAction.wake.unavailable(ready, name: "PC"))
+        XCTAssertEqual(ComputerPowerAction.wake.unavailable(ServerComputer(pc(linked: true, connected: false)), name: "PC"),
+                       "This Wi-Fi adapter can't wake the PC", "an offline board can't press")
+        XCTAssertNotNil(ComputerPowerAction.wake.unavailable(ServerComputer(pc(linked: false, connected: true)), name: "PC"))
+        XCTAssertEqual(ComputerPowerAction.sleep.unavailable(ready, name: "PC"), "PC is asleep — wake it first",
+                       "the button changes Wake only")
+    }
+
     func testPowerActionsMapToTheCardsServerCalls() {
         for action in ComputerPowerAction.allCases {
             XCTAssertEqual(ComputerPowerAction(skill: action.skill), action)

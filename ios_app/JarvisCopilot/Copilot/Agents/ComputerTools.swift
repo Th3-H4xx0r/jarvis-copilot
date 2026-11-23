@@ -78,11 +78,14 @@ enum ComputerPowerAction: String, CaseIterable, Identifiable {
     }
 
     /// Why it can't run right now, or nil. Everything but Wake needs the computer awake; Wake
-    /// needs a PC whose Wi-Fi adapter can be woken.
+    /// needs a PC whose Wi-Fi adapter can be woken, or its power-button board online (the server
+    /// presses the button first).
     func unavailable(_ c: ServerComputer, name: String) -> String? {
         switch self {
         case .wake:
-            if c.isPC, c.wakeCapable == false { return c.wakeReason ?? "This PC's Wi-Fi adapter can't be woken remotely" }
+            if c.isPC, c.wakeCapable == false, !c.buttonReady {
+                return c.wakeReason ?? "This PC's Wi-Fi adapter can't be woken remotely"
+            }
             return nil
         case .remoteDesktop:
             return nil   // asleep → the session offers Wake
@@ -98,18 +101,22 @@ struct ServerComputer: Equatable {
     let awake: Bool
     var wakeCapable: Bool? = nil
     var wakeReason: String? = nil
+    /// The PC's power-button board is linked and online (`AgentMacPower.buttonReady`).
+    var buttonReady = false
 
     var isPC: Bool { os == "windows" }
 
-    init(os: String, awake: Bool, wakeCapable: Bool? = nil, wakeReason: String? = nil) {
+    init(os: String, awake: Bool, wakeCapable: Bool? = nil, wakeReason: String? = nil, buttonReady: Bool = false) {
         self.os = os
         self.awake = awake
         self.wakeCapable = wakeCapable
         self.wakeReason = wakeReason
+        self.buttonReady = buttonReady
     }
 
     init(_ mac: AgentMacPower) {
-        self.init(os: mac.os, awake: mac.isAwake, wakeCapable: mac.wakeCapable, wakeReason: mac.wakeReason)
+        self.init(os: mac.os, awake: mac.isAwake, wakeCapable: mac.wakeCapable, wakeReason: mac.wakeReason,
+                  buttonReady: mac.buttonReady)
     }
 }
 
