@@ -320,6 +320,12 @@ class Service:
 
     def _ui_request(self, req: dict) -> dict:
         kind = req.get("type")
+        from jc_client.pair_listener import PairController
+        if kind in PairController.KINDS:
+            # QR pairing from the Jarvis app (works while unpaired: the local link starts first).
+            if getattr(self, "_pair_ctl", None) is None:
+                self._pair_ctl = PairController(self._ui_broadcast)
+            return self._pair_ctl.handle(req)
         if self._power is not None:
             ui_requests = getattr(self._power, "UI_REQUESTS", None)   # PcPower on Windows
             if ui_requests is None:

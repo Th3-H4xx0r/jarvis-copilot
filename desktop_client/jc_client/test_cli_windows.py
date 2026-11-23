@@ -72,7 +72,8 @@ def test_headless_pair_sends_the_cloudflare_token(monkeypatch):
 
         def post_json(self, path, body):
             raise RuntimeError("stop here")
-    monkeypatch.setattr(cli, "HttpClient", FakeClient)
+    from jc_client import protocol
+    monkeypatch.setattr(protocol, "HttpClient", FakeClient)   # the claim lives in pair_listener now
     monkeypatch.setenv("JC_CF_CLIENT_ID", "cid")
     monkeypatch.setenv("JC_CF_CLIENT_SECRET", "csec")
     args = types.SimpleNamespace(server="https://x", code="ABC-123", name="pc", cf_id=None, cf_secret=None)

@@ -293,38 +293,17 @@ def _pair_headless(url: str, code: str, name: str | None,
                    cf_id: str = "", cf_secret: str = "") -> int:
     name = name or socket.gethostname()
     log.info("pairing %s with %s", url, name)
-    try:
-        # Behind Cloudflare Access the claim needs the service token, or it 302s to the SSO login
-        # (same as the dialog's CF fields).
-        client = HttpClient(url, expected_fingerprint="", cf_client_id=cf_id, cf_client_secret=cf_secret)
-        resp, fingerprint = client.post_json(
-            "/api/auth/pair/claim", {"code": code, "name": name}
-        )
-    except Exception as exc:
-        print(f"pair failed: {exc}", file=sys.stderr)
-        return 1
-    if resp.status != 200 or not resp.cookie:
-        err = resp.json().get("error") if resp.body else None
-        print(f"pair failed: HTTP {resp.status} — {err or 'unknown'}", file=sys.stderr)
+    # The same claim the QR hand-off uses (jc_client/pair_listener.py); behind Cloudflare Access it needs the
+    # service token, or the claim 302s to the SSO login.
+    from jc_client import pair_listener
+    out = pair_listener.claim(url, code, name, cf_id, cf_secret)
+    if not out.get("ok"):
+        print(f"pair failed: {out.get('error')}", file=sys.stderr)
         return 1
     creds = credentials.load()
-    creds.server_url = url.rstrip("/")
-    creds.device_name = name
-    creds.cookie = resp.cookie
-    creds.cert_fingerprint = fingerprint
-    # Capture the Cloudflare Access service token if the tunnel returned one.
-    creds.cf_client_id, creds.cf_client_secret = cf_id, cf_secret
-    cf = resp.json().get("cf_access") if resp.body else None
-    if isinstance(cf, dict):
-        creds.cf_client_id = str(cf.get("client_id") or "")
-        creds.cf_client_secret = str(cf.get("client_secret") or "")
-    if not creds.device_id:
-        import uuid
-        creds.device_id = uuid.uuid4().hex
-    credentials.save(creds)
     print(f"Paired with {url}")
     print(f"  Device name: {name}")
-    print(f"  Cert SHA-256: {fingerprint}")
+    print(f"  Cert SHA-256: {creds.cert_fingerprint}")
     return 0
 
 

@@ -1,8 +1,26 @@
 import SwiftUI
 
-/// Full-screen camera that looks for a Jarvis device setup code.
+/// What the Devices page's one camera accepts: a Jarvis Pod's setup code, or the QR a
+/// computer's Jarvis app shows to pair it ("Pair with your iPhone").
+enum DeviceScanCode: Equatable {
+    case pod(PodSetupCode)
+    case computer(ComputerPairPayload)
+
+    static func parse(_ raw: String) -> DeviceScanCode? {
+        if let pod = PodSetupCode.parse(raw) { return .pod(pod) }
+        if let computer = ComputerPairPayload.parse(raw) { return .computer(computer) }
+        return nil
+    }
+}
+
+/// Full-screen camera that looks for a Jarvis device setup code or a computer's pairing QR.
 struct PodScanView: View {
-    let onFound: (PodSetupCode) -> Void
+    static let devicePrompt = "Point the camera at the QR code on your Jarvis device"
+    static let computerPrompt = "Point the camera at the QR code in Jarvis on your computer"
+
+    /// What the capsule asks for until something is scanned.
+    var prompt = PodScanView.devicePrompt
+    let onFound: (DeviceScanCode) -> Void
     /// Closing goes through the presenter's binding: `dismiss` from inside a camera
     /// cover didn't close it.
     let onClose: () -> Void
@@ -24,7 +42,7 @@ struct PodScanView: View {
                     .accessibilityLabel("Close")
                 }
                 Spacer()
-                Text(hint ?? scanner.failureMessage ?? "Point the camera at the QR code on your Jarvis device")
+                Text(hint ?? scanner.failureMessage ?? prompt)
                     .font(.callout.weight(.medium))
                     .foregroundStyle(JcTheme.text)
                     .multilineTextAlignment(.center)
@@ -36,11 +54,11 @@ struct PodScanView: View {
         }
         .onAppear {
             scanner.start { raw in
-                if let code = PodSetupCode.parse(raw) {
+                if let code = DeviceScanCode.parse(raw) {
                     scanner.stop()
                     onFound(code)
                 } else {
-                    hint = "That isn't a Jarvis device code"
+                    hint = "That isn't a Jarvis device or computer code"
                 }
             }
         }

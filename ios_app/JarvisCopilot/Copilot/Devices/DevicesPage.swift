@@ -25,6 +25,11 @@ struct DevicesPage: View {
     @State private var scanningForDevice = false
     @State private var setupCode: PodSetupCode?
     @State private var scannedCode: PodSetupCode?
+    /// A computer's "Pair with your iPhone" QR, scanned → its confirm sheet.
+    @State private var scannedComputer: ComputerPairPayload?
+    @State private var pairingComputer: ComputerPairPayload?
+    /// What the camera asks for: a Jarvis device from the toolbar, a computer from "Add computer".
+    @State private var scanPrompt = PodScanView.devicePrompt
     @Environment(\.horizontalSizeClass) private var sizeClass
     /// Optional so tests and previews without the shell still build the page.
     @Environment(AppRouter.self) private var router: AppRouter?
@@ -43,14 +48,20 @@ struct DevicesPage: View {
             Group {
                 switch section {
                 case .server:
-                    DevicesServerSection(store: store, header: AnyView(sectionPicker))
+                    DevicesServerSection(store: store, header: AnyView(sectionPicker), onAddComputer: {
+                        scanPrompt = PodScanView.computerPrompt
+                        scanningForDevice = true
+                    })
                         .loadErrorBanner(store.errorMessage, hasContent: !store.devices.isEmpty)
                 case .wearables:
                     ScanView(header: AnyView(sectionPicker))
                 }
             }
             .jcPageChrome("Devices") {
-                JcPageButton("qrcode.viewfinder", label: "Scan to add a device") { scanningForDevice = true }
+                JcPageButton("qrcode.viewfinder", label: "Scan to add a device") {
+                    scanPrompt = PodScanView.devicePrompt
+                    scanningForDevice = true
+                }
                 if section == .wearables {
                     NavigationLink {
                         BridgeSettingsView()
@@ -63,18 +74,28 @@ struct DevicesPage: View {
                 }
             }
         }
-        // The stepper opens once the camera cover has finished closing; presenting it
-        // mid-dismissal gets dropped.
+        // The stepper (or the computer's confirm sheet) opens once the camera cover has
+        // finished closing; presenting it mid-dismissal gets dropped.
         .fullScreenCover(isPresented: $scanningForDevice, onDismiss: {
             if let code = scannedCode {
                 scannedCode = nil
                 setupCode = code
             }
+            if let computer = scannedComputer {
+                scannedComputer = nil
+                pairingComputer = computer
+            }
         }) {
-            PodScanView(onFound: { code in
-                scannedCode = code
+            PodScanView(prompt: scanPrompt, onFound: { found in
+                switch found {
+                case .pod(let code): scannedCode = code
+                case .computer(let computer): scannedComputer = computer
+                }
                 scanningForDevice = false
             }, onClose: { scanningForDevice = false })
+        }
+        .sheet(item: $pairingComputer, onDismiss: { Task { await store.refresh() } }) { computer in
+            ComputerPairSheet(payload: computer)
         }
         .fullScreenCover(item: sizeClass == .compact ? $setupCode : .constant(nil)) { code in
             PodSetupView(code: code, onClose: { setupCode = nil }) {
@@ -117,6 +138,9 @@ struct DevicesServerSection: View {
     @Bindable var store: DevicesStore
     /// The page's Server | Wearables control, at the top of this half.
     var header: AnyView? = nil
+    /// Opens the camera for a computer's "Pair with your iPhone" QR. Nil (tests, previews)
+    /// leaves the button out.
+    var onAddComputer: (() -> Void)? = nil
 
     @State private var confirming: DevicesConfirmation?
     @State private var pairing = false
@@ -176,8 +200,16 @@ struct DevicesServerSection: View {
                     // whole problem was competing colours, and the brand sweep
                     // under three grey cards reads as a candy bar. The solid pill
                     // is the reference's style for the single commit action.
-                    BlueButton(store.isEmpty ? "Pair a device" : "Pair another device") {
-                        pairing = true
+                    VStack(spacing: 10) {
+                        BlueButton(store.isEmpty ? "Pair a device" : "Pair another device") {
+                            pairing = true
+                        }
+                        // Grey, not a second white button: "Pair another device" stays the
+                        // screen's one main action.
+                        if let onAddComputer {
+                            GlassButton(title: "Add computer", symbol: "desktopcomputer", ghost: true,
+                                        full: true, action: onAddComputer)
+                        }
                     }
                 }
                 .padding(.horizontal, 16)

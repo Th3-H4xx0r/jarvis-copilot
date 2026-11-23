@@ -135,6 +135,12 @@ Register-ScheduledTask -TaskPath '\JarvisCopilot\' -TaskName 'jc-client' -Action
     -Settings $Settings -Principal $Principal -Force | Out-Null
 Info "Scheduled task \JarvisCopilot\jc-client registered (logon + restart on crash)"
 
+# QR pairing (jc_client/pair_listener.py): his iPhone hands the pairing over on port 47913, home network only.
+try {
+    New-NetFirewallRule -DisplayName 'Jarvis pairing (QR)' -Direction Inbound -Protocol TCP -LocalPort 47913 `
+        -Profile Private -Action Allow -ErrorAction Stop | Out-Null
+} catch { Info "QR pairing: allow TCP 47913 on private networks if the phone can't reach this PC" }
+
 # Jarvis before sign-in (jc_client/boot_mode.py): a second task at startup, as you with an S4U logon (no stored
 # password). Registering an S4U task needs an elevated shell; otherwise run "jc-client install-boot-task" from one.
 try {

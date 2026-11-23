@@ -24,6 +24,7 @@ dependencies = [
   "pystray>=0.19,<0.21",
   # OS-secure credential storage.
   "keyring>=24,<26",
+  "cryptography>=50.0,<51",   # QR pairing hand-off (AES-256-GCM, jc_client/pair_listener.py)
   # YAML fallback for hand-edited config files (json is the default).
   "pyyaml>=6.0,<7",
   # PC lighting: OpenRGB's SDK client (the PC drives its RGB through OpenRGB).
