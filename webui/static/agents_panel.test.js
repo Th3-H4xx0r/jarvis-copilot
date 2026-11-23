@@ -43,6 +43,7 @@ function harness() {
   const sends = [];
   const continues = [];
   const macPosts = [];
+  const pcPowerPosts = [];
   const els = {};
   const state = { list: listWith(conv()), failNextSend: true };
   const root = {
@@ -68,6 +69,10 @@ function harness() {
     if (url.startsWith('/api/coding/agents/continue')) {
       continues.push(JSON.parse(opts.body));
       return new Promise(() => {});          // still moving
+    }
+    if (url.startsWith('/api/pc-power/')) {
+      pcPowerPosts.push([url.slice('/api/pc-power/'.length), JSON.parse(opts.body)]);
+      return { ok: true, approval: { id: 'a1', command: JSON.parse(opts.body).action } };
     }
     if (url.startsWith('/api/coding/agents/mac/')) {
       macPosts.push([url.slice('/api/coding/agents/mac/'.length), JSON.parse(opts.body)]);
@@ -102,7 +107,7 @@ function harness() {
     handlers.click({ target: t });
     await settle(); await settle();
   };
-  return { window, handlers, sends, continues, macPosts, els, state, click, settle };
+  return { window, handlers, sends, continues, macPosts, pcPowerPosts, els, state, click, settle };
 }
 
 test('Retry while the Mac still sleeps keeps the message, and a later Retry sends it', async () => {
@@ -330,4 +335,59 @@ test('A Mac is still a Mac', async () => {
   assert.match(html, /title="Mac asleep"/);
   assert.match(html, /MacBook \(asleep\)/);
   assert.doesNotMatch(html, /\bPC\b/);
+});
+
+
+// ── PC power button (spec 2026-11-23) ─────────────────────────────────────────
+function pcRow(over) {
+  const now = Date.now() / 1000;
+  return Object.assign({ device_id: 'pc-1', name: 'Pranav-Desktop', state: 'awake', held: false, reason: '',
+    keep_awake: false, timer_on: true, battery: null, on_ac: null, lid: null, seen_at: now, wake_requested_at: null,
+    os: 'windows', wake_capable: false, wake_reason: 'This PC’s Wi-Fi adapter can’t be woken remotely',
+    power_button: { linked: true, connected: true, name: 'Jarvis-ESP32-A1B2', light: 'on' } }, over || {});
+}
+async function pcHarness(row) {
+  const h = harness();
+  h.els.agentsBody = { dataset: { view: 'list' } };
+  h.els.agentsListInner = { innerHTML: '', contains: () => false, querySelector: () => null };
+  h.state.list = Object.assign(listWith(conv()), { mac: [row], password_requests: [] });
+  await h.window.loadAgents();
+  return h;
+}
+
+test('A shut-down PC with a power button offers Turn on PC, even when Wi-Fi can’t wake it', async () => {
+  const h = await pcHarness(pcRow({ state: 'off', power_button: { linked: true, connected: true, name: 'b', light: 'off' } }));
+  const html = h.els.agentsListInner.innerHTML;
+  assert.match(html, /Turn on PC/);
+  assert.match(html, /agents-sleep-sub">Off\b/);
+  assert.doesNotMatch(html, /data-act="mac-wake"[^>]*disabled/);
+  await h.click({ act: 'mac-wake', device: 'pc-1' });
+  assert.deepStrictEqual(h.macPosts, [['wake', { device_id: 'pc-1' }]]);
+});
+
+test('The card says whether the power button is connected', async () => {
+  let h = await pcHarness(pcRow());
+  assert.match(h.els.agentsListInner.innerHTML, /Power button · connected/);
+  h = await pcHarness(pcRow({ state: 'sleeping', power_button: { linked: true, connected: false, name: 'b', light: 'unknown' } }));
+  assert.match(h.els.agentsListInner.innerHTML, /Power button · offline, using Wi-Fi wake/);
+});
+
+test('Restart and Shut down are clean Windows actions; Force off asks his iPhone for Face ID', async () => {
+  const h = await pcHarness(pcRow());
+  const html = h.els.agentsListInner.innerHTML;
+  assert.match(html, /data-act="pc-restart"/);
+  assert.match(html, /data-act="pc-force-off"/);
+  await h.click({ act: 'pc-restart', device: 'pc-1' });
+  await h.click({ act: 'pc-shutdown', device: 'pc-1' });
+  assert.deepStrictEqual(h.macPosts, [['restart', { device_id: 'pc-1' }], ['shutdown', { device_id: 'pc-1' }]]);
+  await h.click({ act: 'pc-force-off', device: 'pc-1' });
+  assert.deepStrictEqual(h.pcPowerPosts, [['force', { device_id: 'pc-1', action: 'force_off', source: 'Web' }]]);
+  assert.match(h.els.agentsListInner.innerHTML, /Approve on your iPhone/);
+});
+
+test('No power button: no force actions and no power button line', async () => {
+  const h = await pcHarness(pcRow({ power_button: undefined }));
+  const html = h.els.agentsListInner.innerHTML;
+  assert.doesNotMatch(html, /Power button ·/);
+  assert.doesNotMatch(html, /pc-force-/);
 });

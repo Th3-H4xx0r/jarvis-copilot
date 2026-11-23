@@ -5516,3 +5516,12 @@ textarea.harness-input{min-height:64px;resize:vertical;}
   .harness-side-panel{width:auto;overflow:visible;border-left:none;border-top:1px solid var(--border);}
   .harness-toolbar-zoom{margin-left:0;}
 }
+
+/* PC power menu (agents.js): Restart / Shut down / Force restart / Force off */
+.agents-power-menu { margin-top: 8px; }
+.agents-power-menu > summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--jc-muted, inherit); }
+.agents-power-menu > summary::-webkit-details-marker { display: none; }
+.agents-power-menu > summary::before { content: "⏻"; }
+.agents-power-menu[open] > summary { margin-bottom: 6px; }
+.agents-power-menu button[data-act^="pc-force"] { color: var(--jc-danger, #ff6b6b); }

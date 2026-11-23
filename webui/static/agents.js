@@ -597,6 +597,7 @@
   const MAC_REASONS = {
     manual: 'Keep awake on', session: 'Claude working', grace: 'Staying up after the last turn',
     remote: 'Woken from your phone', password: 'Waiting on a password',
+    starting: 'Starting up · Jarvis isn’t connected yet',
   };
   const PW_TITLES = {
     sudo: 'sudo in Claude session', admin: 'Admin password', keychain: 'Keychain access', rdp: 'Remote Desktop',
@@ -608,7 +609,7 @@
     const asked = toMs(m.wake_requested_at);
     const waited = asked ? (now - asked) / 1000 : Infinity;
     if (waited < 1200) return waited > 60 ? 'Waking… up to 15 min if it’s in deep sleep' : 'Waking…';
-    const base = m.state === 'sleeping' ? 'Asleep' : 'Offline';
+    const base = m.state === 'sleeping' ? 'Asleep' : m.state === 'off' ? 'Off' : 'Offline';
     const seen = toMs(m.seen_at);
     if (!seen) return base;
     const s = Math.max(0, (now - seen) / 1000);
@@ -629,13 +630,25 @@
     const battery = m.battery != null ? m.battery + '%' + (m.on_ac ? ' · charging' : '') : '';
     const btn = (act, label, off) => '<button type="button" class="agents-pill-btn" data-act="' + act + '" data-device="' +
       esc(m.device_id) + '"' + (busy || off ? ' disabled' : '') + '>' + label + '</button>';
-    const cantWake = pc && m.state !== 'awake' && m.wake_capable === false;
+    // The PC's power button board (spec 2026-11-23) wakes and boots it even when its Wi-Fi can't.
+    const button = pc && m.power_button && m.power_button.linked ? m.power_button : null;
+    const buttonUp = !!(button && button.connected);
+    const cantWake = pc && m.state !== 'awake' && m.wake_capable === false && !buttonUp;
+    const ready = m.state === 'awake' && m.reason !== 'starting';   // Jarvis is connected on it
+    const menu = pc ? [
+      ready ? btn('pc-restart', 'Restart') : '',
+      ready ? btn('pc-shutdown', 'Shut down') : '',
+      buttonUp ? btn('pc-force-restart', 'Force restart') : '',
+      buttonUp ? btn('pc-force-off', 'Force off') : '',
+    ].join('') : '';
     return '<div class="agents-sleep agents-mac" role="region" aria-label="' + esc(ownName(m.name, m) || deviceNoun(m)) + '">' +
       '<div class="agents-sleep-head"><b>' + esc(ownName(m.name, m) || 'Your ' + deviceNoun(m)) + '</b>' +
       (battery ? '<small>' + esc(battery) + '</small>' : '') + '</div>' +
       '<div class="agents-sleep-row agents-mac-actions"><div class="agents-sleep-main">' +
       '<span class="agents-sleep-sub">' + esc(macLine(m, Date.now())) + '</span>' +
       (cantWake ? '<span class="agents-sleep-sub">' + esc(m.wake_reason || 'This PC can’t be woken remotely') + '</span>' : '') +
+      (button ? '<span class="agents-sleep-sub">' + (buttonUp ? 'Power button · connected'
+        : 'Power button · offline, using Wi-Fi wake') + '</span>' : '') +
       // jc-client is up but the Jarvis app (Screen, Remote Desktop, PC Stats) isn't: say so, never "offline".
       (pc && m.state === 'awake' && m.app_running === false
         ? '<span class="agents-sleep-sub is-warn">The Jarvis app isn’t running on this PC · open it there</span>' : '') +
@@ -646,8 +659,12 @@
       (m.state === 'awake' && pc ? btn('mac-unlock', 'Unlock') : '') +
       // Remote Desktop (rdp.js): shown while the integration is on, asleep too ("… is asleep" + Wake)
       (pc && window.JCRdp && (!window.JCPower || window.JCPower.isOn('remote-desktop')) ? btn('rdp-open', 'Remote Desktop') : '') +
-      (m.state === 'awake' ? btn('mac-sleep', 'Let it sleep') : btn('mac-wake', 'Wake ' + deviceNoun(m), cantWake)) +
+      (m.state === 'awake' ? btn('mac-sleep', 'Let it sleep')
+        : btn('mac-wake', m.state === 'off' && pc ? 'Turn on PC' : 'Wake ' + deviceNoun(m), cantWake)) +
       '</div></div>' +
+      // Restart / Shut down (clean, through Windows) and Force restart / Force off (the real buttons, Face ID).
+      (menu ? '<details class="agents-power-menu"><summary>Power</summary><div class="agents-mac-btns">' + menu +
+        '</div></details>' : '') +
       '<div class="agents-sleep-row agents-mac-switches">' +
       macSwitch('mac-keep', m, !!m.keep_awake, 'Keep awake') +
       (pc ? '' : macSwitch('mac-timer', m, m.timer_on !== false, 'Check for wake requests while asleep')) + '</div>' +
@@ -684,12 +701,38 @@
         return true;
       }
       case 'mac-sleep': macPower('let-sleep', t.dataset.device); return true;
+      case 'pc-restart':
+        if (window.confirm && !window.confirm('Restart the PC now? Open apps close.')) return true;
+        macPower('restart', t.dataset.device); return true;
+      case 'pc-shutdown':
+        if (window.confirm && !window.confirm('Shut the PC down now? Open apps close.')) return true;
+        macPower('shutdown', t.dataset.device); return true;
+      case 'pc-force-restart': pcForce('force_restart', t.dataset.device); return true;
+      case 'pc-force-off': pcForce('force_off', t.dataset.device); return true;
       case 'mac-keep': macPower('keep-awake', t.dataset.device, !t.dataset.on); return true;
       case 'mac-timer': macPower('timer', t.dataset.device, !t.dataset.on); return true;
       default: return false;
     }
   }
   window.JCMacControls = { html: (m) => macHtml(m), act: macAct };
+  // Force restart / force off: a Face ID request on his iPhone (api/pc_power.py); nothing happens until he approves.
+  async function pcForce(action, deviceId) {
+    const key = 'mac:' + deviceId;
+    if (!deviceId || st.busy[key]) return;
+    st.busy[key] = true;
+    renderAll();
+    try {
+      await api('/api/pc-power/force', { method: 'POST',
+        body: JSON.stringify({ device_id: deviceId, action: action, source: 'Web' }) });
+      setFlash(key, 'Approve on your iPhone to ' + (action === 'force_off' ? 'force off' : 'force restart') +
+        ' the PC.', 'ok');
+    } catch (e) { setFlash(key, errText(e, 'Couldn’t ask your iPhone.'), 'error'); }
+    finally {
+      delete st.busy[key];
+      renderAll();
+    }
+  }
+
   async function macPower(action, deviceId, on) {
     const key = 'mac:' + deviceId;
     if (!deviceId || st.busy[key]) return;
