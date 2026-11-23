@@ -244,7 +244,10 @@ class MacPowerStore:
         if self._clock() - last < WAKE_REPEAT_S:
             # Still resuming from the last tap (the light isn't steady for ~3 s): one press only.
             return {"ok": True, "sent": True, "via": "power button"}
-        res = self.press(pc, "power", TAP_MS, ["asleep", "off", "unknown"])
+        # Until the LED wires are connected the board's own light reading is noise (floating pins), so
+        # its check could refuse this press at random: skip it then.
+        wired = bool((self._devices.get(pc) or {}).get("light_wired"))
+        res = self.press(pc, "power", TAP_MS, ["asleep", "off", "unknown"] if wired else ["any"])
         if not res.get("ok"):
             log.info("PC power button press didn't happen: %s", res.get("error"))
             return None

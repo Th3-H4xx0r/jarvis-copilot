@@ -365,3 +365,12 @@ def test_check_in_timer_stays_on_with_a_board(tmp_path):
     rig.store.on_status(PC, dict(PC_STATUS, timer_on=True))
     rig.store.on_set(PC, {"timer_on": True})
     assert rig.store.device(PC)["timer_on"] is True
+
+
+def test_wake_skips_the_boards_light_check_while_the_light_is_unwired(tmp_path):
+    # The board checks expect against its own reading of GPIO 34/35, which float until the LED wires
+    # are connected: a stray "on" there would refuse the wake press.
+    rig = asleep_pc(tmp_path, connected=(BOARD,))
+    rig.light("on", wired=False)
+    assert rig.store.wake(PC) == {"ok": True, "sent": True, "via": "power button"}
+    assert rig.presses()[0] == (BOARD, {"button": "power", "ms": 300, "expect": ["any"]})
