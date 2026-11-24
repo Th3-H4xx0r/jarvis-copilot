@@ -251,13 +251,6 @@ def test_restart_when_pc_offline_errors(tmp_path):
     assert out["ok"] is False and "isn't connected" in out["error"]
 
 
-def test_force_off_holds_6000(tmp_path):
-    rig = Rig(tmp_path)
-    rig.store.on_status(PC, PC_STATUS)
-    assert rig.store.force(PC, "force_off")["ok"] is True
-    assert rig.presses() == [(BOARD, {"button": "power", "ms": 6000, "expect": ["any"]})]
-
-
 def test_force_restart_presses_reset(tmp_path):
     rig = Rig(tmp_path)
     rig.store.on_status(PC, PC_STATUS)
@@ -603,3 +596,16 @@ def test_an_unlock_permission_about_to_end_reminds_him_once(tmp_path):
     rig.store.grant_reminders(notify=lambda title, body: sent.append(title))
     rig.store.grant_reminders(notify=lambda title, body: sent.append(title))
     assert len(sent) == 1 and "Unlock without Face ID" in sent[0]
+
+
+def test_force_off_resets_first_then_holds_power(tmp_path):
+    # Live test 2026-11-24: on a responsive Windows the held button put the PC to sleep within 1 s (button = Sleep)
+    # and the release woke it again: never off. Reset first, so no OS is running, then hold power: the board's
+    # 4-second override switches it off from POST, frozen or not.
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    assert rig.store.button_board(PC) == BOARD
+    out = rig.store.force(PC, "force_off")
+    assert out["ok"] is True
+    assert rig.presses() == [(BOARD, {"button": "reset", "ms": 300, "expect": ["any"]}),
+                             (BOARD, {"button": "power", "ms": 6000, "expect": ["any"]})]

@@ -38,6 +38,7 @@ BUTTON_SKILL = "esp32_pc_press"
 LIGHTS = frozenset({"on", "asleep", "off", "unknown"})
 TAP_MS = 300                   # a short press: wake / boot / Windows' power-button action (Sleep)
 FORCE_OFF_MS = 6000            # held past ~4 s the board cuts power
+FORCE_OFF_AFTER_RESET_S = 1.0  # force off = reset, this pause, then hold power (no OS left to turn it into sleep)
 GRANT_REMIND_S = 5 * 86400.0   # remind him this long before an "Unlock without Face ID" permission ends
 LIGHT_LEARN_ON = 5             # steady "on" reports while the PC is up …
 LIGHT_LEARN_DARK = 2           # … then dark/blinking once it's down: the light wires are connected
@@ -406,7 +407,13 @@ class MacPowerStore:
         if action == "force_restart":
             res = self.press(pc, "reset", TAP_MS, ["any"])
         elif action == "force_off":
-            res = self.press(pc, "power", FORCE_OFF_MS, ["any"])
+            # Live test 2026-11-24: on a responsive Windows the held button put the PC to sleep within 1 s (button =
+            # Sleep) and the release woke it again, so it never went off. Reset first, so no OS is running, then
+            # hold power: the board's 4-second override switches it off from POST, frozen or not.
+            res = self.press(pc, "reset", TAP_MS, ["any"])
+            if res.get("ok"):
+                self._sleep(FORCE_OFF_AFTER_RESET_S)
+                res = self.press(pc, "power", FORCE_OFF_MS, ["any"])
         else:
             return {"ok": False, "error": "Unknown power action."}
         if res.get("ok"):
