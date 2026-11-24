@@ -34,4 +34,12 @@ final class Esp32AddressTests: XCTestCase {
         XCTAssertNil(out[0].hostname)
         XCTAssertNil(out[0].ip)
     }
+
+    func testWifiIsTriedWithJustItsOwnNameAndAnyKey() {
+        let bare = Esp32KnownBoard(deviceID: "esp32-7c9ebd06622e", name: "PC", peripheralID: nil, hostname: nil, ip: nil)
+        XCTAssertTrue(Esp32KnownBoard.wifiReachable(bare, phoneHasAKey: true))
+        XCTAssertFalse(Esp32KnownBoard.wifiReachable(bare, phoneHasAKey: false))
+        let odd = Esp32KnownBoard(deviceID: "wifi-x", name: "X", peripheralID: nil, hostname: nil, ip: nil)
+        XCTAssertFalse(Esp32KnownBoard.wifiReachable(odd, phoneHasAKey: true))
+    }
 }

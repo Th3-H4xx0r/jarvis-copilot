@@ -65,6 +65,13 @@ extension Esp32KnownBoard {
         return hosts
     }
 
+    /// Worth trying the LAN: a name or address to reach it on, and some key of this phone's to offer (a reset board may
+    /// have taken another board's key). Live 2026-11-24: after a stale address was dropped the page went to Bluetooth,
+    /// which is off on the direct link, and never connected.
+    static func wifiReachable(_ r: Esp32KnownBoard, phoneHasAKey: Bool) -> Bool {
+        !r.lanHosts.isEmpty && phoneHasAKey
+    }
+
     /// The board a Bonjour name belongs to: by the name its id implies, else by a stored name.
     static func record(forHost host: String, in boards: [Esp32KnownBoard]) -> Esp32KnownBoard? {
         let h = host.lowercased()
@@ -393,7 +400,10 @@ final class Esp32Manager: NSObject, ObservableObject {
         let preference = Self.linkPreference(for: board.id)
         var record = board.record ?? Self.knownBoards.first { $0.deviceID == board.id }
         if let host = board.wifiHostname, record != nil, record?.hostname == nil { record?.hostname = host }
-        let wifiReady = record.map { ($0.hostname != nil || $0.ip != nil) && Self.token(for: $0.deviceID) != nil } ?? false
+        let wifiReady = record.map {
+            Esp32KnownBoard.wifiReachable($0, phoneHasAKey: Self.token(for: $0.deviceID) != nil
+                                          || Self.knownBoards.contains { Self.token(for: $0.deviceID) != nil })
+        } ?? false
 
         if record == nil && board.peripheral == nil {
             // Seen on the LAN only, never claimed by this phone: the owner key can only
@@ -752,13 +762,20 @@ final class Esp32Manager: NSObject, ObservableObject {
             let info: Esp32Protocol.BoardInfo
             if activeLink == .wifi {
                 // Over the LAN nothing is answered before AUTH, so the key comes first.
-                guard let id = connected?.record?.deviceID ?? connected?.id,
-                      let token = Self.token(for: id) else { throw Esp32Error.wifiNotSetUp }
-                var usedKey = token
-                do { _ = try await request(.auth, payload: token) }
-                catch Esp32Error.status(.unauthorized) {
-                    // A reset board may have taken another of this phone's keys (firmware 1.8 claims with the first
-                    // key it's shown on the LAN); try them before falling back to a Bluetooth claim.
+                guard let id = connected?.record?.deviceID ?? connected?.id else { throw Esp32Error.wifiNotSetUp }
+                let token = Self.token(for: id)
+                var usedKey: [UInt8]
+                if let token {
+                    usedKey = token
+                    do { _ = try await request(.auth, payload: token) }
+                    catch Esp32Error.status(.unauthorized) {
+                        // A reset board may have taken another of this phone's keys (firmware 1.8 claims with the
+                        // first key it's shown on the LAN); try them before falling back to a Bluetooth claim.
+                        guard let other = await authWithOtherKeys(excluding: id) else { throw Esp32Error.boardReset }
+                        usedKey = other
+                    }
+                } else {
+                    // No key of its own on this phone: one of its other boards' keys may be the one it holds.
                     guard let other = await authWithOtherKeys(excluding: id) else { throw Esp32Error.boardReset }
                     usedKey = other
                 }
