@@ -318,6 +318,7 @@
 		363A4DE2A2A3E7033DD2F777 /* SwipeToDelete.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98D7E647D7050F18109CFB3B /* SwipeToDelete.swift */; };
 		3682DC4CB17BE9FC7C6E4389 /* LiveSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 737FAF43B19D4790957A9044 /* LiveSettings.swift */; };
 		368489F8F770510E3866B5B8 /* JarvisPodView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA9D00957599C8C01C1BE514 /* JarvisPodView.swift */; };
+		36B405C0A2EFF07FC5463B12 /* DeviceIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 971C5DCD9D026B33AD8E16A2 /* DeviceIdentityTests.swift */; };
 		36B6B67933C55AF4852E908D /* RingInputsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AA8E2E421FAB83380A3FE75 /* RingInputsView.swift */; };
 		36D4F88F4EEDE9A8D36D4648 /* LiveCaptureActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEB46009525B50F7469CBBFA /* LiveCaptureActivity.swift */; };
 		3736E2CD7809091421A974BA /* MoreDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = 534B9F711EBE20B8085E62AF /* MoreDestination.swift */; };
@@ -1032,6 +1033,7 @@
 		B375CE098E28E861891A9751 /* LocalRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 566A186B39D80F5F0CA7266B /* LocalRouterTests.swift */; };
 		B387BACB4AF6FF702D34021D /* IMessageChatMemoriesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0EECB93A6F1DFCCC36BE946 /* IMessageChatMemoriesTests.swift */; };
 		B40C24929A940614FDDCEB44 /* DoorApprovals.swift in Sources */ = {isa = PBXBuildFile; fileRef = 807497AB969C63BAC1B273F7 /* DoorApprovals.swift */; };
+		B4292DC9F3F0FB7C9669AA6C /* DeviceMachineID.swift in Sources */ = {isa = PBXBuildFile; fileRef = 843B9E7409FCD1EEE98B39F4 /* DeviceMachineID.swift */; };
 		B42BEF4ECBACCD6F36EFFEBB /* IMessageMemoryModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77A8B0E1D2D4A7058CDD8DA1 /* IMessageMemoryModelsTests.swift */; };
 		B4672DBE761AB31389BEE8E4 /* MoreTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BE714F3A0C55A9A3FF5555C /* MoreTestSupport.swift */; };
 		B4C4F6B8F2E7BFB34C3B9D50 /* MetaCommandFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CCBCEE0391E55849DFE6F5B /* MetaCommandFeed.swift */; };
@@ -2246,6 +2248,7 @@
 		83C429F206CC9CEAC921AA8F /* RingLog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingLog.swift; sourceTree = "<group>"; };
 		83CF0665ECB98CF8EBC50223 /* CarPresence.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarPresence.swift; sourceTree = "<group>"; };
 		83D9B59BF874209D4DD6281A /* BottleSceneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottleSceneView.swift; sourceTree = "<group>"; };
+		843B9E7409FCD1EEE98B39F4 /* DeviceMachineID.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceMachineID.swift; sourceTree = "<group>"; };
 		8478042B41EA884EB0DD6242 /* LiveSpeakerSplit.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveSpeakerSplit.swift; sourceTree = "<group>"; };
 		84A6B1CEA19934B35093B41F /* LiveVoiceprint.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveVoiceprint.swift; sourceTree = "<group>"; };
 		84E1E62E93275CAC85801E97 /* JarvisHoloShare.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; name = JarvisHoloShare.entitlements; path = JarvisHoloShare/JarvisHoloShare.entitlements; sourceTree = "<group>"; };
@@ -2350,6 +2353,7 @@
 		96A22A70581DCA427A6D14AB /* IntegrationDataViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationDataViews.swift; sourceTree = "<group>"; };
 		96BE122E9B3721EF10F3EC20 /* ChatLinkGuard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatLinkGuard.swift; sourceTree = "<group>"; };
 		9711C75711CD06B21F08800F /* MemoryKeyValueStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MemoryKeyValueStore.swift; sourceTree = "<group>"; };
+		971C5DCD9D026B33AD8E16A2 /* DeviceIdentityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceIdentityTests.swift; sourceTree = "<group>"; };
 		973058C8CF49F4A4BB223A48 /* CarPlayDashcamScreens.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarPlayDashcamScreens.swift; sourceTree = "<group>"; };
 		975E31E42A842EE614B01831 /* AgentActivityRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentActivityRenderTests.swift; sourceTree = "<group>"; };
 		976C0F51D298C5C27089017A /* ButtonActivityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ButtonActivityTests.swift; sourceTree = "<group>"; };
@@ -5213,6 +5217,7 @@
 				37933DDC2D6B1FBA467514D1 /* WearableKind.swift */,
 				E7701DADDCB4F7209D0E5A72 /* FaceIDApprovals.swift */,
 				15009B6B8A3838107D3255E2 /* DevicePageParts.swift */,
+				843B9E7409FCD1EEE98B39F4 /* DeviceMachineID.swift */,
 			);
 			name = .;
 			path = .;
@@ -5288,6 +5293,7 @@
 				EFA3BCB6CFF29EA12C987E4D /* DevicesUnifiedRenderTests.swift */,
 				F6224CF81F6B0990639E7FC7 /* OnDemandWearableTests.swift */,
 				24C93E2A182EFEDE7A267535 /* ComputerPairTests.swift */,
+				971C5DCD9D026B33AD8E16A2 /* DeviceIdentityTests.swift */,
 			);
 			path = Devices;
 			sourceTree = "<group>";
@@ -6331,6 +6337,7 @@
 				091151CB22C737ED4E0D1BE5 /* GameStreamingPairTests.swift in Sources */,
 				3285D0094B3DE3585B2B7B6E /* MetaGlassesCallSimTests.swift in Sources */,
 				DFE266342FECE9C46E5CE3D1 /* ComputerPairTests.swift in Sources */,
+				36B405C0A2EFF07FC5463B12 /* DeviceIdentityTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -7323,6 +7330,7 @@
 				73EFEA3E1D74D778FA299F7C /* ComputerPairSheet.swift in Sources */,
 				C1F57C86837442150FCADD87 /* ComputerPairPayload.swift in Sources */,
 				A68E0421026CAF67D09D14D1 /* ComputerPairSeal.swift in Sources */,
+				B4292DC9F3F0FB7C9669AA6C /* DeviceMachineID.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

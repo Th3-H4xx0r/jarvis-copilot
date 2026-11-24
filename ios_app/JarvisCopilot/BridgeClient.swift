@@ -288,6 +288,18 @@ final class BridgeClient: NSObject, ObservableObject {
 
     // MARK: Pairing
 
+    /// The pairing claim. machine_id: a re-pair keeps this phone's one server record (DeviceMachineID).
+    nonisolated static func claimBody(code: String, name: String) -> [String: Any] {
+        ["code": code.trimmingCharacters(in: .whitespaces), "name": name, "machine_id": DeviceMachineID.current()]
+    }
+
+    /// The register frame: skills, notification channels and this phone's machine id.
+    nonisolated static func registerMessage(skills: [[String: Any]], channels: [[String: Any]]) -> [String: Any] {
+        var msg: [String: Any] = ["type": "register", "skills": skills, "machine_id": DeviceMachineID.current()]
+        if !channels.isEmpty { msg["notification_channels"] = channels }
+        return msg
+    }
+
     /// Claims a pairing code from JarvisCopilot and stores the resulting session.
     func pair(code: String) async throws {
         guard let base = apiBaseURL() else {
@@ -303,10 +315,7 @@ final class BridgeClient: NSObject, ObservableObject {
         for (k, v) in apiAuthHeaders() where k.hasPrefix("CF-") {
             request.setValue(v, forHTTPHeaderField: k)
         }
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "code": code.trimmingCharacters(in: .whitespaces),
-            "name": deviceLabel(),
-        ])
+        request.httpBody = try JSONSerialization.data(withJSONObject: Self.claimBody(code: code, name: deviceLabel()))
 
         let (data, response) = try await http.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -540,8 +549,7 @@ final class BridgeClient: NSObject, ObservableObject {
         guard socket != nil else { return }
         let skills = DeviceRegistry.shared.allSkills()
         let channels = DeviceRegistry.shared.notificationChannels().map { $0.wireForm }
-        var msg: [String: Any] = ["type": "register", "skills": skills]
-        if !channels.isEmpty { msg["notification_channels"] = channels }
+        let msg = Self.registerMessage(skills: skills, channels: channels)
         // Sorted keys, so the same catalogue always comes out as the same bytes.
         guard let data = try? JSONSerialization.data(withJSONObject: msg, options: [.sortedKeys]) else { return }
         // Who asked, so Settings → Battery usage can name a caller that keeps asking.

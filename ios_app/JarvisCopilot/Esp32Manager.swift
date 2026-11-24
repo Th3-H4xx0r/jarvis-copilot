@@ -69,6 +69,8 @@ enum Esp32Error: LocalizedError {
     case wifiNotSetUp
     case bluetoothOnly
     case notOwner
+    /// The board forgot its owner (a firmware update before 1.7, or a reset) and can only be claimed over Bluetooth.
+    case boardReset
     case scriptFailed(String)
     case message(String)
 
@@ -84,6 +86,7 @@ enum Esp32Error: LocalizedError {
         case .wifiNotSetUp:        return "set up Wi‑Fi over Bluetooth first"
         case .bluetoothOnly:       return "that needs the Bluetooth link"
         case .notOwner:            return "paired to another phone"
+        case .boardReset:          return "This board was reset or updated and needs claiming again: hold its BOOT button for 3 seconds. Jarvis then reconnects over Bluetooth and claims it."
         case .scriptFailed(let m): return "script: \(m)"
         case .message(let m):      return m
         }
@@ -684,7 +687,8 @@ final class Esp32Manager: NSObject, ObservableObject {
                 // Over the LAN nothing is answered before AUTH, so the key comes first.
                 guard let id = connected?.record?.deviceID ?? connected?.id,
                       let token = Self.token(for: id) else { throw Esp32Error.wifiNotSetUp }
-                _ = try await request(.auth, payload: token)
+                do { _ = try await request(.auth, payload: token) }
+                catch Esp32Error.status(.unauthorized) { throw Esp32Error.boardReset }   // it forgot us: claim over BLE
                 guard let parsed = Esp32Protocol.parsePing(try await request(.ping)) else { throw Esp32Error.malformedReply }
                 info = parsed
             } else {
@@ -739,6 +743,15 @@ final class Esp32Manager: NSObject, ObservableObject {
             let overWifi = activeLink == .wifi
             teardownLinks()
             switch error {
+            case Esp32Error.boardReset:
+                // Live 2026-11-24: a board that forgot its owner can only be claimed over Bluetooth, whatever the
+                // link preference. Leave a Bluetooth connect pending: once he holds BOOT it advertises and we claim.
+                lastError = message
+                if let board = connected, board.peripheral != nil {
+                    connectBluetooth(board)
+                } else {
+                    scheduleReconnect(message)
+                }
             case Esp32Error.notOwner, Esp32Error.protocolMismatch, Esp32Error.pairingRefused:
                 // Permanent: retrying won't help, and we shouldn't keep a session open.
                 sessionWanted = false
