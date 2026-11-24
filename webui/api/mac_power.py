@@ -165,6 +165,10 @@ class MacPowerStore:
         """A device was unpaired: drop its record (a stale PC record broke linking and Jarvis's PC pick)."""
         with self._lock:
             gone = self._devices.pop(did, None) is not None
+            for rec in self._devices.values():
+                if rec.get("button_board") == did:   # a retired board: the live one is linked next (_autolink)
+                    rec.pop("button_board", None)
+                    gone = True
             if gone:
                 self._save()
         if gone:

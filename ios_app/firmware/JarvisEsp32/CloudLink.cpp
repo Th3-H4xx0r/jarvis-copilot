@@ -267,6 +267,14 @@ bool CloudLink::http_post(const String& path, const String& json, HttpResponse& 
 
 // ───────────────────────────── Pairing ─────────────────────────────
 
+// This chip's own hardware id (its factory MAC): the same board always says the same thing, so the server keeps one
+// device record per board however often it is re-linked (2026-11-24: every re-link made a new record).
+String CloudLink::machine_id() {
+  char buf[24];
+  snprintf(buf, sizeof(buf), "esp32-%012llx", static_cast<unsigned long long>(ESP.getEfuseMac()));
+  return String(buf);
+}
+
 bool CloudLink::pair(const String& url, const String& code, const String& cf_id, const String& cf_secret, String& error) {
   String trimmed = url; trimmed.trim();
   while (trimmed.endsWith("/")) trimmed.remove(trimmed.length() - 1);
@@ -280,6 +288,7 @@ bool CloudLink::pair(const String& url, const String& code, const String& cf_id,
   JsonDocument doc;
   doc["code"] = code;
   doc["name"] = String(cfg::device_name_prefix) + " board";
+  doc["machine_id"] = machine_id();   // a re-link keeps this board's device record (server matches on it)
   String body;
   serializeJson(doc, body);
   HttpResponse res;
@@ -423,7 +432,7 @@ bool CloudLink::ws_connect() {
   rx_len_ = 0; rx_need_ = 0; rx_header_done_ = false; hdr_len_ = 0;
   last_rx_ms_ = last_ping_ms_ = millis();
   // The server answers with `hello`; we register right away rather than wait for it.
-  ws_send_text(String("{\"type\":\"register\",\"skills\":") + skills_json_ + "}");
+  ws_send_text(String("{\"type\":\"register\",\"machine_id\":\"") + machine_id() + "\",\"skills\":" + skills_json_ + "}");
   set_state(proto::CloudState::connected);
   Serial.println("[cloud] bridge up, skills registered");
   return true;

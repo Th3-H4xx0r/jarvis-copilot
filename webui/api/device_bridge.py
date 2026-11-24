@@ -1569,6 +1569,12 @@ def device_os(device_id: str) -> str:
 
 def _handle_message(conn: _DeviceConn, msg: dict) -> None:
     t = msg.get("type")
+    if t == "register" and msg.get("machine_id"):
+        try:   # one record per machine: older duplicates from re-pairs go (api/pairing.adopt_machine_id)
+            from api.pairing import adopt_machine_id
+            adopt_machine_id(conn.device_id, str(msg.get("machine_id")))
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("could not adopt machine id for %s: %s", conn.device_id, exc)
     if t == "register":
         # jc-client sends it as device.platform on the first register chunk (service.py); a
         # top-level platform is accepted too.

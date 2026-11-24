@@ -24,6 +24,11 @@ import logging
 import socket
 import sys
 import threading
+
+
+def _machine_id() -> str:
+    from jc_client.machine import machine_id
+    return machine_id()
 import time
 import uuid
 from typing import Optional
@@ -338,7 +343,8 @@ class _PairAPI:
                                 cf_client_id=cf_client_id, cf_client_secret=cf_client_secret)
             resp, fingerprint = client.post_json(
                 "/api/auth/pair/claim",
-                {"code": code, "name": device_name or socket.gethostname()},
+                {"code": code, "name": device_name or socket.gethostname(),
+                 "machine_id": _machine_id()},
             )
         except Exception as exc:
             log.exception("pair claim raised")

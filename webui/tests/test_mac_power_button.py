@@ -537,3 +537,12 @@ def test_the_guard_still_stops_a_second_press_while_booting(tmp_path):
     rig.t += 60                                  # no report yet: still booting
     rig.store.wake(PC)
     assert len(rig.presses()) == 1
+
+
+def test_forgetting_a_board_drops_its_link_so_the_live_board_takes_over(tmp_path):
+    # A retired duplicate board record must not stay linked as the PC's power button.
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    assert rig.store.button_board(PC) == BOARD
+    rig.store.forget(BOARD)
+    assert rig.store.device(PC).get("button_board") in (None, "")

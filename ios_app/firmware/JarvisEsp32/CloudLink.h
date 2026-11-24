@@ -59,6 +59,8 @@ class CloudLink {
   bool run_pending_pairing(String& error);
   void clear_pending_pairing();
 
+  /// This chip's hardware id ("esp32-<factory MAC>"), sent when pairing and registering.
+  static String machine_id();
   /// Boots into cloud mode next time (session must exist).
   void arm();
   /// Leaves cloud mode for the next boot but keeps the session. `fallback` marks a pause

@@ -98,7 +98,9 @@ def claim(server: str, code: str, name: str, cf_id: str = "", cf_secret: str = "
     name = name or socket.gethostname()
     try:
         client = HttpClient(url, expected_fingerprint="", cf_client_id=cf_id, cf_client_secret=cf_secret)
-        resp, fingerprint = client.post_json("/api/auth/pair/claim", {"code": code, "name": name})
+        from jc_client.machine import machine_id
+        resp, fingerprint = client.post_json("/api/auth/pair/claim",
+                                             {"code": code, "name": name, "machine_id": machine_id()})
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"Couldn't reach {url}: {exc}"}
     if resp.status != 200 or not resp.cookie:

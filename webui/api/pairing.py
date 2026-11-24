@@ -234,8 +234,14 @@ def cancel_pairing_code(code: str) -> bool:
         return False
 
 
+def _clean_machine_id(value) -> str:
+    """A device's stable hardware id as it sent it ("win-…", "mac-…", "esp32-…"); "" when absent or odd."""
+    v = str(value or "").strip().lower()
+    return v if 6 <= len(v) <= 64 and all(c.isalnum() or c in "-_" for c in v) else ""
+
+
 def claim_pairing_code(code: str, *, device_name: str = "",
-                       device_ip: str = "", user_agent: str = "") -> Optional[str]:
+                       device_ip: str = "", user_agent: str = "", machine_id: str = "") -> Optional[str]:
     """Validate ``code`` and, on success, return a new session cookie value.
 
     Called by the webui's ``/api/auth/pair/claim`` POST handler. Returns
@@ -268,7 +274,19 @@ def claim_pairing_code(code: str, *, device_name: str = "",
             # keep the prefix for display in `jarviscopilot pair list` so a
             # compromised devices.json can't be replayed.
             devices = _read_devices()
+            mid = _clean_machine_id(machine_id)
+            same = next((d for d in devices["devices"] if mid and d.get("machine_id") == mid), None)
+            if same is not None:
+                # The same machine re-pairing (2026-11-24: each re-pair made a new record, so the PC card showed a
+                # stale second PC, the power button lost its link and the unlock permission no longer matched). Keep
+                # its record (id, settings, links); only the session moves to it.
+                same.update({"name": row["device_name"], "ip": row["device_ip"],
+                             "user_agent": (user_agent or "")[:200], "paired_at": now, "last_seen": now,
+                             "session_prefix": cookie_val.split(".", 1)[0][:8]})
+                _write_devices(devices)
+                return cookie_val
             devices["devices"].append({
+                "machine_id": mid,
                 "id": uuid.uuid4().hex,
                 "name": row["device_name"],
                 "ip": row["device_ip"],
@@ -289,6 +307,33 @@ def claim_pairing_code(code: str, *, device_name: str = "",
             _write_devices(devices)
             return cookie_val
         return None
+
+
+def adopt_machine_id(device_id: str, machine_id: str) -> list:
+    """A connected device said its hardware id: remember it, and retire older records of the same machine (left by
+    re-pairs before devices sent one). Returns the retired ids; their power records go too."""
+    mid = _clean_machine_id(machine_id)
+    if not device_id or not mid:
+        return []
+    with _LOCK:
+        devices = _read_devices()
+        mine = next((d for d in devices["devices"] if d.get("id") == device_id), None)
+        if mine is None:
+            return []
+        retired = [d.get("id") for d in devices["devices"] if d.get("id") != device_id and d.get("machine_id") == mid]
+        if mine.get("machine_id") == mid and not retired:
+            return []
+        mine["machine_id"] = mid
+        devices["devices"] = [d for d in devices["devices"] if d.get("id") not in retired]
+        _write_devices(devices)
+    for old in retired:
+        logger.info("device %s is the same machine as %s: retired the older record", device_id[:8], str(old)[:8])
+        try:
+            from api import mac_power
+            mac_power.store().forget(old)
+        except Exception:
+            pass
+    return retired
 
 
 # ── device management (for future CLI subcommands / settings page) ─────────

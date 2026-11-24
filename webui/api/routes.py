@@ -3641,6 +3641,7 @@ def handle_post(handler, parsed) -> bool:
             device_name=device_name,
             device_ip=client_ip,
             user_agent=ua,
+            machine_id=str(body.get("machine_id") or ""),   # a re-pair keeps the same machine's record
         )
         if not cookie_val:
             emit("device", "pair.failed", actor, reason="bad_code", ua=ua[:200])

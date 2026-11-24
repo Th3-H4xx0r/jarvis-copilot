@@ -1002,10 +1002,10 @@ class Service:
         for i, chunk in enumerate(chunks):
             frame = {"type": "register", "skills": chunk}
             if i == 0:
-                frame["device"] = {
+                frame.update(_register_head({
                     "name": creds.device_name,
                     "platform": _platform_summary(),
-                }
+                }))
             else:
                 frame["append"] = True
             ws.send_text(json.dumps(frame))
@@ -1417,6 +1417,17 @@ def _chunk_manifest(manifest: list[dict], max_bytes: int) -> list[list[dict]]:
     if current or not chunks:
         chunks.append(current)
     return chunks
+
+
+def _register_head(device: dict) -> dict:
+    """The first register frame's device info, with this computer's machine id (the server keeps one record per
+    machine however often it re-pairs)."""
+    from jc_client import machine
+    head = {"device": device}
+    mid = machine.machine_id()
+    if mid:
+        head["machine_id"] = mid
+    return head
 
 
 def _keepalive(ws, stop: threading.Event, interval: float = _PING_INTERVAL) -> None:
