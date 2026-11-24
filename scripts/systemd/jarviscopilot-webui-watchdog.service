@@ -1,0 +1,7 @@
+[Unit]
+Description=Restart the Jarvis web server when it stops answering (scripts/webui-watchdog.sh)
+After=jarviscopilot-webui.service
+
+[Service]
+Type=oneshot
+ExecStart=/root/JarvisCopilot/scripts/webui-watchdog.sh

@@ -1,0 +1,10 @@
+[Unit]
+Description=Check the Jarvis web server every minute
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=60s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target
