@@ -22,6 +22,14 @@ Found: the World news cron (Sonnet via a router mislabel) was ~85% of Anthropic 
    - ✅ 39a60a7c39 + async in d658f65d60; live rows: usage:review, usage:aux:memory_extraction, usage:agent:cli.
 9. [x] Full suite (same 349 failures as base, none new), Opus review (fixed 2 critical + 5 important), deployed 07:30 + 07:39 UTC, live checks above.
 
+10. [ ] Resumed chat rebuilds its system prompt (first turn after restart / CLI resume misses the cache)
+    - Found: not happening live — after the uniform-marker fix a CLI resume in a new process read all of turn 1 (10941) with no rebuild logged; the earlier miss was the 1h/5m marker mix. The 3 failing test_system_prompt_restore tests use a MagicMock agent whose fake toolset signature never matches → fix the fixture + add real match/mismatch tests.
+11. [ ] Voice "reasoning off" on Claude 5.5 models
+    - Found: the adapter sends NO thinking param when reasoning is off, so Sonnet/Haiku/Opus 5.5 think adaptively anyway (no 400 — the review's claim was wrong); voice is slower than designed. Fix: model-correct "off" (Sonnet 5.5 between_tools; Haiku 5.5 / Opus 5 / 4.7-4.8 / Sonnet 5 disabled; Opus 5.5 / Fable low effort).
+12. [ ] iPhone: voice Live Activity / Dynamic Island stays on "Listening" after listening stops (his lock-screen screenshot 1:46, "Jarvis · Listening 10:… It")
+
+13. [ ] Chats are all going through computer_do ("all my recent chats have been going through computer do, look at my latest chat, this shouldn't be happening")
+
 ## Shipped
 - Server at 6b788b552, webui + gateway restarted 07:39 UTC (healthy 302).
 

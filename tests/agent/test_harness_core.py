@@ -165,3 +165,32 @@ def test_route_decisions_are_logged(caplog):
                                         one_shot=lambda *a, **k: "deep")
     assert d.label == "deep"
     assert any("harness route: label=deep" in r.getMessage() for r in caplog.records)
+
+
+
+def _computer_doc():
+    return {"id": "hc", "name": "HC", "nodes": [
+        {"id": "in", "type": "message"},
+        {"id": "r", "type": "route", "by": "model", "model": FAST, "labels": ["computer"]},
+        {"id": "fast", "type": "answer", "model": FAST, "tools": "lean"},
+        {"id": "mac", "type": "computer", "model": FAST},
+        {"id": "big", "type": "answer", "model": BIG, "tools": "all"}],
+        "edges": [{"from": "in", "to": "r", "when": "always"},
+                  {"from": "r", "to": "mac", "when": "label:computer"},
+                  {"from": "r", "to": "fast", "when": "default"},
+                  {"from": "mac", "to": "big", "when": "stuck"},
+                  {"from": "fast", "to": "mac", "when": "hands"}]}
+
+
+def test_low_confidence_computer_pick_goes_to_the_default_wire():
+    """A computer pick drives his Mac straight away; a guess (live: 'use the email
+    monitor skill' → Activity Monitor at 0.49-0.61) goes to the default model,
+    which still has the Mac as its hands if it really needs it."""
+    kw = dict(session_model="m", session_provider=None, text="x", surface="chat", has_attachments=False)
+    low = plan_turn(_computer_doc(), classify=lambda n, t: RouteDecision("computer", "decision", FAST, 0.49), **kw)
+    assert low.computer_first is False and low.node_id == "fast"
+    assert low.route["label"] == "default" and low.computer is not None  # hands still wired
+    sure = plan_turn(_computer_doc(), classify=lambda n, t: RouteDecision("computer", "decision", FAST, 0.93), **kw)
+    assert sure.computer_first is True and sure.route["label"] == "computer"
+    unknown = plan_turn(_computer_doc(), classify=lambda n, t: RouteDecision("computer", "model", FAST, None), **kw)
+    assert unknown.computer_first is True  # no confidence reported: trust the label

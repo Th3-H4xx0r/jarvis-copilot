@@ -209,6 +209,12 @@ def classify_with_model(node, text, timeout=1.5, *, one_shot=None):
 # cold agent in the gateway, so it gets long enough to actually answer.
 ROUTE_TIMEOUTS = {"schedule": 20.0}
 
+# A pick that lands on a Computer node drives his Mac right away, so a guess
+# isn't enough: below this confidence the turn takes the default wire, whose
+# model still has the Mac as its hands if it really needs it. (Live 2026-11-24:
+# "use the email monitor skill" opened Activity Monitor at 0.49-0.61.)
+COMPUTER_ROUTE_MIN_CONFIDENCE = 0.6
+
 
 def plan_turn(doc, *, session_model, session_provider, text, surface, has_attachments, classify=None):
     nodes = {n["id"]: n for n in doc["nodes"]}
@@ -237,6 +243,11 @@ def plan_turn(doc, *, session_model, session_provider, text, surface, has_attach
                 d = RouteDecision(next((r["label"] for r in node.get("rules") or []
                                         if _rule_matches(r, text, surface, has_attachments)), None), "rules")
             wired = next((e for e in edges if d.label and e["when"] == f"label:{d.label}"), None)
+            if (wired is not None and nodes.get(wired["to"], {}).get("type") == "computer"
+                    and d.confidence is not None and d.confidence < COMPUTER_ROUTE_MIN_CONFIDENCE):
+                logger.info("harness route: %s at %.2f is below %.2f for the Computer node — default wire",
+                            d.label, d.confidence, COMPUTER_ROUTE_MIN_CONFIDENCE)
+                wired = None
             chosen = wired or next(e for e in edges if e["when"] == "default")
             route = {"node": node["id"], "label": d.label if wired else "default", "by": d.by,
                      "model": d.model, "confidence": d.confidence, "ms": d.ms, "error": d.error}
