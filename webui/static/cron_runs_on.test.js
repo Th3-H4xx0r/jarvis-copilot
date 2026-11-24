@@ -49,6 +49,16 @@ test('an unknown current value is kept as its own option', () => {
   assert.match(model, /<option value="model:@x:y" selected>y \(current\)<\/option>/);
 });
 
+test('noDefault leaves the Default option out and keeps the rest', () => {
+  const html = R.optionsHtml('default', Object.assign({ noDefault: true }, ctx));
+  assert.ok(!html.includes('value="default"'));
+  assert.ok(!html.includes(' selected'), 'nothing picked: the caller adds its own first option');
+  assert.match(html, /<option value="harness:mail">📬 Mail triage</);
+  assert.match(html, /value="model:@anthropic-api:claude-haiku-5-5">Claude Haiku 5.5</);
+  const picked = R.optionsHtml('harness:mail', Object.assign({ noDefault: true }, ctx));
+  assert.match(picked, /<option value="harness:mail" selected>/);
+});
+
 test('labels for the detail view and the integration badge', () => {
   assert.equal(R.label({}, ctx), 'Default');
   assert.equal(R.label({ harness_id: 'mail' }, ctx), '📬 Mail triage');

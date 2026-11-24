@@ -231,3 +231,47 @@ def test_chat_extractor_uses_registered_memory_model():
         llm.set_completer(None)
     assert facts == ["Pranav loves omakase sushi on Fridays"]
     assert seen and "omakase" in seen[0] and "JSON array" in seen[0]
+
+
+
+class _Paused(RuntimeError):
+    memory_paused = True   # what the web server's memory-model guard raises (api.memory_model.ModelPaused)
+
+
+class _SwitchExtractor(FakeExtractor):
+    FACTS = {"my sister Priya moved to Austin last week": ["Pranav's sister Priya moved to Austin"],
+             "I start the night shift at the hospital on Monday": ["Pranav starts the night shift on Monday"]}
+
+    def __init__(self):
+        super().__init__()
+        self.paused = True
+
+    def extract(self, user_text, assistant_text):
+        self.calls.append((user_text, assistant_text))
+        if self.paused:
+            raise _Paused("memory model at its usage limit")
+        return list(self.FACTS.get(user_text, []))
+
+
+def test_a_turn_made_while_the_memory_model_is_paused_waits_and_is_read_later(tmp_path):
+    """Live 2026-11-22..24: the memory model sat at its usage limit and chat turns lost their memories."""
+    ext = _SwitchExtractor()
+    p = _prov(tmp_path, ext)
+    p.sync_turn("my sister Priya moved to Austin last week", "Nice!")
+    p._flush()
+    assert p._store.count_chunks(p._namespace) == 0 and len(p._deferred_turns()) == 1
+    ext.paused = False
+    p.sync_turn("I start the night shift at the hospital on Monday", "Good luck!")
+    p._flush()
+    bodies = " | ".join(c.body for c in p._store.recent_chunks(p._namespace, 5))
+    assert "Austin" in bodies and "night shift" in bodies and p._deferred_turns() == []
+    p.shutdown()
+
+
+def test_waiting_turns_are_capped(tmp_path):
+    p = _prov(tmp_path, _SwitchExtractor())
+    for i in range(p.DEFERRED_MAX + 5):
+        p._defer_turn(f"turn {i}", "")
+    turns = p._deferred_turns()
+    assert len(turns) == p.DEFERRED_MAX and turns[-1]["u"] == f"turn {p.DEFERRED_MAX + 4}"
+    p.shutdown()

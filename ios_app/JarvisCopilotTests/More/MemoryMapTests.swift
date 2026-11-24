@@ -129,6 +129,134 @@ final class MemoryMapTests: XCTestCase {
         XCTAssertNil(store.settings?.agent)
     }
 
+    // MARK: Backup + paused
+
+    private func settings(_ json: String) throws -> MemoryMapSettings {
+        try JSONDecoder().decode(MemoryMapSettings.self, from: Data(json.utf8))
+    }
+
+    func testTheBackupAndThePauseDecode() throws {
+        let s = try settings("""
+        {"agent": {"model": "gpt-luna", "provider": "openai-codex"}, "label": "GPT Luna",
+         "backup": {"harness_id": "fast"}, "backup_label": "Fast",
+         "paused": {"model": "GPT Luna", "until": 1790000000, "reason": "limit",
+                    "using": "backup", "backup": "Fast"}}
+        """)
+        XCTAssertEqual(s.agent, .model(id: "gpt-luna", provider: "openai-codex"))
+        XCTAssertEqual(s.backup, .harness("fast"))
+        XCTAssertEqual(s.backupLabel, "Fast")
+        XCTAssertEqual(s.paused, MemoryPaused(model: "GPT Luna", until: 1_790_000_000, reason: "limit",
+                                              usingBackup: true, backup: "Fast"))
+    }
+
+    func testAnOlderServerHasNoBackupAndNoPause() throws {
+        let s = try settings(#"{"agent": null, "label": "Default"}"#)
+        XCTAssertNil(s.backup)
+        XCTAssertEqual(s.backupLabel, "")
+        XCTAssertNil(s.paused)
+        let nulls = try settings(#"{"agent": null, "label": "", "backup": null, "backup_label": "", "paused": null}"#)
+        XCTAssertNil(nulls.backup)
+        XCTAssertNil(nulls.paused)
+    }
+
+    func testAMalformedPauseOrBackupDoesNotLoseTheSettings() throws {
+        let s = try settings(#"{"agent": {"harness_id": "main"}, "label": "Main", "backup": "x", "paused": 7}"#)
+        XCTAssertEqual(s.agent, .harness("main"))
+        XCTAssertNil(s.backup)
+        XCTAssertNil(s.paused)
+        let partial = try settings(#"{"paused": {"model": "GPT Luna"}}"#)
+        XCTAssertEqual(partial.paused, MemoryPaused(model: "GPT Luna"), "missing keys: no time, at its limit, waiting")
+    }
+
+    func testThePausedLineSaysUntilWhenAndWhatCovers() {
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        var paused = MemoryPaused(model: "GPT Luna", until: now.timeIntervalSince1970 + 3_600, reason: "limit",
+                                  usingBackup: true, backup: "Claude Haiku 5.5")
+        let covered = paused.line(now: now)
+        XCTAssertTrue(covered.hasPrefix("GPT Luna is at its usage limit until "), covered)
+        XCTAssertTrue(covered.hasSuffix(" · using Claude Haiku 5.5"), covered)
+
+        paused.usingBackup = false
+        XCTAssertTrue(paused.line(now: now).hasSuffix(" · memory waits until then, nothing is lost"))
+        paused.until = nil
+        XCTAssertEqual(paused.line(now: now), "GPT Luna is at its usage limit · memory waits, nothing is lost")
+        paused.reason = "error"
+        XCTAssertEqual(paused.line(now: now), "GPT Luna isn't working right now · memory waits, nothing is lost")
+        paused.until = now.timeIntervalSince1970 + 600
+        XCTAssertTrue(paused.line(now: now).hasPrefix("GPT Luna isn't working right now · trying again at "))
+
+        let unnamed = MemoryPaused(model: " ")
+        XCTAssertEqual(unnamed.line(pending: 1, now: now),
+                       "The memory model is at its usage limit · memory waits, nothing is lost · 1 message waiting")
+        XCTAssertTrue(unnamed.line(pending: 5, now: now).hasSuffix(" · 5 messages waiting"))
+        XCTAssertFalse(unnamed.line(pending: 0, now: now).contains("waiting ·"))
+    }
+
+    func testTheTimeIsTodayThisWeekOrADate() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let now = calendar.date(from: DateComponents(year: 2026, month: 11, day: 23, hour: 9))!
+        let later = now.addingTimeInterval(3 * 3_600)
+        XCTAssertEqual(MemoryPaused.when(later, now: now, calendar: calendar),
+                       later.formatted(.dateTime.hour().minute()), "today: just the time")
+        let friday = now.addingTimeInterval(4 * 86_400)
+        XCTAssertTrue(MemoryPaused.when(friday, now: now, calendar: calendar)
+            .hasPrefix(friday.formatted(.dateTime.weekday(.abbreviated))), "this week: the weekday")
+        let far = now.addingTimeInterval(9 * 86_400)
+        XCTAssertEqual(MemoryPaused.when(far, now: now, calendar: calendar),
+                       far.formatted(.dateTime.month(.abbreviated).day().hour().minute()))
+    }
+
+    func testTheBackupSavesAndWaitPostsNull() async throws {
+        let (api, transport) = JarvisAPI.mocked()
+        transport.route("/api/jarvis-memory/map-settings") { request in
+            let body: JSONObject = request.httpMethod == "POST"
+                ? ["agent": ["harness_id": "main"], "label": "Main",
+                   "backup": ["model": "claude-haiku-5-5", "provider": NSNull()], "backup_label": "Haiku 5.5"]
+                : ["agent": ["harness_id": "main"], "label": "Main", "backup": NSNull(), "backup_label": ""]
+            return MockTransport.Reply(body: try! JSONSerialization.data(withJSONObject: body))
+        }
+        transport.route("/api/jarvis-memory/cleanup/status", json: ["running": false])
+        let store = MemoryMapStore(api: JarvisMemoryAPI(api: api), sleeper: { _ in })
+        await store.load()
+        XCTAssertNil(store.settings?.backup)
+
+        await store.setBackup(.model(id: "claude-haiku-5-5", provider: nil))
+        let body = transport.lastBody()
+        XCTAssertNil(body["agent"], "a backup change leaves the memory model alone")
+        let backup = try XCTUnwrap(body["backup"] as? JSONObject)
+        XCTAssertEqual(backup["model"] as? String, "claude-haiku-5-5")
+        XCTAssertEqual(store.settings?.backup, .model(id: "claude-haiku-5-5", provider: nil))
+        XCTAssertEqual(store.settings?.backupLabel, "Haiku 5.5")
+        XCTAssertEqual(store.settings?.agent, .harness("main"))
+
+        await store.setBackup(nil)
+        XCTAssertTrue(transport.lastBody()["backup"] is NSNull, "Wait for it = no backup")
+    }
+
+    func testChangingTheModelKeepsTheBackupShowing() async throws {
+        let transport = MockTransport()
+        let gated = PostGatedTransport(inner: transport)
+        let api = JarvisAPI(credentials: TestCredentials(), transport: gated)
+        transport.route("/api/jarvis-memory/map-settings") { request in
+            let body: JSONObject = request.httpMethod == "POST"
+                ? ["agent": ["harness_id": "new"], "label": "New", "backup": ["harness_id": "fast"], "backup_label": "Fast"]
+                : ["agent": ["harness_id": "old"], "label": "Old", "backup": ["harness_id": "fast"], "backup_label": "Fast"]
+            return MockTransport.Reply(body: try! JSONSerialization.data(withJSONObject: body))
+        }
+        transport.route("/api/jarvis-memory/cleanup/status", json: ["running": false])
+        let store = MemoryMapStore(api: JarvisMemoryAPI(api: api), sleeper: { _ in })
+        await store.load()
+
+        let saving = Task { await store.setAgent(.harness("new")) }
+        await servicesWaitUntil { gated.parked }
+        XCTAssertEqual(store.settings?.backup, .harness("fast"), "the backup row doesn't blank mid-save")
+        XCTAssertEqual(store.settings?.backupLabel, "Fast")
+        gated.open()
+        await saving.value
+        XCTAssertEqual(store.settings?.label, "New")
+    }
+
     // MARK: Cleanup
 
     func testRunningCleanupPollsUntilItFinishes() async {

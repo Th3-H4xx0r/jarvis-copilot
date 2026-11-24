@@ -93,6 +93,14 @@ function _immLocalInput(d) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+// The memory model at its usage limit: until when, what covers for it, and how
+// many messages wait. The wording is Long-term Memory's (jarvis_memory.js).
+function _immPausedLine(c) {
+  const jm = window.JarvisMemory;
+  if (!c || !c.paused || !jm || typeof jm.pausedLine !== 'function') return '';
+  return jm.pausedLine(c.paused, { pending: c.totals && c.totals.pending });
+}
+
 function _immRender() {
   const body = $('taskDetailBody');
   if (!body || !_immCard) return;
@@ -105,6 +113,7 @@ function _immRender() {
   const chats = (c.chats || []).filter(ch => !q || (ch.name || '').toLowerCase().includes(q)
     || (ch.participants || []).some(p => `${p.label} ${p.handle}`.toLowerCase().includes(q)));
   const job = c.active_job;
+  const paused = _immPausedLine(c);
   const now = new Date();
   const range = _immRange || { from: _immLocalInput(new Date(now.getTime() - 7 * 86400000)), to: _immLocalInput(now) };
   const skipKeys = new Set((c.skip || []).map(s => String(s.handle)));
@@ -148,6 +157,7 @@ function _immRender() {
       <section class="intg-section">
         <h4 class="intg-section-title">Model or harness</h4>
         <div class="imm-hint">Uses the memory model — change it in Long-term Memory.</div>
+        ${paused ? `<div class="imm-hint imm-paused">${esc(paused)}</div>` : ''}
       </section>
 
       <section class="intg-section">

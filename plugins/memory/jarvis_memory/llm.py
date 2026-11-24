@@ -14,6 +14,7 @@ from typing import Callable, Optional
 DEFAULT_AGENT = {"model": "claude-haiku-5-5", "provider": "anthropic-api"}
 _SETTINGS_NS = "__settings__"
 _KEY = "map_agent"
+_BACKUP_KEY = "map_backup_agent"   # used while the memory model is at its limit; unset = wait
 
 _lock = threading.Lock()
 _completer: Optional[Callable[[str, int], str]] = None
@@ -73,4 +74,28 @@ def set_agent(store, agent) -> bool:
     if not ok:
         return False
     store.kv_set(_SETTINGS_NS, _KEY, json.dumps("default" if cleaned is None else cleaned))
+    return True
+
+
+def get_backup(store):
+    """His backup memory model (a model or a harness), or None: memory waits while its model is at its limit."""
+    raw = store.kv_get(_SETTINGS_NS, _BACKUP_KEY)
+    if raw is None:
+        return None
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        return None
+    return clean_agent(value)[1] if isinstance(value, dict) else None
+
+
+def set_backup(store, agent) -> bool:
+    """None clears it. A backup is a specific model or harness, never "Same as Default"."""
+    if agent is None:
+        store.kv_set(_SETTINGS_NS, _BACKUP_KEY, json.dumps("none"))
+        return True
+    ok, cleaned = clean_agent(agent)
+    if not ok or cleaned is None:
+        return False
+    store.kv_set(_SETTINGS_NS, _BACKUP_KEY, json.dumps(cleaned))
     return True

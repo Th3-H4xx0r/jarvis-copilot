@@ -258,12 +258,31 @@ final class MemoryMapStore {
     /// nil = Same as Default. The label is cleared until the server names the
     /// new pick, so the row never shows the old model next to it.
     func setAgent(_ choice: AgentChoice?) async {
+        var shown = settings ?? MemoryMapSettings(agent: nil, label: "")
+        shown.agent = choice
+        shown.label = ""
+        await save(shown) { try await $0.setMapAgent(choice) }
+    }
+
+    /// The backup while the memory model is at its limit; nil = memory waits.
+    /// Its label is cleared until the server names the new pick.
+    func setBackup(_ choice: AgentChoice?) async {
+        var shown = settings ?? MemoryMapSettings(agent: nil, label: "")
+        shown.backup = choice
+        shown.backupLabel = ""
+        await save(shown) { try await $0.setMapBackup(choice) }
+    }
+
+    /// Shows `shown` at once, then the server's answer; a failure puts the old
+    /// settings back.
+    private func save(_ shown: MemoryMapSettings,
+                      _ send: (JarvisMemoryAPI) async throws -> MemoryMapSettings) async {
         let previous = settings
-        settings = MemoryMapSettings(agent: choice, label: "")
+        settings = shown
         savingAgent = true
         defer { savingAgent = false }
         do {
-            settings = try await api.setMapAgent(choice)
+            settings = try await send(api)
         } catch {
             settings = previous
             toast = apiErrorMessage(error)

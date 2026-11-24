@@ -150,7 +150,10 @@ def enrich_batch(store, embedder, ids: List[str], *, zone,
     try:
         reply = complete(prompt, 8000)
     except Exception as exc:  # the model being unreachable must not burn retries
-        logger.warning("jarvis_memory map: model call failed (%s); will retry", exc)
+        # A benched memory model (at its usage limit, no backup) is logged once by its guard, not per batch
+        # (live 2026-11-22..24: ~11,000 of these warnings).
+        (logger.debug if getattr(exc, "memory_paused", False) else logger.warning)(
+            "jarvis_memory map: model call failed (%s); will retry", exc)
         store.release([c.id for c in chunks])
         return counts
     by_id = {d["id"]: d for d in _parse(reply)}

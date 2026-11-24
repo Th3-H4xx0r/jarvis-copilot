@@ -107,3 +107,62 @@ def test_review_fixes_are_wired():
     assert "window.loadJarvisMemory()" in open_recall
     assert "if (fresh)" not in open_recall
     assert "confirm(" not in panel
+
+
+# The memory model's backup and its "paused" line (Long-term Memory + the
+# iMessage card). pausedLine is run for real: the panel script loads under a
+# stub document that never fires init, so only its pure helpers run.
+_PAUSED_JS = r"""
+const fs = require('fs'), vm = require('vm'), assert = require('assert/strict');
+const window = {};
+vm.runInNewContext(fs.readFileSync(process.argv[1], 'utf8'),
+  { window, document: { readyState: 'loading', addEventListener() {} }, console });
+const line = window.JarvisMemory.pausedLine;
+const soon = Date.now() / 1000 + 3600;
+assert.equal(line(null), '');
+assert.equal(line(undefined), '');
+const covered = line({ model: 'GPT Luna', until: soon, reason: 'limit', using: 'backup', backup: 'Claude Haiku 5.5' });
+assert.ok(covered.startsWith('GPT Luna is at its usage limit until '), covered);
+assert.ok(covered.endsWith(' · using Claude Haiku 5.5'), covered);
+const waits = line({ model: 'GPT Luna', until: soon, reason: 'limit', using: 'waiting', backup: '' });
+assert.ok(waits.endsWith(' · memory waits until then, nothing is lost'), waits);
+assert.equal(line({ model: 'GPT Luna', until: null, reason: 'limit', using: 'waiting' }),
+  'GPT Luna is at its usage limit · memory waits, nothing is lost');
+assert.equal(line({ model: 'GPT Luna', until: null, reason: 'error', using: 'waiting' }),
+  "GPT Luna isn't working right now · memory waits, nothing is lost");
+const retry = line({ model: 'GPT Luna', until: soon, reason: 'error', using: 'backup', backup: 'Haiku' });
+assert.ok(retry.startsWith("GPT Luna isn't working right now · trying again at "), retry);
+assert.equal(line({ model: '', reason: 'limit', using: 'waiting' }, { pending: 1 }),
+  'The memory model is at its usage limit · memory waits, nothing is lost · 1 message waiting');
+assert.ok(line({ model: 'X', using: 'waiting' }, { pending: 5 }).endsWith(' · 5 messages waiting'));
+assert.ok(!line({ model: 'X', using: 'waiting' }, { pending: 0 }).includes('waiting ·'));
+"""
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_paused_line_wording():
+    result = subprocess.run(["node", "-e", _PAUSED_JS, str(STATIC / "jarvis_memory.js")],
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_memory_model_has_a_backup_select():
+    js = _read("jarvis_memory.js")
+    load = js[js.index("async function loadModel("):js.index("// ── Cleanup & map")]
+    assert 'id="jmemBackupSel"' in load and "While it\\'s at its limit, use" in load
+    assert ">Nothing, wait for it</option>" in load
+    # The model choices without Same as Default; "nothing" posts backup: null.
+    assert "noDefault: true" in load
+    assert "backup: v === BACKUP_NONE ? null : agentFrom(v)" in load
+    assert "pausedLine(d.paused)" in load
+    assert "pausedLine: pausedLine" in js
+
+
+def test_imessage_card_shows_the_paused_line_and_already_remembered():
+    js = _read("imessage_memory.js")
+    assert "jm.pausedLine(c.paused, { pending: c.totals && c.totals.pending })" in js
+    hint = js.index("Uses the memory model")
+    assert "${paused ?" in js[hint:hint + 200]
+    # Backfill "skipped" = already covered by an earlier conversation, not dropped.
+    assert js.count("already remembered") >= 2
+    assert "skipped}</span>" not in js and ".skipped} skipped" not in js

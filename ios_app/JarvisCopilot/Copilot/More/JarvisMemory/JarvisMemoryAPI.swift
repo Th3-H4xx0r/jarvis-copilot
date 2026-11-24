@@ -69,6 +69,14 @@ struct JarvisMemoryAPI {
         return try JSONDecoder().decode(MemoryMapSettings.self, from: response.data)
     }
 
+    /// What memory uses while the memory model is at its limit. nil = no backup:
+    /// memory waits for it. Answers with the saved settings.
+    func setMapBackup(_ choice: AgentChoice?) async throws -> MemoryMapSettings {
+        let response = try await api.post("/api/jarvis-memory/map-settings",
+                                          json: ["backup": IMessageMemoryAgent(choice).json])
+        return try JSONDecoder().decode(MemoryMapSettings.self, from: response.data)
+    }
+
     func cleanupStatus() async throws -> MemoryCleanupStatus {
         MemoryCleanupStatus(json: try await api.get("/api/jarvis-memory/cleanup/status").object())
     }

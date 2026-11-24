@@ -125,15 +125,60 @@ def test_facts_stamped_with_person_and_date(st):
     assert st.totals() == {"bursts": 1, "pending": 0}
 
 
-def test_nothing_stored_when_extraction_fails(st):
+def test_a_failed_model_call_keeps_the_conversation_waiting(st):
+    """Live 2026-11-22..24: every call hit a usage limit and ~40 conversations were thrown away as no_extract
+    (a backfill then treated them as done). Now they wait and are read once the model answers again."""
     _ingest(st, (0, False, "hello there, how was the trip"))
 
     def boom(ref, prompt):
-        raise RuntimeError("provider down")
+        raise RuntimeError("Error code: 429 - usage_limit_reached")
 
     mem = FakeMemory()
-    assert w.close_once(st, T0 + GAP_SECONDS, memory=mem, complete=boom) == 1
-    assert mem.saved == [] and st.totals() == {"bursts": 1, "pending": 0}
+    assert w.close_once(st, T0 + GAP_SECONDS, memory=mem, complete=boom) == 0
+    assert mem.saved == [] and st.totals() == {"bursts": 0, "pending": 1}
+    w.close_once(st, T0 + GAP_SECONDS + 60, memory=mem, complete=_reply(keep=True))
+    assert st.totals() == {"bursts": 1, "pending": 0} and mem.saved
+
+
+def test_a_paused_memory_model_stops_the_tick(st):
+    from api.memory_model import ModelPaused
+    st.upsert_chats([{"guid": "two", "name": "Priya", "is_group": False,
+                      "participants": [{"handle": "+14155550000", "label": "Priya"}]}])
+    st.ingest([{"guid": "one", **r} for r in _rows((0, False, "my address is 12 Oak St, Oakland"),
+                                                   (GAP_SECONDS + 10, False, "and the gate code is the usual"))])
+    st.ingest([{"guid": "two", **r} for r in _rows((0, False, "dinner friday at the new place?"))])
+    calls = []
+
+    def paused(ref, prompt):
+        calls.append(prompt)
+        raise ModelPaused("limit", until=T0 + 9999)
+
+    assert w.close_once(st, T0 + 2 * GAP_SECONDS + 20, memory=FakeMemory(), complete=paused) == 0
+    assert st.totals()["pending"] == 3 and st.totals()["bursts"] == 0
+    assert len(calls) <= 2     # one try per chat at most; chat one's second conversation isn't tried
+
+
+def test_an_unreadable_reply_is_retried_then_given_up(st):
+    _ingest(st, (0, False, "hello there, how was the trip"))
+    junk = lambda ref, prompt: "I cannot help with that."   # noqa: E731
+    mem = FakeMemory()
+    for i in range(w.UNREADABLE_TRIES - 1):
+        w.close_once(st, T0 + GAP_SECONDS + i, memory=mem, complete=junk)
+        assert st.totals() == {"bursts": 0, "pending": 1}
+    w.close_once(st, T0 + GAP_SECONDS + 99, memory=mem, complete=junk)
+    assert st.totals() == {"bursts": 1, "pending": 0} and mem.saved == []
+
+
+def test_the_default_reader_is_the_guarded_memory_model(st, monkeypatch):
+    import api.memory_model as M
+    asked = []
+    monkeypatch.setattr(M, "call", lambda prompt, max_tokens=1500, thinking=False: asked.append((max_tokens, thinking))
+                        or _reply(keep=True)(None, prompt))
+    monkeypatch.setattr(w, "_memory_model", lambda: ("@openai-codex:gpt-6-luna", "model luna"))
+    _ingest(st, (0, False, "my address is 12 Oak St, Oakland"))
+    mem = FakeMemory()
+    w.close_once(st, T0 + GAP_SECONDS, memory=mem)
+    assert asked and mem.saved
 
 
 def test_closer_discards_bursts_for_unticked_chat(st):

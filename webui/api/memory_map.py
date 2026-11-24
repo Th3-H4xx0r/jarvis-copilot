@@ -29,17 +29,27 @@ def set_agent(agent) -> bool:
     return llm.set_agent(_store(), agent)
 
 
+def get_backup():
+    """His backup memory model, used while the memory model is at its limit; None = memory waits."""
+    from plugins.memory.jarvis_memory import llm
+    return llm.get_backup(_store())
+
+
+def set_backup(agent) -> bool:
+    from plugins.memory.jarvis_memory import llm
+    return llm.set_backup(_store(), agent)
+
+
 def resolve_map_model() -> Tuple[str, str]:
     from api.imessage_memory_writer import resolve_extraction_model
     return resolve_extraction_model(get_agent())
 
 
 def complete(prompt: str, max_tokens: int = 1500) -> str:
-    import api.imessage_memory_writer as writer
-    ref, _label = resolve_map_model()
-    if not ref:
-        raise RuntimeError("no memory model set")
-    return writer._one_shot(ref, prompt, max_tokens, thinking=False)
+    """Every memory call (facts, map, brief, vague): through the guard, so a model at its limit is benched and his
+    backup covers (api.memory_model)."""
+    from api import memory_model
+    return memory_model.call(prompt, max_tokens, thinking=False)
 
 
 def _register_brief_sources() -> None:
@@ -69,7 +79,17 @@ def settings_payload() -> dict:
         _ref, label = resolve_map_model()
     except Exception:
         label = ""
-    return {"agent": agent, "label": label}
+    backup = get_backup()
+    backup_label = ""
+    if backup is not None:
+        try:
+            from api.imessage_memory_writer import resolve_extraction_model
+            backup_label = resolve_extraction_model(backup)[1]
+        except Exception:
+            backup_label = ""
+    from api import memory_model
+    return {"agent": agent, "label": label, "backup": backup, "backup_label": backup_label,
+            "paused": memory_model.paused()}
 
 
 def handle_settings_get(handler):
@@ -80,8 +100,12 @@ def handle_settings_get(handler):
 def handle_settings_post(handler, body: Optional[dict]):
     from api.helpers import bad, j
     body = body if isinstance(body, dict) else {}
-    if "agent" not in body or not set_agent(body.get("agent")):
+    if "agent" not in body and "backup" not in body:
+        return bad(handler, "send agent and/or backup")
+    if "agent" in body and not set_agent(body.get("agent")):
         return bad(handler, "agent must be null, {harness_id} or {model, provider}")
+    if "backup" in body and not set_backup(body.get("backup")):
+        return bad(handler, "backup must be null, {harness_id} or {model, provider}")
     return j(handler, settings_payload())
 
 

@@ -29,6 +29,9 @@ struct IMessageMemoryCard: Decodable, Equatable {
     var pendingFacts: Int
     /// Whether the Mac is connected right now — backfills and previews need it.
     var macConnected: Bool
+    /// The memory model is at its usage limit (or failing); nil while it works.
+    /// Messages wait in `totals.pending` meanwhile, nothing is lost.
+    var paused: MemoryPaused?
 
     struct Totals: Decodable, Equatable {
         var memories: Int
@@ -52,7 +55,7 @@ struct IMessageMemoryCard: Decodable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, agent, chats, skip, jobs, totals
+        case enabled, agent, chats, skip, jobs, totals, paused
         case memoryActive = "memory_active"
         case runsOn = "runs_on"
         case macSeenAt = "mac_seen_at"
@@ -81,6 +84,8 @@ struct IMessageMemoryCard: Decodable, Equatable {
         pushFacts = try c.value(.pushFacts, true)
         pendingFacts = try c.value(.pendingFacts, 0)
         macConnected = try c.value(.macConnected, false)
+        // A malformed pause reads as none rather than failing the whole card.
+        paused = (try? c.decodeIfPresent(MemoryPaused.self, forKey: .paused)) ?? nil
     }
 
     static func decode(_ data: Data) throws -> IMessageMemoryCard {
@@ -305,8 +310,9 @@ struct IMessageBackfillJob: Decodable, Equatable, Identifiable, Hashable {
         }
     }
 
-    /// "4 saved · 1 skipped".
-    var savedLine: String { "\(stored.formatted()) saved · \(skipped.formatted()) skipped" }
+    /// "4 saved · 1 already remembered". `skipped` counts messages an earlier
+    /// conversation record already covers — remembered, not dropped.
+    var savedLine: String { "\(stored.formatted()) saved · \(skipped.formatted()) already remembered" }
 
     private enum CodingKeys: String, CodingKey {
         case id, start, end, chats, status, received, analyzed, stored, skipped, error

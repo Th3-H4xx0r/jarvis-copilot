@@ -63,9 +63,14 @@ def card(st: IMStore) -> dict:
         runs_on = writer._memory_model()[1]
     except Exception:
         runs_on = ""
+    try:
+        from api import memory_model
+        paused = memory_model.paused()   # the memory model at its limit: what's covering, until when
+    except Exception:
+        paused = None
     return {"enabled": bool(settings.get("enabled")),
             "memory_active": writer.memory_writer() is not None,
-            "agent": settings.get("agent"), "runs_on": runs_on,
+            "agent": settings.get("agent"), "runs_on": runs_on, "paused": paused,
             "mac_seen_at": settings.get("mac_seen_at"),
             "mac_connected": _mac_connected(st),
             "ask_facts": bool(settings.get("ask_facts", True)),

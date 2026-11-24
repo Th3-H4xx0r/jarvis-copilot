@@ -176,7 +176,7 @@
     window.loadJarvisMemory();
   }
 
-  window.JarvisMemory = { openRecall: openRecall };
+  window.JarvisMemory = { openRecall: openRecall, pausedLine: pausedLine };
 
   // ── Chat chip: "memories used" under replies that used long-term memory ──
   // One request per open chat (cached), refreshed once per completed reply.
@@ -567,6 +567,50 @@
     return null;
   }
 
+  // "9:00 PM" today, "Tue 9:00 PM" this week, "Nov 30, 9:00 PM" further off.
+  function pausedWhen(ts) {
+    var d = new Date(ts * 1000), now = new Date();
+    var time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    if (d.toDateString() === now.toDateString()) return time;
+    if (Math.abs(d - now) < 6 * 86400000) return d.toLocaleDateString([], { weekday: "short" }) + " " + time;
+    return d.toLocaleDateString([], { month: "short", day: "numeric" }) + ", " + time;
+  }
+
+  // The memory model at its usage limit (or failing), from the server's
+  // `paused` {model, until, reason, using, backup}: until when, and whether the
+  // backup covers or memory waits. opts.pending (the iMessage card) adds the
+  // messages waiting to be read. "" when nothing is paused. The iPhone says the
+  // same (MemoryPaused.line).
+  function pausedLine(p, opts) {
+    if (!p || typeof p !== "object") return "";
+    var model = String(p.model || "").trim() || "The memory model";
+    var until = Number(p.until);
+    var when = p.until && isFinite(until) ? pausedWhen(until) : "";
+    var line = p.reason === "error"
+      ? model + " isn't working right now" + (when ? " · trying again at " + when : "")
+      : model + " is at its usage limit" + (when ? " until " + when : "");
+    if (p.using === "backup") line += " · using " + (String(p.backup || "").trim() || "the backup");
+    else line += when ? " · memory waits until then, nothing is lost" : " · memory waits, nothing is lost";
+    var pending = Number((opts && opts.pending) || 0);
+    if (pending > 0) line += " · " + pending.toLocaleString() + (pending === 1 ? " message" : " messages") + " waiting";
+    return line;
+  }
+
+  // The backup select's "Nothing, wait for it": no backup, memory waits.
+  var BACKUP_NONE = "none";
+  var MODEL_SELECT = "padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--fg)";
+  var MODEL_ROW = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;width:100%">';
+
+  async function saveMapSettings(body) {
+    try {
+      await fetch("api/jarvis-memory/map-settings", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch (e) { /* the next load shows what stuck */ }
+    loadModel();
+  }
+
   async function loadModel() {
     var el = document.getElementById("jmemModel");
     if (!el) return;
@@ -576,24 +620,38 @@
       d = await fetch("api/jarvis-memory/map-settings").then(function (r) { return r.json(); });
     } catch (e) { return; }
     var value = agentValue(d.agent);
+    var backup = d.backup ? agentValue(d.backup) : BACKUP_NONE;
     var ctx = typeof _cronRunsOnCtx === "function" ? _cronRunsOnCtx(null) : null;
-    var options = window.CronRunsOn && ctx
+    var listed = !!(window.CronRunsOn && ctx);
+    var options = listed
       ? CronRunsOn.optionsHtml(value, ctx)
       : '<option value="' + esc(value) + '">' + esc(d.label || "Default") + "</option>";
+    // A backup is a model or a harness, never Same as Default: "Nothing, wait
+    // for it" first, then the memory model's choices without Default.
+    var backupOptions = '<option value="' + BACKUP_NONE + '"' + (backup === BACKUP_NONE ? " selected" : "") +
+      ">Nothing, wait for it</option>";
+    if (listed) {
+      backupOptions += CronRunsOn.optionsHtml(backup === BACKUP_NONE ? "default" : backup, Object.assign({}, ctx, {
+        noDefault: true, currentRunsOn: { value: backup, label: d.backup_label || "" },
+      }));
+    } else if (backup !== BACKUP_NONE) {
+      backupOptions += '<option value="' + esc(backup) + '" selected>' + esc(d.backup_label || backup) + "</option>";
+    }
+    var paused = pausedLine(d.paused);
     el.innerHTML =
-      '<span style="font-size:12px;color:var(--muted)">Memory model</span>' +
-      '<select id="jmemModelSel" style="padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--fg)">' +
-      options + "</select>" +
+      MODEL_ROW + '<label for="jmemModelSel" style="font-size:12px;color:var(--muted)">Memory model</label>' +
+      '<select id="jmemModelSel" style="' + MODEL_SELECT + '">' + options + "</select>" +
       '<span style="font-size:11px;color:var(--muted)">Reads chats, iMessage and Live to pull out dates, people and places' +
-      (d.label ? " · " + esc(d.label) : "") + "</span>";
-    document.getElementById("jmemModelSel").addEventListener("change", async function (ev) {
-      try {
-        await fetch("api/jarvis-memory/map-settings", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ agent: agentFrom(ev.target.value) }),
-        });
-      } catch (e) { /* the next load shows what stuck */ }
-      loadModel();
+      (d.label ? " · " + esc(d.label) : "") + "</span></div>" +
+      MODEL_ROW + '<label for="jmemBackupSel" style="font-size:12px;color:var(--muted)">While it\'s at its limit, use</label>' +
+      '<select id="jmemBackupSel" style="' + MODEL_SELECT + '">' + backupOptions + "</select></div>" +
+      (paused ? '<div id="jmemPaused" style="font-size:11px;color:var(--muted);width:100%">' + esc(paused) + "</div>" : "");
+    document.getElementById("jmemModelSel").addEventListener("change", function (ev) {
+      saveMapSettings({ agent: agentFrom(ev.target.value) });
+    });
+    document.getElementById("jmemBackupSel").addEventListener("change", function (ev) {
+      var v = ev.target.value;
+      saveMapSettings({ backup: v === BACKUP_NONE ? null : agentFrom(v) });
     });
   }
 

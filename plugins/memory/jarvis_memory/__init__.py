@@ -220,6 +220,7 @@ class JarvisMemoryProvider(MemoryProvider):
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="jarvis-mem")
         self._pending: list = []
         self._lock = threading.Lock()
+        self._defer_lock = threading.Lock()
         self._recent: list = []
         self._now = time.time
         self._entity_index = None
@@ -339,6 +340,12 @@ class JarvisMemoryProvider(MemoryProvider):
                     asst_for_extract = assistant_content if "assistant" in self._capture_roles else ""
                     facts = self._extractor.extract(user_content, asst_for_extract)
                 except Exception as e:
+                    if getattr(e, "memory_paused", False):
+                        # The memory model is at its limit (and no backup can cover): the turn waits and is read
+                        # after the next turn that extracts (live 2026-11-22..24 these turns were lost).
+                        self._defer_turn(user_content, asst_for_extract)
+                        log_event("a turn waits — the memory model is paused")
+                        return []
                     # Extraction enabled but failed. By default DON'T store the
                     # raw user turn (that's the "raw chat in memory" noise) —
                     # skip it. Set extract_fallback_raw=true to capture raw.
@@ -350,13 +357,50 @@ class JarvisMemoryProvider(MemoryProvider):
                     logger.warning("jarvis_memory extraction unavailable; skipping turn (no raw capture): %s", e)
                     log_event("skipped a turn — extraction model unavailable")
                     return []
-                return self._store_facts(facts)  # extraction ran (possibly []): store distilled facts only
+                stored = self._store_facts(facts)  # extraction ran (possibly []): store distilled facts only
+                self._drain_deferred()             # the model answers again: turns that waited go next
+                return stored
             return ingest_turn(self._store, self._embedder, self._namespace,
                                user_content, assistant_content, source="chat",
                                roles=self._capture_roles)
         except Exception as e:
             logger.warning("jarvis_memory ingest failed: %s", e)
             return []
+
+    # -- turns waiting for a paused memory model --------------------------------
+    DEFERRED_MAX = 300      # turns kept while the memory model is paused (oldest dropped past this)
+    DRAIN_PER_TURN = 20     # waiting turns read after each turn that extracts
+    _DEFERRED = ("__deferred__", "turns")
+
+    def _deferred_turns(self) -> list:
+        try:
+            turns = json.loads(self._store.kv_get(*self._DEFERRED) or "[]")
+        except (ValueError, TypeError):
+            return []
+        return turns if isinstance(turns, list) else []
+
+    def _defer_turn(self, user_content: str, assistant_content: str) -> None:
+        with self._defer_lock:
+            turns = self._deferred_turns()
+            turns.append({"u": (user_content or "")[:8000], "a": (assistant_content or "")[:8000], "at": time.time()})
+            self._store.kv_set(*self._DEFERRED, json.dumps(turns[-self.DEFERRED_MAX:]))
+
+    def _drain_deferred(self) -> None:
+        with self._defer_lock:
+            turns = self._deferred_turns()
+            if not turns:
+                return
+            batch = turns[:self.DRAIN_PER_TURN]
+            self._store.kv_set(*self._DEFERRED, json.dumps(turns[self.DRAIN_PER_TURN:]))
+        for i, turn in enumerate(batch):
+            try:
+                facts = self._extractor.extract(turn.get("u") or "", turn.get("a") or "")
+            except Exception:  # paused again: the rest go back to the front of the queue
+                with self._defer_lock:
+                    rest = batch[i:] + self._deferred_turns()
+                    self._store.kv_set(*self._DEFERRED, json.dumps(rest[-self.DEFERRED_MAX:]))
+                return
+            self._store_facts(facts)
 
     def _store_fact(self, content, source="fact:extracted", tag="fact"):
         """Store one fact, skipping near-duplicates (vector dedup). Returns id or None."""

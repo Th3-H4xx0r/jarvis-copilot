@@ -44,7 +44,7 @@ struct IMessageMemoryView: View {
             VStack(spacing: 24) {
                 if let card = store.card {
                     statusSection(card)
-                    modelNote
+                    modelNote(card)
                     factCardsSection(card)
                     chatsSection(card)
                     skipSection(card)
@@ -153,8 +153,9 @@ struct IMessageMemoryView: View {
 
     // MARK: 2. Model
 
-    /// The memory model reads iMessage too; it is set in one place.
-    private var modelNote: some View {
+    /// The memory model reads iMessage too; it is set in one place. At its usage
+    /// limit, a line says until when and what covers for it.
+    private func modelNote(_ card: IMessageMemoryCard) -> some View {
         CardGroup("Model") {
             Row {
                 Text("Uses the memory model — change it in Long-term Memory.")
@@ -162,6 +163,16 @@ struct IMessageMemoryView: View {
                     .foregroundStyle(JcTheme.muted)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if let paused = card.paused {
+                RowDivider()
+                Row {
+                    Text(paused.line(pending: card.totals.pending))
+                        .font(.system(size: 13))
+                        .foregroundStyle(JcTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
     }
@@ -502,7 +513,8 @@ struct IMessageMemoryView: View {
     }
 
     static func counts(_ job: IMessageBackfillJob) -> String {
-        "\(job.received) messages · \(job.stored) stored · \(job.skipped) skipped"
+        "\(job.received.formatted()) messages · \(job.stored.formatted()) stored · "
+            + "\(job.skipped.formatted()) already remembered"
     }
 
     static func color(_ status: IMessageBackfillJob.Status) -> Color {

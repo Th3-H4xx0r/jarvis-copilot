@@ -266,35 +266,51 @@ struct LongTermMemoryPage: View {
 
     private func memoryModel(_ settings: MemoryMapSettings) -> some View {
         let pick = AgentPick(settings.agent)
+        // nil reads as .sameAsDefault, which the backup page calls "Wait for it".
+        let backupPick = AgentPick(settings.backup)
+        let backupValue = settings.backup == nil
+            ? MemoryMapSettings.waitTitle
+            : (settings.backupLabel.isEmpty ? backupPick.label : settings.backupLabel)
         return VStack(alignment: .leading, spacing: 0) {
             SectionHeader("Memory model")
-            NavigationLink {
-                AgentChoicePage(title: "Memory model", pick: pick) { pick in
-                    Task { await map.setAgent(pick.choice) }
-                }
-            } label: {
-                GlassCard(padding: 0, fill: JcTheme.surface) {
-                    HStack(spacing: 10) {
-                        Text("Runs on").font(.system(size: 15)).foregroundStyle(JcTheme.text)
-                        Spacer(minLength: 8)
-                        Text(settings.label.isEmpty ? pick.label : settings.label)
-                            .font(.system(size: 14))
-                            .foregroundStyle(JcTheme.muted)
-                            .lineLimit(1)
-                        JcIcon("chevron.right", size: 11).foregroundStyle(JcTheme.muted.opacity(0.6))
+            GlassCard(padding: 0, fill: JcTheme.surface) {
+                VStack(spacing: 0) {
+                    NavigationLink {
+                        AgentChoicePage(title: "Memory model", pick: pick) { pick in
+                            Task { await map.setAgent(pick.choice) }
+                        }
+                    } label: {
+                        modelRow("Runs on", settings.label.isEmpty ? pick.label : settings.label)
                     }
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 48)
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    Rectangle().fill(JcTheme.glassBorder).frame(height: 1).padding(.leading, 14)
+                    // A backup is a model or a harness, never Same as Default.
+                    NavigationLink {
+                        AgentChoicePage(title: "While it's at its limit", pick: backupPick,
+                                        nilChoice: (MemoryMapSettings.waitTitle,
+                                                    "Memory waits until it's back. Nothing is lost.")) { pick in
+                            Task { await map.setBackup(pick.choice) }
+                        }
+                    } label: {
+                        modelRow("While it's at its limit", backupValue)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-            .buttonStyle(.plain)
             Text("Reads chats, iMessage and Live to pull out dates, people and places.")
                 .font(.system(size: 11.5))
                 .foregroundStyle(JcTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 4)
                 .padding(.top, 8)
+            if let paused = settings.paused {
+                Text(paused.line())
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(JcTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+                    .padding(.top, 4)
+            }
             if remindersUnasked {
                 GlassButton(title: "Let Jarvis see Reminders", symbol: "checklist", ghost: true, full: true) {
                     Task {
@@ -306,6 +322,21 @@ struct LongTermMemoryPage: View {
                 .padding(.top, 12)
             }
         }
+    }
+
+    private func modelRow(_ title: String, _ value: String) -> some View {
+        HStack(spacing: 10) {
+            Text(title).font(.system(size: 15)).foregroundStyle(JcTheme.text)
+            Spacer(minLength: 8)
+            Text(value)
+                .font(.system(size: 14))
+                .foregroundStyle(JcTheme.muted)
+                .lineLimit(1)
+            JcIcon("chevron.right", size: 11).foregroundStyle(JcTheme.muted.opacity(0.6))
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 48)
+        .contentShape(Rectangle())
     }
 
     // MARK: Cleanup

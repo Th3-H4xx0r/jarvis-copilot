@@ -70,7 +70,8 @@
 
   // <option>/<optgroup> HTML for the select. A current value the lists don't
   // know (a model off the catalog, a deleted harness) stays as its own option,
-  // so saving the form never changes it behind the user's back.
+  // so saving the form never changes it behind the user's back. ctx.noDefault
+  // leaves the Default option out (a choice that must name a model or harness).
   function optionsHtml(selected, ctx) {
     const cur = String(selected || 'default');
     const opt = (v, l) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(l)}</option>`;
@@ -89,7 +90,7 @@
       }).join('') + '</optgroup>';
     }
     const extra = known.has(cur) ? '' : opt(cur, `${label({ runs_on: (ctx && ctx.currentRunsOn) || { value: cur } }, ctx)} (current)`);
-    return opt('default', def) + extra + groups;
+    return (ctx && ctx.noDefault ? '' : opt('default', def)) + extra + groups;
   }
 
   return { valueFor, body, label, optionsHtml, modelLabel };

@@ -417,11 +417,14 @@ enum AgentPick: Equatable {
 }
 
 /// "Same as default (Name)", the harnesses, then Single model — like the chat's harness sheet.
-/// `forWidget` adds "Each button's own" first.
+/// `forWidget` adds "Each button's own" first. `nilChoice` renames the no-choice row
+/// (`.sameAsDefault`, a nil choice) for a setting that can't be Same as Default, such
+/// as the memory model's backup ("Wait for it").
 struct AgentChoicePage: View {
     let title: String
     let pick: AgentPick
     var forWidget = false
+    var nilChoice: (title: String, note: String?)? = nil
     let onPick: (AgentPick) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var pickingModel = false
@@ -437,7 +440,11 @@ struct AgentChoicePage: View {
                         option(.buttonsOwn, "Each button's own", "Every button runs what it was set to")
                         RowDivider()
                     }
-                    option(.sameAsDefault, store.sameAsDefaultTitle, "Settings → Default sets it")
+                    if let nilChoice {
+                        option(.sameAsDefault, nilChoice.title, nilChoice.note)
+                    } else {
+                        option(.sameAsDefault, store.sameAsDefaultTitle, "Settings → Default sets it")
+                    }
                 }
                 let harnesses = store.harnesses.filter { $0.id != "single" }
                 if !harnesses.isEmpty {

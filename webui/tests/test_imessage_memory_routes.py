@@ -262,3 +262,15 @@ def test_memory_delete_is_limited_to_imessage(st, sent, monkeypatch):
     _post("/api/imessage-memory/memories/delete", {"id": "f1"})
     assert sent["body"] == {"ok": True, "deleted": True}
     assert mem.deleted == [("f1", "imessage:")]
+
+
+
+def test_card_says_when_the_memory_model_is_paused(st, sent, monkeypatch):
+    import api.memory_model as M
+    _upload_chats(st)
+    _get("/api/imessage-memory")
+    assert sent["body"]["paused"] is None
+    monkeypatch.setattr(M, "paused", lambda: {"model": "model @openai-codex:gpt-6-luna", "until": 123.0,
+                                              "reason": "limit", "using": "waiting", "backup": ""})
+    _get("/api/imessage-memory")
+    assert sent["body"]["paused"]["using"] == "waiting" and sent["body"]["paused"]["until"] == 123.0

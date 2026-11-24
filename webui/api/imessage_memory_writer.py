@@ -254,6 +254,19 @@ def extract(transcript: str, model_ref: str,
     return " ".join(summaries)[:600], facts[:MAX_FACTS], keep
 
 
+# A reply that isn't the JSON asked for: tried again on later ticks, then given up (no_extract). A failed CALL
+# (the model at its limit, down, timing out) never gives a conversation up: it waits (live 2026-11-22..24).
+UNREADABLE_TRIES = 3
+_unreadable: dict = {}
+_unreadable_lock = threading.Lock()
+
+
+def _memory_call(_ref: str, prompt: str) -> str:
+    """The default reader: the guarded memory model (his backup covers while it's at its limit)."""
+    from api import memory_model
+    return memory_model.call(prompt, 1200, True)
+
+
 # Under this many letters/digits of real text (tapbacks, emoji, a lone photo),
 # a burst isn't worth a model call at all.
 TRIVIAL_CHARS = 10
@@ -299,10 +312,10 @@ def _take_back(memory, burst: Burst) -> None:
 
 
 def store_burst(st: IMStore, burst: Burst, *, memory, complete=None, zone=None) -> str:
-    """Remember one burst. Returns ``stored``, ``stored_no_facts``,
-    ``discarded`` (its chat is no longer allowed, or he pressed Forget while
-    it was being written) or ``failed`` (memory refused the write; the rows
-    stay buffered and the next tick tries again)."""
+    """Remember one burst. Returns ``stored``, ``skipped``, ``discarded`` (its chat is no longer allowed,
+    or he pressed Forget while it was being written), ``failed`` (memory refused the write), ``paused`` (the
+    model couldn't be called) or ``retry`` (its reply was unreadable) — the last three leave the rows buffered
+    for a later tick; ``no_extract`` once a reply was unreadable UNREADABLE_TRIES times."""
     settings = st.settings()
     if not st.still_pending(burst):
         return "discarded"  # forgotten since the tick listed it
@@ -311,21 +324,36 @@ def store_burst(st: IMStore, burst: Burst, *, memory, complete=None, zone=None) 
         return "discarded"
     chat = st.chat(burst.guid) or {}
     zone = zone or _zone()
-    complete = complete or _one_shot
+    complete = complete or _memory_call
     # Nothing is stored unless the model judges it worth remembering: a short
     # summary for a conversation that matters, facts on their own. Small talk,
     # goodnights and bot notices leave no memory at all.
     if is_trivial(burst):
         st.mark_burst(burst, "skipped", remembered=False)
         return "skipped"
+    key = (burst.guid, burst.first_rowid)
     try:
         model_ref, _label = _memory_model()
         transcript = _header(burst, chat, zone, "") + "\n" + "\n".join(_lines(burst, zone))
         summary, facts, keep = extract(transcript, model_ref, complete)
-    except Exception as exc:
-        logger.warning("imessage memory: couldn't judge %s (%s); nothing stored", burst.guid, exc)
+    except ValueError as exc:
+        # The model answered, but not with the JSON asked for.
+        with _unreadable_lock:
+            tries = _unreadable[key] = _unreadable.get(key, 0) + 1
+        if tries < UNREADABLE_TRIES:
+            logger.info("imessage memory: unreadable reply for %s (%s); trying again later", burst.guid, exc)
+            return "retry"
+        with _unreadable_lock:
+            _unreadable.pop(key, None)
+        logger.warning("imessage memory: %d unreadable replies for %s; nothing stored", tries, burst.guid)
         st.mark_burst(burst, "no_extract", remembered=False)
         return "no_extract"
+    except Exception as exc:  # noqa: BLE001 — the call failed: the conversation waits, nothing is lost
+        (logger.debug if getattr(exc, "memory_paused", False) else logger.warning)(
+            "imessage memory: couldn't read %s now (%s); it waits", burst.guid, exc)
+        return "paused"
+    with _unreadable_lock:
+        _unreadable.pop(key, None)
     status = "stored" if keep or facts else "skipped"
     # Forgotten, unticked or skip-listed during the model call: nothing is written.
     if not st.still_pending(burst):
@@ -458,12 +486,17 @@ def close_once(st: Optional[IMStore] = None, now: Optional[float] = None, *, mem
             if refusing.is_set():
                 break
             try:
-                if store_burst(st, burst, memory=memory, complete=complete) == "failed":
-                    refusing.set()  # memory is refusing writes: stop until the next tick
-                    break
+                result = store_burst(st, burst, memory=memory, complete=complete)
             except Exception:
                 logger.exception("imessage memory: burst %s:%s failed", burst.guid, burst.first_rowid)
                 continue
+            if result in ("failed", "paused"):
+                # Memory refused the write, or the model can't be called: stop until a later tick (the rows wait;
+                # one chat's conversations stay in order).
+                refusing.set()
+                break
+            if result == "retry":
+                break   # this chat's later conversations wait behind the one being retried
             done += 1
         return done
 

@@ -122,22 +122,119 @@ enum JarvisMemoryParse {
 /// to map memories to dates, people and places. `agent` uses the iMessage card's
 /// wire shape; nil = Same as Default. `label` is the server's name for what it
 /// resolved to.
+///
+/// `backup` is what memory uses while that model is at its usage limit: a model
+/// or a harness, never Same as Default; nil = nothing, memory waits for it.
+/// `paused` says the memory model is at its limit right now. An older server
+/// sends neither, and a malformed one reads as absent rather than failing.
 struct MemoryMapSettings: Decodable, Equatable {
     var agent: AgentChoice?
     var label: String
+    var backup: AgentChoice?
+    var backupLabel: String
+    var paused: MemoryPaused?
 
-    init(agent: AgentChoice?, label: String) {
+    /// The backup row's value when there is none.
+    static let waitTitle = "Wait for it"
+
+    init(agent: AgentChoice?, label: String, backup: AgentChoice? = nil, backupLabel: String = "",
+         paused: MemoryPaused? = nil) {
         self.agent = agent
         self.label = label
+        self.backup = backup
+        self.backupLabel = backupLabel
+        self.paused = paused
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         agent = try c.decodeIfPresent(IMessageMemoryAgent.self, forKey: .agent)?.choice
         label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
+        backup = ((try? c.decodeIfPresent(IMessageMemoryAgent.self, forKey: .backup)) ?? nil)?.choice
+        backupLabel = ((try? c.decodeIfPresent(String.self, forKey: .backupLabel)) ?? nil) ?? ""
+        paused = (try? c.decodeIfPresent(MemoryPaused.self, forKey: .paused)) ?? nil
     }
 
-    private enum CodingKeys: String, CodingKey { case agent, label }
+    private enum CodingKeys: String, CodingKey {
+        case agent, label, backup, paused
+        case backupLabel = "backup_label"
+    }
+}
+
+/// `paused` on the map settings and the iMessage card: the memory model is at its
+/// usage limit (or failing) and until when, and whether the backup covers for it
+/// or memory waits (nothing is lost). nil while the memory model works.
+struct MemoryPaused: Decodable, Equatable {
+    /// The memory model's label.
+    var model: String
+    /// When it should be back (epoch seconds); nil = the server doesn't know.
+    var until: Double?
+    /// `limit` (usage or rate limit) or `error` (failing for another reason).
+    var reason: String
+    /// The backup model is covering; false = memory waits.
+    var usingBackup: Bool
+    /// The backup's label, "" when there is none.
+    var backup: String
+
+    init(model: String, until: Double? = nil, reason: String = "limit", usingBackup: Bool = false,
+         backup: String = "") {
+        self.model = model
+        self.until = until
+        self.reason = reason
+        self.usingBackup = usingBackup
+        self.backup = backup
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        model = ((try? c.decodeIfPresent(String.self, forKey: .model)) ?? nil) ?? ""
+        until = (try? c.decodeIfPresent(Double.self, forKey: .until)) ?? nil
+        reason = ((try? c.decodeIfPresent(String.self, forKey: .reason)) ?? nil) ?? "limit"
+        usingBackup = ((try? c.decodeIfPresent(String.self, forKey: .using)) ?? nil) == "backup"
+        backup = ((try? c.decodeIfPresent(String.self, forKey: .backup)) ?? nil) ?? ""
+    }
+
+    private enum CodingKeys: String, CodingKey { case model, until, reason, using, backup }
+
+    var untilDate: Date? { until.flatMap { $0 > 0 ? Date(timeIntervalSince1970: $0) : nil } }
+
+    /// "GPT Luna is at its usage limit until Tue 9:00 PM · using Claude Haiku", or
+    /// "… · memory waits until then, nothing is lost" with no backup. `pending`
+    /// (the iMessage card) adds the messages waiting to be read. The web says the
+    /// same (jarvis_memory.js pausedLine).
+    func line(pending: Int = 0, now: Date = Date(), calendar: Calendar = .current) -> String {
+        let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = trimmed.isEmpty ? "The memory model" : trimmed
+        let when = untilDate.map { Self.when($0, now: now, calendar: calendar) }
+        var text: String
+        if reason == "error" {
+            text = "\(name) isn't working right now"
+            if let when { text += " · trying again at \(when)" }
+        } else {
+            text = "\(name) is at its usage limit"
+            if let when { text += " until \(when)" }
+        }
+        if usingBackup {
+            let backupName = backup.trimmingCharacters(in: .whitespacesAndNewlines)
+            text += " · using \(backupName.isEmpty ? "the backup" : backupName)"
+        } else {
+            text += when == nil ? " · memory waits, nothing is lost" : " · memory waits until then, nothing is lost"
+        }
+        if pending > 0 {
+            text += " · \(pending.formatted()) \(pending == 1 ? "message" : "messages") waiting"
+        }
+        return text
+    }
+
+    /// "9:00 PM" today, "Tue 9:00 PM" this week, "30 Nov, 9:00 PM" further off.
+    static func when(_ date: Date, now: Date, calendar: Calendar) -> String {
+        let time = date.formatted(.dateTime.hour().minute())
+        if calendar.isDate(date, inSameDayAs: now) { return time }
+        if abs(date.timeIntervalSince(now)) < 6 * 86_400 {
+            return "\(date.formatted(.dateTime.weekday(.abbreviated))) \(time)"
+        }
+        return date.formatted(.dateTime.month(.abbreviated).day().hour().minute())
+    }
 }
 
 /// What one cleanup step reports while it runs.

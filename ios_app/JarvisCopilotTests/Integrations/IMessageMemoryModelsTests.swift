@@ -89,6 +89,26 @@ final class IMessageMemoryModelsTests: XCTestCase {
         XCTAssertTrue(card.jobs.isEmpty)
     }
 
+    func testThePauseDecodesAndCountsTheMessagesWaiting() throws {
+        let card = try decode("""
+        {"enabled": true, "totals": {"memories": 5, "bursts": 1, "pending": 1234},
+         "paused": {"model": "GPT Luna", "until": null, "reason": "limit", "using": "waiting", "backup": ""}}
+        """)
+        let paused = try XCTUnwrap(card.paused)
+        XCTAssertEqual(paused, MemoryPaused(model: "GPT Luna"))
+        XCTAssertEqual(paused.line(pending: card.totals.pending),
+                       "GPT Luna is at its usage limit · memory waits, nothing is lost · "
+                       + "\(1234.formatted()) messages waiting")
+    }
+
+    func testNoPauseOrAMalformedOneIsNil() throws {
+        XCTAssertNil(try decode(fullCard).paused)
+        XCTAssertNil(try decode(#"{"paused": null}"#).paused)
+        let card = try decode(#"{"enabled": true, "paused": "limit"}"#)
+        XCTAssertNil(card.paused)
+        XCTAssertTrue(card.enabled, "the rest of the card still reads")
+    }
+
     func testAnUnknownJobStatusReadsAsAnError() throws {
         let card = try decode(#"{"jobs": [{"id": "x", "status": "exploded"}]}"#)
         XCTAssertEqual(card.jobs.first?.status, .error)
@@ -182,13 +202,15 @@ final class IMessageMemoryModelsTests: XCTestCase {
             .activeJob
     }
 
+    @MainActor
     func testAnalyzingDecodesWithItsCount() throws {
         let job = try XCTUnwrap(try job(#""status": "analyzing", "received": 200, "analyzed": 50, "stored": 4, "skipped": 1"#))
         XCTAssertEqual(job.status, .analyzing)
         XCTAssertEqual(job.analyzed, 50)
         XCTAssertEqual(job.progress, 0.25, accuracy: 0.0001)
         XCTAssertEqual(job.progressLine, "Analysing conversations — 50 of 200 messages")
-        XCTAssertEqual(job.savedLine, "4 saved · 1 skipped")
+        XCTAssertEqual(job.savedLine, "4 saved · 1 already remembered", "skipped = remembered before, not lost")
+        XCTAssertEqual(IMessageMemoryView.counts(job), "200 messages · 4 stored · 1 already remembered")
         XCTAssertTrue(job.status.isLive)
         XCTAssertNotEqual(job.status.title, "Done")
     }
