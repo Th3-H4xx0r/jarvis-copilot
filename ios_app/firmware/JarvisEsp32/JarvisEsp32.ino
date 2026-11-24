@@ -134,8 +134,7 @@ constexpr const char* prefs_namespace = "jarvis";
 constexpr const char* key_owner = "owner";
 constexpr const char* key_build = "build";
 constexpr const char* key_relay = "relay";
-// Changes with every compile, so a reflash — from this script or the IDE — wipes the
-// claim and the Wi‑Fi credentials. Same-binary reboots keep them.
+// Changes with every compile; a reflash keeps the owner and the Wi‑Fi (reset_if_reflashed).
 constexpr const char* build_stamp = __DATE__ " " __TIME__;
 
 // ───────────────────────────── GPIO helpers ─────────────────────────────
@@ -1315,17 +1314,17 @@ String device_name() {
   return String(buf);
 }
 
-// A different build stamp means the board was reflashed: forget the owner so the
-// next phone to connect starts from a clean board. The Wi‑Fi network is kept — it is
-// configuration, not a credential for the board itself.
+// A reflash keeps the owner (2026-11-24: forgetting it on every new build made the phone's
+// "board rejected the owner key" after each firmware update, and the board, on its direct
+// link with Bluetooth off, couldn't be re-claimed without a trip to it). Ownership is reset
+// on purpose with BOOT held + the app's "Reset ownership…"; the build stamp is only logged.
 void reset_if_reflashed() {
   Preferences prefs;
   if (!prefs.begin(prefs_namespace, /*readOnly=*/false)) return;
   const String stored = prefs.getString(key_build, "");
   if (stored != build_stamp) {
-    prefs.remove(key_owner);
     prefs.putString(key_build, build_stamp);
-    Serial.println("[auth] new firmware build, ownership reset");
+    Serial.println("[boot] new firmware build (owner and settings kept)");
   }
   prefs.end();
 }

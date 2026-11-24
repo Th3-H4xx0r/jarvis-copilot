@@ -16,7 +16,7 @@ constexpr const char* device_name_prefix = "Jarvis-ESP32";
 // is still encrypted and bonded; iOS shows a plain Pair/Cancel prompt once per phone.
 
 constexpr uint8_t firmware_major = 1;
-constexpr uint8_t firmware_minor = 6;  // 1.6: sends its machine_id (pairing + register); 1.5: never gives up on the server (CloudPolicy.h), loop watchdog; 1.4: PC power button role (PC_ROLE, esp32_pc_*); 1.1: iPhone-notification relay (NOTIFY_RELAY)
+constexpr uint8_t firmware_minor = 7;  // 1.7: a reflash keeps the owner key; 1.6: sends its machine_id (pairing + register); 1.5: never gives up on the server (CloudPolicy.h), loop watchdog; 1.4: PC power button role (PC_ROLE, esp32_pc_*); 1.1: iPhone-notification relay (NOTIFY_RELAY)
                                        // 1.2: puts back a bond the stack erased (BondKeeper)
                                        // 1.3: a phone that pairs again keeps its new bond
 
