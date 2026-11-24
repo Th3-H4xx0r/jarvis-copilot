@@ -470,3 +470,44 @@ def test_unwired_light_events_dont_write_or_push(tmp_path):
     for state in ("on", "off", "asleep", "off"):
         rig.store.on_light(BOARD, {"light": state, "since_s": 1})
     assert pushes == []
+
+
+def test_wake_right_after_a_shutdown_waits_until_it_is_off(tmp_path):
+    # Live 2026-11-24: a wake 110 s after "shut down" pressed while Windows was still shutting down; the press was
+    # ignored and the PC stayed off. The press now waits until the shutdown has had SHUTDOWN_SETTLE_S.
+    from api.mac_power import SHUTDOWN_SETTLE_S
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    assert rig.store.button_board(PC) == BOARD
+    t0 = rig.t
+    rig.store.shutdown(PC)
+    rig.connected = {BOARD}
+    rig.t += 30
+    out = rig.store.wake(PC)
+    assert out["ok"] is True and out.get("via") == "power button"
+    assert len(rig.presses()) == 1 and rig.t >= t0 + SHUTDOWN_SETTLE_S   # pressed only once settled
+
+
+def test_wake_during_a_restart_never_presses(tmp_path):
+    # A press while the PC restarts would sleep it as it boots: wait for it instead.
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    assert rig.store.button_board(PC) == BOARD
+    rig.store.restart(PC)
+    rig.connected = {BOARD}
+    rig.t += 60
+    out = rig.store.wake(PC)
+    assert out["ok"] is True and out.get("restarting") is True and rig.presses() == []
+
+
+def test_wake_long_after_a_shutdown_presses_at_once(tmp_path):
+    from api.mac_power import SHUTDOWN_SETTLE_S
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    assert rig.store.button_board(PC) == BOARD
+    rig.store.shutdown(PC)
+    rig.connected = {BOARD}
+    rig.t += SHUTDOWN_SETTLE_S + 60
+    t_press = rig.t
+    rig.store.wake(PC)
+    assert len(rig.presses()) == 1 and rig.t - t_press < SHUTDOWN_SETTLE_S

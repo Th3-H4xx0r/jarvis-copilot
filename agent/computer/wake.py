@@ -73,6 +73,7 @@ def ensure_awake(device_id: str, wait_s: float = WAIT_S, *, clock: Callable[[], 
     if not out.get("ok"):
         return False, str(out.get("error") or f"Couldn't wake the {noun}.")
     start = clock()
+    wait_s += float(out.get("after_s") or 0)   # the server holds the press until a shutdown has finished
     while clock() - start < wait_s:
         if _ready(device_id):
             sleep(SETTLE_S)

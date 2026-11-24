@@ -122,3 +122,11 @@ def test_a_starting_pc_is_waited_for(monkeypatch):
     store, clock, sleep = _rig(monkeypatch, up_after=10, rows=[dict(PC_ROW, state="awake", reason="starting")])
     ok, note = W.ensure_awake("pc", clock=clock, sleep=sleep)
     assert ok is True and "awake" in note
+
+
+def test_a_press_held_until_a_shutdown_finishes_is_waited_for(monkeypatch):
+    # The server holds the press up to 150 s after "shut down" (after_s); a cold boot then takes ~40 s more.
+    store, clock, sleep = _rig(monkeypatch, up_after=185, out={"ok": True, "sent": True, "via": "power button",
+                                                               "after_s": 140})
+    ok, note = W.ensure_awake("pc", clock=clock, sleep=sleep)
+    assert ok is True and "awake" in note

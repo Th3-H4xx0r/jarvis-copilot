@@ -38,6 +38,8 @@ BUTTON_SKILL = "esp32_pc_press"
 LIGHTS = frozenset({"on", "asleep", "off", "unknown"})
 TAP_MS = 300                   # a short press: wake / boot / Windows' power-button action (Sleep)
 FORCE_OFF_MS = 6000            # held past ~4 s the board cuts power
+SHUTDOWN_SETTLE_S = 150.0      # a wake press waits this long after "shut down" / force off (Windows still going down)
+RESTART_SETTLE_S = 240.0       # after a restart it comes back by itself: no press this long
 WAKE_REPEAT_UNWIRED_S = 240.0   # light unwired: can't see a PC still booting, so one press per 4 minutes
 WAKE_CONFIRM_S = 15.0          # no light after a wake press by then: try the Wi-Fi wake too
 SLEEP_CONFIRM_S = 25.0         # still lit after a software sleep by then: press the button
@@ -266,11 +268,35 @@ class MacPowerStore:
             # Already on (or still booting from the last tap): a press now would sleep it.
             self._update(pc, wake_requested_at=self._clock())
             return {"ok": True, "already_on": True}
-        last = float((self._devices.get(pc) or {}).get("button_wake_at") or 0)
-        wired = bool((self._devices.get(pc) or {}).get("light_wired"))
+        d = self._devices.get(pc) or {}
+        action, since = d.get("power_action"), self._clock() - float(d.get("power_action_at") or 0)
+        if action in ("restart", "force_restart") and since < RESTART_SETTLE_S:
+            # It's restarting by itself: a press now would put it to sleep as it boots. Wait for it.
+            self._update(pc, wake_requested_at=self._clock())
+            return {"ok": True, "restarting": True}
+        last = float(d.get("button_wake_at") or 0)
+        wired = bool(d.get("light_wired"))
         if self._clock() - last < (WAKE_REPEAT_S if wired else WAKE_REPEAT_UNWIRED_S):
             # Still resuming from the last tap (the light isn't steady for ~3 s): one press only.
             return {"ok": True, "sent": True, "via": "power button"}
+        wait = SHUTDOWN_SETTLE_S - since if action in ("shutdown", "force_off") else 0.0
+        if wait > 0:
+            # Live 2026-11-24: a press 110 s after "shut down" came while Windows was still shutting down; it was
+            # ignored and the PC stayed off. Press once the shutdown has had SHUTDOWN_SETTLE_S.
+            asked = self._clock()
+            self._update(pc, wake_requested_at=asked, button_wake_at=asked + wait)   # repeats wait for it too
+
+            def later() -> None:
+                self._sleep(wait)
+                cur = self._devices.get(pc) or {}
+                if cur.get("power_action") != action or self._reporting(pc):
+                    return   # something newer happened, or it came back by itself
+                self._press_to_wake(pc)
+            self._spawn(later)
+            return {"ok": True, "sent": True, "via": "power button", "after_s": int(wait)}
+        return self._press_to_wake(pc)
+
+    def _press_to_wake(self, pc: str) -> Optional[dict]:
         # Until the LED wires are connected the board's own light reading is noise (floating pins), so
         # its check could refuse this press at random: skip it then.
         wired = bool((self._devices.get(pc) or {}).get("light_wired"))
@@ -279,7 +305,7 @@ class MacPowerStore:
             log.info("PC power button press didn't happen: %s", res.get("error"))
             return None
         now = self._clock()
-        self._update(pc, wake_requested_at=now, button_wake_at=now, power_action_at=now)
+        self._update(pc, wake_requested_at=now, button_wake_at=now, power_action_at=now, power_action="wake")
 
         def confirm() -> None:
             self._sleep(WAKE_CONFIRM_S)
