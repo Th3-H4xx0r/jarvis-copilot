@@ -39,6 +39,10 @@ Found: the World news cron (Sonnet via a router mislabel) was ~85% of Anthropic 
 
     - ✅ (12 + 14) iPhone build 263280808 published via release.sh 08:14 UTC — Found from voice.log: the ActivityKit update queue ran calls strictly in order, so one hung call froze every later frame (idle included) and Stop was deduped as "already idle"; now newest-frame-only queue with a 4 s stuck-call bypass, forced re-send on Stop, 90 s staleDate + 60 s refresh while live, interrupted mic shows thinking. Harnesses: fixed-width row labels, one-line menu values ("Same as default"), capped node glyph.
 
+15. [x] "Still ~$2 overnight" + keep-warm (his pick: 6 h)
+    - Found: the overnight $2 was mostly BEFORE the fixes (World news until ~06:20 UTC ≈ $3.35, Todo on Sonnet ≈ $0.65). Last 6 h while asleep: email monitor $0.06 + memory reflection <$0.01. The $0.72 since 08:15 = his own voice-chat turns (2:00–2:17 AM, 7:48 AM): a post-deploy cold write, a Haiku→Sonnet switch (separate caches), a Haiku system-prompt change (node notes varied by route), and a 5.5 h gap (cache expired).
+    - ✅ 1f8ee9f141: keep-warm (max_tokens 0 re-read every 55 min for chats used in the last 6 h; usage:keepwarm), and the web system tail is constant again (node notes back in the turn). Live probe: read-only refresh accepted.
+
 ## Shipped
 - Server at 6b788b552, webui + gateway restarted 07:39 UTC (healthy 302).
 
