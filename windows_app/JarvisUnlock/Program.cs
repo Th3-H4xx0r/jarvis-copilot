@@ -128,6 +128,9 @@ internal static class Installer
             Sc("config", Program.ServiceName, "binPath=", bin, "start=", "auto");
         else
             Sc("create", Program.ServiceName, "binPath=", bin, "start=", "auto", "obj=", "LocalSystem", "DisplayName=", "Jarvis Unlock");
+        // A crashed helper came back only when jc-client started it for an unlock or admin step: let the service
+        // manager restart it (5 s, up to three times a day), so Unlock PC works while he's away.
+        Sc("failure", Program.ServiceName, "reset=", "86400", "actions=", "restart/5000/restart/5000/restart/5000");
         Sc("description", Program.ServiceName, "Types your Windows password on the lock screen when you unlock the PC from your iPhone with Face ID, and runs the admin commands you approve there.");
         GrantStart(sid);
         var started = Sc("start", Program.ServiceName);

@@ -45,11 +45,49 @@ BOOT_PID_FILE = state_dir() / "jc-client-boot.pid"
 
 
 def _read_pid() -> int | None:
+    """The running client's pid, or None (no pid file, or a stale one: _is_jc_client)."""
+    return _read_pid_file(PID_FILE)
+
+
+def _read_boot_pid() -> int | None:
+    return _read_pid_file(BOOT_PID_FILE)
+
+
+def _read_pid_file(path: Path) -> int | None:
     try:
-        raw = PID_FILE.read_text().strip()
-        return int(raw) if raw else None
-    except (FileNotFoundError, ValueError):
+        raw = path.read_text().strip()
+        pid = int(raw) if raw else None
+    except (OSError, ValueError):
         return None
+    if pid and _is_running(pid) and not _is_jc_client(pid, path):
+        return None   # stale: that PID is some other program now
+    return pid
+
+
+def _is_jc_client(pid: int, pid_file: Path) -> bool:
+    """Whether running ``pid`` from ``pid_file`` is still a jc-client. After a power cut or a forced
+    shutdown the pid file outlives its process and by the next boot its PID can be another program's:
+    the boot instance then exited as "already running", the normal client refused to start, and taking
+    over from the boot instance could kill that program. Can't tell (no psutil, access denied): yes."""
+    try:
+        import psutil
+    except ImportError:
+        return True
+    try:
+        if pid_file.stat().st_mtime < psutil.boot_time():
+            return False   # written before this boot
+        proc = psutil.Process(int(pid))
+        name = (proc.name() or "").lower()
+        if "jc-client" in name or "jc_client" in name:
+            return True
+        if not name.startswith("python"):
+            return False
+        cmdline = " ".join(proc.cmdline()).lower()
+    except psutil.NoSuchProcess:
+        return False
+    except Exception:  # noqa: BLE001
+        return True
+    return "jc-client" in cmdline or "jc_client" in cmdline
 
 
 def _write_pid(pid: int) -> None:
@@ -318,7 +356,8 @@ def cmd_start(args) -> int:
     if getattr(args, "no_tray", False):
         # A boot instance may still hold the link from before he signed in: take over from it.
         from jc_client import boot_mode
-        boot_mode.stop_boot_instance(BOOT_PID_FILE, is_running=_is_running, kill=_kill_boot)
+        boot_mode.stop_boot_instance(BOOT_PID_FILE, kill=_kill_boot,
+                                     is_running=lambda p: _is_running(p) and _is_jc_client(p, BOOT_PID_FILE))
         if sys.platform == "win32":
             credentials.refresh_boot_copy()   # the boot client can't read Credential Manager before sign-in
         pid = _read_pid()
@@ -327,7 +366,8 @@ def cmd_start(args) -> int:
             return 1
         _write_pid(os.getpid())
         try:
-            return service.run(verbose=args.verbose)
+            # supervised (the scheduled task / launchd / systemd): a link silent for 10 min exits it
+            return service.run(verbose=args.verbose, pid_file=PID_FILE)
         finally:
             try:
                 PID_FILE.unlink()
@@ -465,10 +505,7 @@ def _start_boot(args) -> int:
     pid = _read_pid()
     if pid and _is_running(pid):
         return 0                      # the normal client is up (e.g. right after a sign-out)
-    try:
-        other = int(BOOT_PID_FILE.read_text().strip())
-    except (OSError, ValueError):
-        other = 0
+    other = _read_boot_pid() or 0
     if other and other != os.getpid() and _is_running(other):
         print(f"boot instance already running (pid {other})", file=sys.stderr)
         return 0                      # not a failure: the task's restart-on-failure mustn't loop on it
@@ -476,7 +513,7 @@ def _start_boot(args) -> int:
     BOOT_PID_FILE.write_text(str(os.getpid()))
     boot_mode.watch(BOOT_PID_FILE)
     try:
-        return service.run(verbose=args.verbose)
+        return service.run(verbose=args.verbose, pid_file=BOOT_PID_FILE)
     finally:
         try:
             BOOT_PID_FILE.unlink()

@@ -24,7 +24,12 @@ import threading
 import time
 from typing import Callable, Optional
 
-STALE_COMMAND_S = 20.0   # a Sleep/Lock older than this was queued while the PC slept
+# A Sleep/Lock/Restart older than this was queued while the PC slept. Measured against the PC's own
+# clock, so it was 20 s until a PC clock that far ahead dropped every command silently.
+STALE_COMMAND_S = 120.0
+# A clean restart/shutdown an app with unsaved work holds up ("This app is preventing restart", nobody
+# there to answer it): still running this long after, the client cancels it and forces it.
+FORCE_SHUTDOWN_AFTER_S = 90.0
 BUTTON_ACTION_TTL = 3600.0   # Windows' power-button action, re-read hourly (powercfg is slow)
 # powercfg PBUTTONACTION index → what a short press on the case's power button does.
 _BUTTON_ACTIONS = {0: "nothing", 1: "sleep", 2: "hibernate", 3: "shutdown", 4: "display off"}
@@ -104,6 +109,13 @@ _WIFI_PS = (
     "-RegistryKeyword '*WakeOnMagicPacket' -ErrorAction SilentlyContinue).RegistryValue; "
     "@{name=$a.Name; description=$a.InterfaceDescription; mac=$a.MacAddress; magic=\"$m\"} | ConvertTo-Json -Compress }"
 )
+
+
+def _later(seconds: float, fn: Callable[[], None]) -> None:
+    t = threading.Timer(seconds, fn)
+    t.daemon = True
+    t.name = "jc-pc-force-shutdown"
+    t.start()
 
 
 def _run(argv: list, timeout: float = 15.0) -> str:
@@ -263,10 +275,12 @@ class PcPower:
                  spawn: Optional[Callable[..., None]] = None,
                  app_linked: Callable[[], Optional[bool]] = lambda: None,
                  api_origin: Callable[[], Optional[str]] = lambda: None, wake=None, device_id: str = "",
-                 grants=None, run: Callable[..., str] = _run, clock: Callable[[], float] = time.monotonic) -> None:
+                 grants=None, run: Callable[..., str] = _run, clock: Callable[[], float] = time.monotonic,
+                 later: Optional[Callable[[float, Callable[[], None]], None]] = None) -> None:
         self._send_up = send_up
         # The PC power button (spec 2026-11-23): clean restart/shutdown, and what a press means.
         self._run = run
+        self._later = later or _later
         self._clock = clock
         self._button_action_cache: Optional[tuple] = None
         self._origin = api_origin
@@ -477,10 +491,10 @@ class PcPower:
         from jc_client import boot_mode
         if boot_mode.is_boot() and msg.get("type") == "password_fill":
             # Before sign-in there's no Jarvis app: the JarvisUnlock service checks his approval and signs him in.
-            from jc_client import helper_pipe
-            fields = {k: msg[k] for k in ("kind", "context", "nonce", "proof", "grant", "device") if k in msg}
-            out = helper_pipe.signin(fields, timeout) or {}
-            return {"ok": True} if out.get("ok") else {"ok": False, "error": str(out.get("error") or "Sign-in failed")}
+            return self._helper_signin(msg, timeout)
+        if msg.get("type") == "password_fill" and msg.get("kind") == "unlock" and self._app_link_down():
+            # Locked, and the Jarvis app isn't running (or isn't linked): the same service unlocks it.
+            return self._helper_signin(msg, timeout)
         if msg.get("type") == "admin_run":
             from jc_client import helper_pipe
             proof = msg.get("proof") or {}
@@ -507,6 +521,18 @@ class PcPower:
             with self._fill_lock:
                 self._fills.pop(rid, None)
 
+    def _helper_signin(self, msg: dict, timeout: float) -> dict:
+        from jc_client import helper_pipe
+        fields = {k: msg[k] for k in ("kind", "context", "nonce", "proof", "grant", "device") if k in msg}
+        out = helper_pipe.signin(fields, timeout) or {}
+        return {"ok": True} if out.get("ok") else {"ok": False, "error": str(out.get("error") or "Sign-in failed")}
+
+    def _app_link_down(self) -> bool:
+        try:
+            return self._app_linked() is False
+        except Exception:  # noqa: BLE001
+            return False
+
     def _apply(self, change: dict) -> None:
         if "keep_awake" in change:
             self.keep_awake(bool(change["keep_awake"]))
@@ -517,6 +543,11 @@ class PcPower:
         # A Sleep/Lock pressed while the PC slept sits in the link and arrives when it wakes — and
         # would put it straight back to sleep (live). Drop ones sent long ago (no "ts": older server).
         stale = isinstance(change.get("ts"), (int, float)) and time.time() - float(change["ts"]) > STALE_COMMAND_S
+        dropped = [k for k in ("let_sleep", "lock", "restart", "shutdown") if change.get(k)] if stale else []
+        if dropped:
+            log.warning("pc power: dropped %s sent %.0fs ago by the server's clock (over %.0fs: queued while "
+                        "asleep, or the PC clock is ahead)", ", ".join(dropped), time.time() - float(change["ts"]),
+                        STALE_COMMAND_S)
         if change.get("let_sleep") and not stale:
             self.keep_awake(False)
             self._suspend()   # no status report first: its "awake" undid the server's sleep mark (live)
@@ -533,6 +564,15 @@ class PcPower:
                     # A locked PC refuses without /f (live 2026-11-23): apps close without asking to save.
                     log.info("pc power: locked, retrying with /f -> %r",
                              (self._run(["shutdown", flag, "/t", "0", "/f"]) or "")[:300])
+                else:
+                    self._later(FORCE_SHUTDOWN_AFTER_S, lambda flag=flag: self._force_shutdown(flag))
+
+    def _force_shutdown(self, flag: str) -> None:
+        """Still running FORCE_SHUTDOWN_AFTER_S after a clean shutdown: an app held it up. Cancel, then force."""
+        aborted = self._run(["shutdown", "/a"]) or ""
+        out = self._run(["shutdown", flag, "/t", "0", "/f"]) or ""
+        log.warning("pc power: shutdown %s still pending after %.0fs; aborted (%r) and forced -> %r",
+                    flag, FORCE_SHUTDOWN_AFTER_S, aborted[:200], out[:300])
 
     def ui_request(self, req: dict) -> dict:
         kind = req.get("type")

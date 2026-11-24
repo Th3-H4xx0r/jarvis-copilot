@@ -148,15 +148,18 @@ def test_ws_connect_raises_instead_of_hanging_on_silent_handshake(monkeypatch):
     assert all(t is not None for t in sock.timeouts)
 
 
-def test_ws_connect_clears_timeout_after_successful_handshake(monkeypatch):
+def test_ws_connect_reads_with_a_long_timeout_after_the_handshake(monkeypatch):
     sock = _accepting_sock()
     monkeypatch.setattr(protocol.socket, "create_connection", lambda *a, **k: sock)
     ws = WsConnection("http://localhost:9", cookie="")
     ws.connect()
-    # Finite timeout DURING the handshake, then None for the long-lived phase —
-    # otherwise the long-lived read would spuriously time out every few seconds.
-    assert sock.timeouts[-1] is None
+    # Short timeouts DURING the handshake, then a long finite one for the link: never None, or a
+    # half-dead link (live 2026-11-23, after the PC slept) blocks recv() forever and the PC drops off
+    # Jarvis until someone restarts the client. The server text-pings every 40 s
+    # (webui/api/device_bridge.py _ping_interval), so silence well past that means the link is dead.
     assert any(t is not None for t in sock.timeouts[:-1])
+    assert sock.timeouts[-1] is not None and sock.timeouts[-1] >= 2 * _SERVER_PING_S
+    assert sock.timeouts[-1] > protocol._HANDSHAKE_TIMEOUT
 
 
 def test_the_ssh_relay_cannot_hang_on_a_silent_handshake(monkeypatch):
@@ -171,3 +174,64 @@ def test_the_ssh_relay_cannot_hang_on_a_silent_handshake(monkeypatch):
     with pytest.raises(WsConnectionClosed):
         tcp_relay_client._connect_relay()
     assert all(t is not None for t in sock.timeouts)
+
+
+# ── a dead long-lived link must end the read loop, so the service reconnects ──────
+
+_SERVER_PING_S = 40.0   # webui/api/device_bridge.py _ping_interval(): the server's text ping
+
+
+def _linked_ws(wrap=lambda s: s):
+    """A WsConnection already past its handshake, over a real socketpair: (ws, our end, the server's end)."""
+    from wsproto import ConnectionType, WSConnection as _WS
+    from wsproto.events import AcceptConnection, Request
+
+    ours, theirs = _socket.socketpair()
+    client, server = _WS(ConnectionType.CLIENT), _WS(ConnectionType.SERVER)
+    server.receive_data(client.send(Request(host="localhost", target="/api/devices/bridge/ws")))
+    assert any(isinstance(e, Request) for e in server.events())
+    client.receive_data(server.send(AcceptConnection()))
+    assert any(isinstance(e, AcceptConnection) for e in client.events())
+    ws = WsConnection("http://localhost:9", cookie="")
+    ws._sock, ws._conn = wrap(ours), client
+    return ws, ours, theirs
+
+
+def test_a_read_timeout_ends_the_link_and_close_frees_the_socket():
+    ws, ours, theirs = _linked_ws()
+    ours.settimeout(0.2)              # the server went quiet: a half-dead link
+    assert list(ws.read_frames()) == []
+    ws.close()                        # the service's finally: must free the socket even though the link is already marked closed
+    assert ours.fileno() == -1
+
+
+class _FailingSend:
+    """Our real socket, but writes fail: the link died under a send."""
+
+    def __init__(self, sock):
+        self._s = sock
+
+    def sendall(self, data):
+        raise OSError("connection reset")
+
+    def __getattr__(self, name):
+        return getattr(self._s, name)
+
+
+@pytest.mark.parametrize("send", ["text", "ping"])
+def test_a_failed_send_wakes_the_reader_blocked_in_recv(send):
+    import threading
+    import time
+
+    ws, ours, theirs = _linked_ws(_FailingSend)
+    done = threading.Event()
+
+    def reader():
+        list(ws.read_frames())
+        done.set()
+    threading.Thread(target=reader, daemon=True).start()
+    time.sleep(0.1)                   # the reader is blocked in recv()
+    with pytest.raises(WsConnectionClosed):
+        ws.send_text("{}") if send == "text" else ws.send_ping(b"jc")
+    assert done.wait(2), "the reader stayed blocked, so the reconnect loop never ran"
+    assert theirs.fileno() != -1      # (the server's end stayed open: only our shutdown could wake it)

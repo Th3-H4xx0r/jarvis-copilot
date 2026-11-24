@@ -29,6 +29,7 @@ import time
 import traceback
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Optional
 
 from jc_client import credentials
@@ -56,6 +57,13 @@ _STABLE_SECONDS = 30.0
 _PING_INTERVAL = 20.0  # keepalive cadence; a text ping every 20s stays well
                        # under the ~50-60s edge idle timeout that was dropping us
 _MAX_CONCURRENT_INVOKES = 8
+# Last resort (live 2026-11-23: after the PC slept jc-client stayed up but silent until restarted by
+# hand): no frame from the server for this long while it should be connected or reconnecting exits the
+# process so its supervisor starts a fresh one — on Windows the scheduled task's 5-minute "start it if
+# it isn't running" trigger (installers/install-windows.ps1), launchd KeepAlive, systemd on-failure.
+_SILENT_EXIT_S = 600.0
+_SILENT_EXIT_CODE = 75   # EX_TEMPFAIL: non-zero, so every supervisor counts it as a failure
+_WATCHDOG_TICK_S = 30.0
 # Per-skill watchdog. Stay under the server's invoke_skill default of 30s
 # so the bot gets our error before timing out itself.
 _SKILL_TIMEOUT_S = 20.0
@@ -159,6 +167,9 @@ class Service:
         )
         self._ws: Optional[WsConnection] = None
         self._connected = False
+        # Seconds with no frame from the server (run(pid_file=…) exits past _SILENT_EXIT_S).
+        self._watchdog = _SilenceWatchdog()
+        self._expect_link = False   # paired and not stopping: frames should be coming
         self._last_connect_attempt = 0.0
         self._last_error = ""
         # Per-connection MCP relay manager (Phase 2): tunnels a local Playwright
@@ -789,8 +800,9 @@ class Service:
 
     # ── loop ──────────────────────────────────────────────────────────
 
-    def run(self) -> int:
-        """Main loop. Returns shell exit code on stop."""
+    def run(self, pid_file: Optional[Path] = None) -> int:
+        """Main loop. Returns shell exit code on stop. ``pid_file``: this process runs under a supervisor
+        (``start --no-tray``) and owns that pid file; a link silent for _SILENT_EXIT_S then exits it."""
         log.info("jc-client service starting")
         if sys.platform == "win32":
             _win_dpi_aware()   # real pixels: window rects must match the screenshots (ui_look)
@@ -806,10 +818,14 @@ class Service:
         except Exception as exc:
             log.error("skill registry load failed: %s", exc)
         self.start_agent_hooks()
+        if pid_file is not None:
+            threading.Thread(target=self._watch_silence, args=(pid_file,), daemon=True,
+                             name="jc-silence-watch").start()
         backoff_idx = 0
 
         while not self._stop.is_set():
             creds = credentials.load()
+            self._expect_link = creds.paired
             if not creds.paired:
                 self._last_error = "not paired — run `jc-client pair`"
                 log.warning(self._last_error)
@@ -855,11 +871,21 @@ class Service:
             if self._stop.wait(delay):
                 break
 
+        self._expect_link = False
         log.info("jc-client service stopped")
         self.stop_agent_hooks()
         self._write_connection_state("stopped")
         self._executor.shutdown(wait=False, cancel_futures=True)
         return 0
+
+    def _watch_silence(self, pid_file: Path) -> None:
+        wd = self._watchdog
+        while not self._stop.wait(wd.tick_s):
+            if wd.tick(self._expect_link and not self._stop.is_set()):
+                log.error("no frame from the server for %.0f min while connected or reconnecting: "
+                          "exiting so the supervisor starts a fresh client", wd.limit / 60)
+                _exit_for_restart(pid_file)
+                return
 
     # ── inner ─────────────────────────────────────────────────────────
 
@@ -873,6 +899,7 @@ class Service:
             cf_client_secret=creds.cf_client_secret,
         )
         ws.connect()
+        self._watchdog.heard()
         self._ws = ws
         self._connected = True
         self._last_error = ""
@@ -997,26 +1024,12 @@ class Service:
         # Periodic ping thread — keeps NATs / load balancers from
         # silently dropping the connection if the server is idle.
         ping_stop = threading.Event()
-
-        def _pinger() -> None:
-            while not ping_stop.wait(_PING_INTERVAL):
-                try:
-                    # A TEXT data frame (not just a WS control PING): edges like
-                    # cloudflared/nginx often only reset their idle timeout on
-                    # DATA frames, so a control ping alone let the connection
-                    # drop every ~50s. Send both.
-                    ws.send_text(json.dumps({"type": "ping"}))
-                    ws.send_ping(b"jc")
-                except WsConnectionClosed:
-                    return
-                except Exception:
-                    return
-
-        ping_thread = threading.Thread(target=_pinger, daemon=True, name="ws-ping")
+        ping_thread = threading.Thread(target=_keepalive, args=(ws, ping_stop), daemon=True, name="ws-ping")
         ping_thread.start()
 
         try:
             for frame in ws.read_frames():
+                self._watchdog.heard()
                 if self._stop.is_set():
                     break
                 self._handle_frame(ws, frame)
@@ -1406,12 +1419,77 @@ def _chunk_manifest(manifest: list[dict], max_bytes: int) -> list[list[dict]]:
     return chunks
 
 
+def _keepalive(ws, stop: threading.Event, interval: float = _PING_INTERVAL) -> None:
+    """Ping the server every ``interval`` until ``stop``. A failed ping closes the link, so the
+    reader returns and the service reconnects (it used to quit quietly and leave the link up but dead)."""
+    while not stop.wait(interval):
+        try:
+            # A TEXT data frame (not just a WS control PING): edges like
+            # cloudflared/nginx often only reset their idle timeout on
+            # DATA frames, so a control ping alone let the connection
+            # drop every ~50s. Send both.
+            ws.send_text(json.dumps({"type": "ping"}))
+            ws.send_ping(b"jc")
+        except Exception as exc:  # noqa: BLE001
+            if not stop.is_set():
+                log.warning("keepalive ping failed (%s): dropping the link to reconnect", exc)
+                try:
+                    ws.close()
+                except Exception:  # noqa: BLE001
+                    pass
+            return
+
+
+class _SilenceWatchdog:
+    """Awake seconds with no frame from the server. A tick far later than due means the computer slept:
+    that starts a fresh budget, so the PC's 15-minute timer check-ins never add up to an exit."""
+
+    def __init__(self, limit: float = _SILENT_EXIT_S, tick: float = _WATCHDOG_TICK_S,
+                 clock=time.time, sleep_gap: Optional[float] = None) -> None:
+        self.limit, self.tick_s, self._clock = limit, tick, clock
+        self._sleep_gap = 3 * tick if sleep_gap is None else sleep_gap
+        self._lock = threading.Lock()
+        self._last = clock()
+        self._silent = 0.0
+
+    def heard(self) -> None:
+        with self._lock:
+            self._silent = 0.0
+
+    def tick(self, active: bool) -> bool:
+        """True once silent for ``limit`` while a link was expected (``active``)."""
+        with self._lock:
+            now = self._clock()
+            gap, self._last = now - self._last, now
+            if not active or gap < 0 or gap > self._sleep_gap:
+                self._silent = 0.0
+                return False
+            self._silent += gap
+            return self._silent >= self.limit
+
+
+def _exit_for_restart(pid_file: Path, code: int = _SILENT_EXIT_CODE) -> None:
+    """os._exit, as boot_mode.watch does (a wedged thread can't hold the process up), removing our pid
+    file first: the supervisor's fresh start must not find it and say "already running"."""
+    try:
+        if Path(pid_file).read_text().strip() == str(os.getpid()):
+            Path(pid_file).unlink()
+    except (OSError, ValueError):
+        pass
+    for handler in logging.getLogger().handlers:
+        try:
+            handler.flush()
+        except Exception:  # noqa: BLE001
+            pass
+    os._exit(code)
+
+
 # ── module entry ───────────────────────────────────────────────────────────
 
 
-def run(verbose: bool = False) -> int:
+def run(verbose: bool = False, pid_file: Optional[Path] = None) -> int:
     """Foreground entry. Called from ``jc-client start`` and from the
-    tray when it spawns a background thread."""
+    tray when it spawns a background thread. ``pid_file``: see Service.run."""
     setup_logging(level="DEBUG" if verbose else "INFO", verbose=verbose)
     creds = credentials.load()
     skills.load_all(allow_shell=creds.allow_shell)
@@ -1431,7 +1509,7 @@ def run(verbose: bool = False) -> int:
         # Not in main thread (e.g. tray runs service in a thread).
         pass
 
-    return service.run()
+    return service.run(pid_file=pid_file)
 
 
 # Cross-module handle so the tray app can pause/resume/restart the

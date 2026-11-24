@@ -255,7 +255,7 @@ def test_let_sleep_sends_no_awake_report_on_its_way_down():
 def test_old_sleep_and_lock_commands_are_dropped():
     import time
     rig = Rig()
-    stale = time.time() - 60          # queued while the PC slept, delivered when it woke
+    stale = time.time() - 600         # queued while the PC slept, delivered when it woke
     rig.power.handle_frame({"type": "mac_power_set", "let_sleep": True, "ts": stale})
     rig.power.handle_frame({"type": "mac_power_set", "lock": True, "ts": stale})
     assert rig.suspends == [] and rig.locks == []
@@ -361,6 +361,8 @@ class ButtonRig(Rig):
                              probe=lambda: pc_power.probe(lambda: DEVQUERY, lambda: WIFI),
                              battery=lambda: (None, None), lan_ip=lambda: "192.168.1.80",
                              run=run, clock=lambda: self.t)
+        self.later = []   # follow-ups the power module scheduled: (seconds, fn)
+        self.power._later = lambda seconds, fn: self.later.append((seconds, fn))
 
 
 def test_status_reports_button_action():
@@ -400,7 +402,7 @@ def test_shutdown_frame_runs_shutdown_s():
 def test_stale_restart_dropped():
     import time as _t
     rig = ButtonRig()
-    rig.power.handle_frame({"type": "mac_power_set", "restart": True, "ts": _t.time() - 60})
+    rig.power.handle_frame({"type": "mac_power_set", "restart": True, "ts": _t.time() - 600})
     assert rig.cmds == []
 
 
@@ -419,3 +421,63 @@ def test_restart_on_a_locked_pc_retries_with_force():
     rig.power._run = run
     rig.power.handle_frame({"type": "mac_power_set", "restart": True, "ts": _t.time()})
     assert cmds == [["shutdown", "/r", "/t", "0"], ["shutdown", "/r", "/t", "0", "/f"]]
+    assert rig.later == []            # already forced: nothing to follow up
+
+
+@pytest.mark.parametrize("key,flag", [("restart", "/r"), ("shutdown", "/s")])
+def test_a_clean_restart_held_up_by_unsaved_work_is_forced_later(key, flag):
+    # An app with unsaved work holds a clean "shutdown /r /t 0" at "This app is preventing restart" and
+    # nobody is at the PC to answer it: the client, still running ~90 s on, cancels it and forces.
+    import time as _t
+    rig = ButtonRig()
+    rig.power.handle_frame({"type": "mac_power_set", key: True, "ts": _t.time()})
+    assert rig.cmds == [["shutdown", flag, "/t", "0"]]           # the clean attempt first
+    assert len(rig.later) == 1 and 60 <= rig.later[0][0] <= 120
+    rig.later[0][1]()                                            # ~90 s on, this client is still running
+    assert rig.cmds[1:] == [["shutdown", "/a"], ["shutdown", flag, "/t", "0", "/f"]]
+
+
+def test_a_pc_clock_a_minute_ahead_still_obeys():
+    # The age check compares the server's ts with the PC clock: a PC clock more than 20 s ahead dropped
+    # every Restart/Lock silently. 120 s still drops the ones queued while the PC slept.
+    import time as _t
+    rig = ButtonRig()
+    rig.power.handle_frame({"type": "mac_power_set", "restart": True, "ts": _t.time() - 60})
+    rig.power.handle_frame({"type": "mac_power_set", "lock": True, "ts": _t.time() - 60})
+    assert rig.cmds == [["shutdown", "/r", "/t", "0"]] and rig.locks == [1]
+
+
+def test_every_dropped_power_command_is_logged(caplog):
+    import logging
+    import time as _t
+    caplog.set_level(logging.INFO, logger="jc_client.pc_power")
+    rig = Rig()
+    rig.power.handle_frame({"type": "mac_power_set", "lock": True, "ts": _t.time() - 600})
+    assert rig.locks == []
+    assert any("dropped" in r.getMessage() and "lock" in r.getMessage() for r in caplog.records)
+
+
+# ── Unlock PC without the Jarvis app: the JarvisUnlock service signs him in, as before sign-in ──
+UNLOCK_FILL = {"type": "password_fill", "id": "r1", "kind": "unlock", "context": "Unlock PC", "nonce": "n",
+               "proof": {"ts": 1795000000, "signature": "sig"}, "device": "pc-1"}
+
+
+def test_unlock_goes_to_the_helper_when_the_jarvis_app_is_not_linked(monkeypatch):
+    from jc_client import helper_pipe
+    sent = []
+    monkeypatch.setattr(helper_pipe, "signin", lambda msg, timeout: sent.append(msg) or {"ok": True})
+    power, _, ui = _unlock_rig()
+    power._app_linked = lambda: False
+    assert power._ask_app(dict(UNLOCK_FILL), 0.2) == {"ok": True}
+    assert ui == []
+    assert sent == [{"kind": "unlock", "context": "Unlock PC", "nonce": "n",
+                     "proof": {"ts": 1795000000, "signature": "sig"}, "device": "pc-1"}]
+
+
+def test_unlock_still_goes_to_a_linked_jarvis_app(monkeypatch):
+    from jc_client import helper_pipe
+    monkeypatch.setattr(helper_pipe, "signin", lambda msg, timeout: pytest.fail("the Jarvis app is linked"))
+    power, _, ui = _unlock_rig()
+    power._app_linked = lambda: True
+    out = power._ask_app(dict(UNLOCK_FILL), 0.1)
+    assert [m["type"] for m in ui] == ["password_fill"] and out["ok"] is False   # (no app answers here)

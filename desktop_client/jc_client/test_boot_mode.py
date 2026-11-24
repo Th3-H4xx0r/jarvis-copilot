@@ -117,7 +117,7 @@ def test_boot_start_steps_aside_when_he_is_signed_in(monkeypatch, tmp_path):
     ran = []
     monkeypatch.setattr(cli, "BOOT_PID_FILE", tmp_path / "boot.pid")
     monkeypatch.setattr(boot_mode, "user_signed_in", lambda *a, **k: True)
-    monkeypatch.setattr(cli.service, "run", lambda verbose=False: ran.append(1) or 0)
+    monkeypatch.setattr(cli.service, "run", lambda verbose=False, **kw: ran.append(1) or 0)
     monkeypatch.delenv(boot_mode.ENV, raising=False)
 
     class A:
@@ -132,7 +132,7 @@ def test_boot_start_runs_at_the_sign_in_screen(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "PID_FILE", tmp_path / "jc.pid")
     monkeypatch.setattr(boot_mode, "user_signed_in", lambda *a, **k: False)
     monkeypatch.setattr(boot_mode, "watch", lambda pid_file=None: watched.append(pid_file))
-    monkeypatch.setattr(cli.service, "run", lambda verbose=False: ran.append(boot_mode.is_boot()) or 0)
+    monkeypatch.setattr(cli.service, "run", lambda verbose=False, **kw: ran.append(boot_mode.is_boot()) or 0)
     monkeypatch.delenv(boot_mode.ENV, raising=False)
 
     class A:
@@ -145,7 +145,7 @@ def test_normal_start_takes_over_from_boot(monkeypatch, tmp_path):
     stops = []
     monkeypatch.setattr(cli, "PID_FILE", tmp_path / "jc.pid")
     monkeypatch.setattr(boot_mode, "stop_boot_instance", lambda *a, **k: stops.append(1) or True)
-    monkeypatch.setattr(cli.service, "run", lambda verbose=False: 0)
+    monkeypatch.setattr(cli.service, "run", lambda verbose=False, **kw: 0)
 
     class A:
         no_tray, boot, verbose = True, False, False

@@ -51,6 +51,11 @@ _DEFAULT_CONNECT_TIMEOUT = 15.0
 # timeout (not just a wall-clock deadline) — otherwise a half-open connection
 # blocks recv() forever and the reconnect loop hangs in "reconnecting".
 _HANDSHAKE_TIMEOUT = 10.0
+# The bridge's read timeout once connected. The server text-pings every 40 s and answers our 20 s
+# pings (webui/api/device_bridge.py), so this long with nothing at all means the link is dead (live
+# 2026-11-23: after the PC slept, recv() on a half-dead link blocked forever and the PC stayed off
+# Jarvis until the client was restarted by hand). The read loop then ends and the service reconnects.
+_READ_TIMEOUT = 120.0
 # plan 5.3: LAN-direct preference — how long we give a candidate LAN url to
 # answer before falling back to the tunnel. Short on purpose: this races
 # against a URL that usually isn't even reachable (off the home network).
@@ -494,8 +499,8 @@ def open_websocket(server_url: str, path: str, fingerprint: str,
             ws.receive_data(chunk)
             for event in ws.events():
                 if isinstance(event, AcceptConnection):
-                    # The server pings every ~30s and we send our own pings, so a dead idle
-                    # link is caught by the ping/pong path, not by a recv timeout.
+                    # No timeout here (the SSH relay may idle); the bridge sets its own
+                    # read timeout (WsConnection.connect, _READ_TIMEOUT).
                     sock.settimeout(None)
                     return sock, ws
                 if isinstance(event, RejectConnection):
@@ -536,25 +541,31 @@ class WsConnection:
         extra += cf_access_headers(self.cf_client_id, self.cf_client_secret)
         self._sock, self._conn = open_websocket(self.server_url, "/api/devices/bridge/ws",
                                                 self.expected_fingerprint, extra)
+        self._sock.settimeout(_READ_TIMEOUT)   # a dead link ends read_frames instead of blocking it forever
 
     def close(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        if self._conn and self._sock:
-            try:
-                with self._send_lock:
-                    self._sock.sendall(self._conn.send(CloseConnection(code=1000)))
-            except Exception:
-                pass
-        try:
-            if self._sock:
-                self._sock.shutdown(socket.SHUT_RDWR)
-        except OSError:
-            pass
+        if not self._closed:
+            self._closed = True
+            if self._conn and self._sock:
+                try:
+                    with self._send_lock:
+                        self._sock.sendall(self._conn.send(CloseConnection(code=1000)))
+                except Exception:
+                    pass
+        # Free the socket even when the link was already marked closed (the reader ended, a send
+        # failed): returning early here leaked one socket per dead link.
+        self._shutdown()
         try:
             if self._sock:
                 self._sock.close()
+        except OSError:
+            pass
+
+    def _shutdown(self) -> None:
+        """Wake a reader blocked in recv(): it returns and the service reconnects (close alone doesn't)."""
+        try:
+            if self._sock:
+                self._sock.shutdown(socket.SHUT_RDWR)
         except OSError:
             pass
 
@@ -574,6 +585,7 @@ class WsConnection:
                 self._sock.sendall(data)
         except (OSError, ssl.SSLError) as exc:
             self._closed = True
+            self._shutdown()   # else the reader stays blocked in recv() and nothing reconnects
             raise WsConnectionClosed(str(exc)) from exc
 
     def send_ping(self, payload: bytes = b"") -> None:
@@ -584,6 +596,7 @@ class WsConnection:
                 self._sock.sendall(self._conn.send(Ping(payload=payload)))
         except (OSError, ssl.SSLError) as exc:
             self._closed = True
+            self._shutdown()
             raise WsConnectionClosed(str(exc)) from exc
 
     # ----- receive -----------------------------------------------------
@@ -605,6 +618,9 @@ class WsConnection:
         while not self._closed:
             try:
                 chunk = self._sock.recv(_RECV_CHUNK)
+            except socket.timeout:
+                log.warning("nothing from the server for %.0fs: dropping the dead link", _READ_TIMEOUT)
+                break
             except (ConnectionResetError, BrokenPipeError, OSError, ssl.SSLError):
                 break
             if not chunk:
