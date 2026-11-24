@@ -523,8 +523,21 @@ def _raise_fd_soft_limit(target: int = 4096) -> dict:
     return {"status": "raised", "soft": desired, "hard": hard, "previous_soft": soft}
 
 
+def _register_stack_dump() -> None:
+    """kill -USR1 <pid> prints every thread's stack to the journal (live 2026-11-23: the server froze silently
+    from 23:52 until a reboot, with nothing to say where it was stuck)."""
+    try:
+        import faulthandler
+        import signal
+        faulthandler.register(signal.SIGUSR1, all_threads=True)
+    except (AttributeError, ValueError, RuntimeError):
+        pass  # no SIGUSR1 (Windows)
+
+
 def main() -> None:
     from api.config import print_startup_config, verify_hermes_imports, _HERMES_FOUND
+
+    _register_stack_dump()
 
     try:
         # Load the realtime STT model now, not on the first voice turn after a restart.
