@@ -4911,16 +4911,34 @@ def call_llm(
         tools=tools, timeout=timeout, extra_body=extra_body)
     client, kwargs = next(attempts)
     while True:
+        started = time.monotonic()
         try:
             response = _validate_llm_response(client.chat.completions.create(**kwargs), task)
         except Exception as exc:
             step, value = attempts.throw, exc
         else:
             step, value = attempts.send, response
+            _log_aux_usage(task, client, kwargs, response, time.monotonic() - started)
         try:
             client, kwargs = step(value)
         except StopIteration as done:
             return done.value
+
+
+def _log_aux_usage(task, client, kwargs, response, latency_s) -> None:
+    """Record an auxiliary call's usage (no session records it). Never raises."""
+    try:
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return
+        from agent import usage_log
+        from agent.usage_pricing import normalize_usage
+        provider = usage_log.provider_for_client(client)
+        canonical = normalize_usage(usage, provider=provider, api_mode=usage_log.usage_api_mode(usage))
+        usage_log.record(f"aux:{task or 'direct'}", model=str((kwargs or {}).get("model") or ""),
+                         provider=provider, usage=canonical, latency_s=latency_s)
+    except Exception:
+        logger.debug("auxiliary usage not recorded", exc_info=True)
 
 
 def extract_content_or_reasoning(response) -> str:

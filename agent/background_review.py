@@ -490,6 +490,8 @@ def _run_review_in_thread(
             )
             review_agent._memory_write_origin = origin
             review_agent._memory_write_context = origin
+            # No session DB: its calls are logged under this tag (agent/usage_log.py).
+            review_agent._usage_source = "review"
             # The retrospective fires at the session boundary, where the caller
             # (new_session) concurrently reloads/rotates the parent's store via
             # an unlocked load_from_disk on the same object. Sharing it would

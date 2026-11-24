@@ -17,7 +17,7 @@ def resolve_ref(model_ref):
 
 
 def one_shot_completion(model_ref: str, prompt: str, max_tokens: int = 8, reasoning_off: bool = False,
-                        *, platform: str = "cron", resolve=None) -> str:
+                        *, platform: str = "cron", resolve=None, usage_source: str = "one_shot") -> str:
     """Run ``prompt`` once on ``model_ref`` (``@provider:model``) with no tools,
     no memory and no context files; return the reply text ('' when empty).
     ``reasoning_off`` keeps a thinking model (Celeris Magnus) from spending a
@@ -53,6 +53,8 @@ def one_shot_completion(model_ref: str, prompt: str, max_tokens: int = 8, reason
     # Only pass what this build of AIAgent accepts.
     accepted = set(inspect.signature(AIAgent.__init__).parameters)
     agent = AIAgent(**{k: v for k, v in kwargs.items() if k in accepted})
+    # No session DB: its usage is logged under this tag (agent/usage_log.py).
+    agent._usage_source = f"{usage_source}:{platform}"
     try:
         return str(agent.chat(prompt) or "").strip()
     finally:

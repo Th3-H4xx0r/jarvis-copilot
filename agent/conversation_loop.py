@@ -1938,6 +1938,12 @@ def run_conversation(
                             )
                         except Exception:
                             pass
+                    elif not agent._session_db:
+                        # No session records this agent's calls (review fork,
+                        # one-shot memory/router agent): log them anyway so
+                        # their spend shows in Costs (agent/usage_log.py).
+                        from agent.usage_log import record_for_agent
+                        record_for_agent(agent, canonical_usage, api_duration)
 
                     # Log API call details for debugging/observability
                     _cache_pct = ""
