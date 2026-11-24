@@ -610,7 +610,10 @@ from api.models import get_session, title_from
 # Fields that are safe to send to LLM provider APIs.
 # Everything else (attachments, timestamp, _ts, etc.) is display-only
 # metadata added by the webui and must be stripped before the API call.
-_API_SAFE_MSG_KEYS = {'role', 'content', 'tool_calls', 'tool_call_id', 'name', 'refusal', 'reasoning_content'}
+# reasoning_details carries signed Anthropic thinking: dropping it on reload
+# changed the previous turn's bytes, so every turn re-wrote the cached history.
+_API_SAFE_MSG_KEYS = {'role', 'content', 'tool_calls', 'tool_call_id', 'name', 'refusal', 'reasoning_content',
+                      'reasoning_details'}
 
 _NATIVE_IMAGE_MAX_BYTES = 20 * 1024 * 1024
 

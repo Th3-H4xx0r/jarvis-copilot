@@ -1552,11 +1552,13 @@ class TestRoleAlternation:
 
 
 class TestThinkingBlockSignatureManagement:
-    """Tests for the thinking block handling strategy:
-    strip from old turns, preserve latest signed, downgrade unsigned."""
+    """Tests for the thinking block handling strategy on direct Anthropic:
+    signed blocks go back unchanged on EVERY assistant message (so earlier
+    messages are byte-identical from call to call and the cache holds);
+    unsigned blocks are dropped wherever they are."""
 
-    def test_thinking_stripped_from_non_last_assistant(self):
-        """Thinking blocks are removed from all assistant messages except the last."""
+    def test_signed_thinking_kept_on_all_assistant_messages(self):
+        """Signed thinking stays on every assistant message, not just the last."""
         messages = [
             {
                 "role": "assistant",
@@ -1587,11 +1589,11 @@ class TestThinkingBlockSignatureManagement:
         assistants = [m for m in result if m["role"] == "assistant"]
         assert len(assistants) == 2
 
-        # First (non-last) assistant: no thinking blocks
+        # First assistant keeps its signed thinking, ahead of its tool_use
         first_types = [b.get("type") for b in assistants[0]["content"]]
-        assert "thinking" not in first_types
-        assert "redacted_thinking" not in first_types
-        assert "tool_use" in first_types  # tool_use should survive
+        assert first_types[0] == "thinking"
+        assert assistants[0]["content"][0]["signature"] == "sig_old"
+        assert "tool_use" in first_types
 
         # Last assistant: thinking block preserved with signature
         last_blocks = assistants[1]["content"]
@@ -1617,8 +1619,9 @@ class TestThinkingBlockSignatureManagement:
         assert len(thinking) == 1
         assert thinking[0]["signature"] == "sig_valid"
 
-    def test_unsigned_thinking_downgraded_to_text_on_last_turn(self):
-        """Unsigned thinking blocks on the last turn become text blocks."""
+    def test_unsigned_thinking_dropped_everywhere(self):
+        """Unsigned thinking is dropped even on the last turn — never downgraded
+        to text, so a message's bytes never depend on its position."""
         messages = [
             {
                 "role": "assistant",
@@ -1632,11 +1635,10 @@ class TestThinkingBlockSignatureManagement:
         _, result = convert_messages_to_anthropic(messages)
         blocks = result[0]["content"]
 
-        # No thinking blocks should remain
         assert not any(b.get("type") == "thinking" for b in blocks)
-        # The reasoning text should be preserved as a text block
         text_contents = [b.get("text", "") for b in blocks if b.get("type") == "text"]
-        assert "Unsigned reasoning." in text_contents
+        assert "Unsigned reasoning." not in text_contents
+        assert text_contents == ["Response text."]
 
     def test_redacted_thinking_with_data_preserved(self):
         """Redacted thinking with 'data' field is kept on last turn."""
@@ -1748,8 +1750,8 @@ class TestThinkingBlockSignatureManagement:
         assert first_assistant["role"] == "assistant"
         assert len(first_assistant["content"]) >= 1
 
-    def test_multi_turn_conversation_preserves_only_last(self):
-        """Full multi-turn conversation: only last assistant keeps thinking."""
+    def test_multi_turn_conversation_preserves_all_signed(self):
+        """Full multi-turn conversation: every assistant keeps its signed thinking."""
         messages = [
             {"role": "user", "content": "Question 1"},
             {
@@ -1781,13 +1783,9 @@ class TestThinkingBlockSignatureManagement:
         assistants = [m for m in result if m["role"] == "assistant"]
         assert len(assistants) == 3
 
-        # First two: no thinking blocks
-        for a in assistants[:2]:
-            assert not any(
-                b.get("type") in {"thinking", "redacted_thinking"}
-                for b in a["content"]
-                if isinstance(b, dict)
-            )
+        for a, sig in zip(assistants[:2], ("sig_1", "sig_2")):
+            kept = [b for b in a["content"] if isinstance(b, dict) and b.get("type") == "thinking"]
+            assert [b["signature"] for b in kept] == [sig]
 
         # Last one: thinking preserved
         last_thinking = [
@@ -1796,6 +1794,52 @@ class TestThinkingBlockSignatureManagement:
         ]
         assert len(last_thinking) == 1
         assert last_thinking[0]["signature"] == "sig_3"
+
+
+    def test_earlier_messages_byte_stable_across_calls(self):
+        """Converting history H and then H + one more step leaves every earlier
+        assistant message byte-identical — the cached prefix survives."""
+        def asst(n):
+            return {
+                "role": "assistant", "content": "",
+                "tool_calls": [{"id": f"tc_{n}", "function": {"name": "t", "arguments": "{}"}}],
+                "reasoning_details": [{"type": "thinking", "thinking": "", "signature": f"sig_{n}"}],
+            }
+
+        def tool(n):
+            return {"role": "tool", "tool_call_id": f"tc_{n}", "content": f"r{n}"}
+
+        history = [{"role": "user", "content": "go"}, asst(1), tool(1), asst(2), tool(2)]
+        _, first = convert_messages_to_anthropic(history)
+        _, second = convert_messages_to_anthropic(history + [asst(3), tool(3)])
+        a_first = [json.dumps(m, sort_keys=True) for m in first if m["role"] == "assistant"]
+        a_second = [json.dumps(m, sort_keys=True) for m in second if m["role"] == "assistant"]
+        assert a_second[:2] == a_first
+
+    def test_third_party_strips_all(self):
+        messages = [
+            {"role": "assistant", "content": "A",
+             "reasoning_details": [{"type": "thinking", "thinking": "t", "signature": "s"}]},
+        ]
+        _, result = convert_messages_to_anthropic(
+            messages, base_url="https://api.minimax.io/anthropic")
+        assert not any(b.get("type") == "thinking" for b in result[0]["content"])
+
+    def test_recovery_strip_leaves_no_thinking(self):
+        """After the signature-error recovery pops reasoning_details, nothing
+        thinking-shaped is sent."""
+        messages = [
+            {"role": "user", "content": "q"},
+            {"role": "assistant", "content": "A1",
+             "reasoning_details": [{"type": "thinking", "thinking": "t", "signature": "s"}]},
+            {"role": "user", "content": "q2"},
+        ]
+        for m in messages:
+            m.pop("reasoning_details", None)
+        _, result = convert_messages_to_anthropic(messages)
+        for m in result:
+            if isinstance(m.get("content"), list):
+                assert not any(b.get("type") in {"thinking", "redacted_thinking"} for b in m["content"])
 
 
 # ---------------------------------------------------------------------------

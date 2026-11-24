@@ -74,6 +74,7 @@ from utils import base_url_host_matches, env_var_enabled
 from agent.agent_runtime_helpers import (
     cleanup_dead_connections,
     copy_reasoning_content_for_api,
+    strip_foreign_thinking,
     drop_thinking_only_and_merge_users,
     dump_api_request_debug,
     extract_api_error_context,
@@ -1032,6 +1033,8 @@ def run_conversation(
             # For ALL assistant messages, pass reasoning back to the API
             # This ensures multi-turn reasoning context is preserved
             copy_reasoning_content_for_api(agent, msg, api_msg)
+            strip_foreign_thinking(api_msg, api_mode=agent.api_mode or "",
+                                   base_url=str(getattr(agent, "base_url", "") or ""))
 
             # Remove 'reasoning' field - it's for trajectory storage only
             # We've copied it to 'reasoning_content' for the API above

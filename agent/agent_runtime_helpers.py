@@ -1823,6 +1823,24 @@ def looks_like_codex_intermediate_ack(
 
 
 
+_ANTHROPIC_THINKING_TYPES = frozenset(("thinking", "redacted_thinking"))
+
+
+def strip_foreign_thinking(api_msg: dict, *, api_mode: str, base_url: str) -> None:
+    """Drop ``reasoning_details`` holding only Anthropic thinking blocks from an
+    outgoing message bound for a provider that can't read them (anything but
+    the Anthropic Messages API, and OpenRouter, whose details use their own
+    types). A chat can switch models mid-way, and strict OpenAI-compatible
+    APIs reject the unknown field. Mutates ``api_msg`` (the per-call copy)."""
+    details = api_msg.get("reasoning_details")
+    if not isinstance(details, list) or not details:
+        return
+    if api_mode == "anthropic_messages" or "openrouter.ai" in (base_url or "").lower():
+        return
+    if all(isinstance(d, dict) and d.get("type") in _ANTHROPIC_THINKING_TYPES for d in details):
+        api_msg.pop("reasoning_details", None)
+
+
 def copy_reasoning_content_for_api(agent, source_msg: dict, api_msg: dict) -> None:
     """Copy provider-facing reasoning fields onto an API replay message."""
     if source_msg.get("role") != "assistant":

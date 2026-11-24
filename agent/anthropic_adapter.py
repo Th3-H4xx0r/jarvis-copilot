@@ -1876,6 +1876,9 @@ def _manage_thinking_signatures(
 ) -> None:
     """Strip or preserve thinking blocks based on endpoint type.
 
+    Direct Anthropic keeps every signed block on every assistant message so
+    earlier messages are byte-identical from call to call (prompt cache).
+
     Anthropic signs thinking blocks against the full turn content.
     Any upstream mutation (context compression, session truncation, orphan
     stripping, message merging) invalidates the signature, causing HTTP 400
@@ -1901,13 +1904,7 @@ def _manage_thinking_signatures(
         or _is_deepseek_anthropic_endpoint(base_url)
     )
 
-    last_assistant_idx = None
-    for i in range(len(result) - 1, -1, -1):
-        if result[i].get("role") == "assistant":
-            last_assistant_idx = i
-            break
-
-    for idx, m in enumerate(result):
+    for m in result:
         if m.get("role") != "assistant" or not isinstance(m.get("content"), list):
             continue
 
@@ -1923,34 +1920,31 @@ def _manage_thinking_signatures(
                     continue
                 new_content.append(b)
             m["content"] = new_content or [{"type": "text", "text": "(empty)"}]
-        elif _is_third_party or idx != last_assistant_idx:
+        elif _is_third_party:
             # Third-party: strip ALL thinking blocks (signatures are proprietary).
-            # Direct Anthropic: strip from non-latest assistant messages only.
             stripped = [
                 b for b in m["content"]
                 if not (isinstance(b, dict) and b.get("type") in _THINKING_TYPES)
             ]
             m["content"] = stripped or [{"type": "text", "text": "(thinking elided)"}]
         else:
-            # Latest assistant on direct Anthropic: keep signed, downgrade unsigned
-            # to text so the reasoning isn't lost.
-            new_content = []
+            # Direct Anthropic: every signed block goes back exactly as it came,
+            # on EVERY assistant message (the API guidance for models that keep
+            # earlier thinking in context). Stripping all but the latest made
+            # call k rewrite call k-1's message, so the cached prefix broke
+            # mid-loop and the model lost its own reasoning between steps.
+            # Unsigned blocks can't be validated and are dropped wherever they
+            # are, so a message's bytes never depend on its position.
+            kept = []
             for b in m["content"]:
                 if not isinstance(b, dict) or b.get("type") not in _THINKING_TYPES:
-                    new_content.append(b)
-                    continue
-                if b.get("type") == "redacted_thinking":
-                    # Redacted blocks use 'data' for the signature payload —
-                    # drop the block when 'data' is missing (can't be validated).
+                    kept.append(b)
+                elif b.get("type") == "redacted_thinking":
                     if b.get("data"):
-                        new_content.append(b)
+                        kept.append(b)
                 elif b.get("signature"):
-                    new_content.append(b)
-                else:
-                    thinking_text = b.get("thinking", "")
-                    if thinking_text:
-                        new_content.append({"type": "text", "text": thinking_text})
-            m["content"] = new_content or [{"type": "text", "text": "(empty)"}]
+                    kept.append(b)
+            m["content"] = kept or [{"type": "text", "text": "(thinking elided)"}]
 
         # Strip cache_control from any remaining thinking/redacted_thinking
         # blocks — cache markers interfere with signature validation.
