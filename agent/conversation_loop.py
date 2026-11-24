@@ -62,7 +62,7 @@ from agent.nous_rate_guard import (
     record_nous_rate_limit,
 )
 from agent.process_bootstrap import _install_safe_stdio
-from agent.prompt_caching import apply_anthropic_cache_control, marker_retention
+from agent.prompt_caching import apply_anthropic_cache_control, marker_retention, one_shot_run
 from agent.retry_utils import jittered_backoff
 from agent.trajectory import has_incomplete_scratchpad
 from agent.usage_pricing import estimate_usage_cost, normalize_usage
@@ -1107,6 +1107,7 @@ def run_conversation(
                 system_parts=_system_parts,
                 retention=marker_retention(agent),
                 reserve_for_tools=(agent.api_mode == "anthropic_messages" and bool(agent.tools)),
+                one_shot=one_shot_run(agent),
             )
 
         # Safety net: strip orphaned tool results / add stubs for missing

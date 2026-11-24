@@ -3,9 +3,12 @@
 import copy
 import pytest
 
+from types import SimpleNamespace
+
 from agent.prompt_caching import (
     _apply_cache_marker,
     apply_anthropic_cache_control,
+    one_shot_run,
 )
 
 
@@ -141,3 +144,44 @@ class TestApplyAnthropicCacheControl:
             elif "cache_control" in msg:
                 count += 1
         assert count <= 4
+
+
+class TestOneShotRetention:
+    """One-shot runs (cron) never read their per-run messages again, so their
+    message markers use the 5-minute tier; chats keep today's layout."""
+
+    @staticmethod
+    def _msgs():
+        return [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "u1"},
+            {"role": "assistant", "content": "a1"},
+            {"role": "user", "content": "u2"},
+        ]
+
+    @staticmethod
+    def _markers(msg):
+        content = msg.get("content")
+        if isinstance(content, list):
+            return [b["cache_control"] for b in content if isinstance(b, dict) and "cache_control" in b]
+        return [msg["cache_control"]] if "cache_control" in msg else []
+
+    def test_one_shot_long_retention_messages_5m(self):
+        out = apply_anthropic_cache_control(self._msgs(), native_anthropic=True,
+                                            retention="long", one_shot=True)
+        assert self._markers(out[0]) == [{"type": "ephemeral", "ttl": "1h"}]
+        message_markers = [mk for m in out[1:] for mk in self._markers(m)]
+        assert message_markers == [{"type": "ephemeral"}] * 3
+
+    def test_default_long_retention_unchanged(self):
+        out = apply_anthropic_cache_control(self._msgs(), native_anthropic=True, retention="long")
+        assert [self._markers(m) for m in out[1:]] == [
+            [{"type": "ephemeral", "ttl": "1h"}],
+            [{"type": "ephemeral", "ttl": "1h"}],
+            [{"type": "ephemeral"}],
+        ]
+
+    def test_one_shot_run_is_cron_only(self):
+        assert one_shot_run(SimpleNamespace(platform="cron")) is True
+        assert one_shot_run(SimpleNamespace(platform="webui")) is False
+        assert one_shot_run(SimpleNamespace()) is False

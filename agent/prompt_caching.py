@@ -77,6 +77,12 @@ def marker_retention(agent) -> str:
     return "standard"
 
 
+def one_shot_run(agent) -> bool:
+    """True for sessions that end after one run (cron jobs): nothing after the
+    current run reads their message markers, so those use the 5-minute tier."""
+    return getattr(agent, "platform", None) == "cron"
+
+
 def tool_cache_marker(retention: str = "standard") -> Dict[str, str]:
     """The marker for the last tool: the head of every agent's prompt."""
     return _build_marker("1h" if retention == "long" else "5m")
@@ -115,13 +121,17 @@ def apply_anthropic_cache_control(
     system_parts: Dict[str, str] | None = None,
     retention: str | None = None,
     reserve_for_tools: bool = False,
+    one_shot: bool = False,
 ) -> List[Dict[str, Any]]:
     """Place up to 4 cache_control breakpoints on a deep copy of
     ``api_messages`` (see the module docstring for the layout).
 
     ``reserve_for_tools`` leaves one breakpoint for the caller's tools marker
     (``tool_cache_marker``). Without ``retention`` every marker uses
-    ``cache_ttl`` (the old single-TTL behaviour).
+    ``cache_ttl`` (the old single-TTL behaviour). ``one_shot`` (a session
+    that ends after this run) keeps the system marker's retention but puts
+    every message marker on the 5-minute tier: per-run content is never read
+    after the run, and the 1-hour tier costs 2x on write vs 1.25x.
     """
     messages = copy.deepcopy(api_messages)
     if not messages:
@@ -129,8 +139,8 @@ def apply_anthropic_cache_control(
 
     if retention in ("standard", "long"):
         head = _build_marker("1h" if retention == "long" else "5m")
-        older = head
         newest = _build_marker("5m")
+        older = newest if one_shot else head
     else:
         head = older = newest = _build_marker(cache_ttl)
 

@@ -870,6 +870,8 @@ DEFAULT_CONFIG = {
         # Every agent on a model shares it, so "long" saves re-sending it
         # between pauses. Settings → Conversation → Keep prompts cached.
         "retention": "long",
+        # retention (standard|long) decides marker lifetimes; cache_ttl is used
+        # only when retention is unset.
         "cache_ttl": "5m",
     },
 
