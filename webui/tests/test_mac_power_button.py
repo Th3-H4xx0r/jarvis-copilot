@@ -374,3 +374,36 @@ def test_wake_skips_the_boards_light_check_while_the_light_is_unwired(tmp_path):
     rig.light("on", wired=False)
     assert rig.store.wake(PC) == {"ok": True, "sent": True, "via": "power button"}
     assert rig.presses()[0] == (BOARD, {"button": "power", "ms": 300, "expect": ["any"]})
+
+
+def test_wake_a_shut_down_pc_with_its_board_offline_says_why_at_once(tmp_path):
+    # Live 2026-11-24: the board fell back to Bluetooth while the server was down, and "turn on my PC" waited
+    # 2 minutes on a Wi-Fi wake that can't start a shut-down PC.
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    assert rig.store.button_board(PC) == BOARD   # linked while both were online
+    assert rig.store.shutdown(PC)["ok"] is True
+    rig.connected = set()          # the PC is off and the board is offline
+    rig.t += 300
+    out = rig.store.wake(PC)
+    assert out["ok"] is False and "Direct link" in out["error"]
+
+
+def test_wake_a_sleeping_pc_with_its_board_offline_still_tries_wifi(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    rig.store.on_sleeping(PC)
+    rig.connected = {MAC}
+    rig.t += 300
+    assert "Direct link" not in str(rig.store.wake(PC))
+
+
+def test_pc_reporting_again_clears_the_shutdown(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    rig.store.shutdown(PC)
+    rig.t += 300
+    rig.store.on_status(PC, PC_STATUS)   # he turned it back on by hand
+    rig.connected = set()
+    rig.t += 300
+    assert "Direct link" not in str(rig.store.wake(PC))

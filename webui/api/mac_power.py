@@ -232,6 +232,11 @@ class MacPowerStore:
         return (pc in set(self._connected()) and d.get("sleeping_at") is None
                 and self._clock() - float(d.get("seen_at") or 0) <= PC_STATUS_FRESH)
 
+    def _shut_down(self, pc: str) -> bool:
+        """Its last power action was a shutdown / force off and it hasn't reported since."""
+        d = self._devices.get(pc) or {}
+        return d.get("power_action") in ("shutdown", "force_off") and not self._reporting(pc)
+
     def _wake_by_button(self, pc: str) -> Optional[dict]:
         """Wake or boot the PC with its power button; None when the board can't (then the Wi-Fi path)."""
         if not self.button_board(pc):
@@ -291,7 +296,7 @@ class MacPowerStore:
         delivered = bool(self._send(did, {"type": "mac_power_set", "ts": self._clock(), what: True}))
         if not delivered:
             return {"ok": False, "error": f"The {self.noun(did)} isn't connected."}
-        self._update(did, keep_awake=False, wake_requested_at=None, power_action_at=self._clock())
+        self._update(did, keep_awake=False, wake_requested_at=None, power_action_at=self._clock(), power_action=what)
         if self._is_pc(did):
             self.on_sleeping(did)
         return {"ok": True, "delivered": True}
@@ -306,7 +311,7 @@ class MacPowerStore:
             return {"ok": False, "error": "Unknown power action."}
         if res.get("ok"):
             # Off or restarting now: drop any wake in flight (live: Force off left the card on "Waking…").
-            self._update(pc, power_action_at=self._clock(), wake_requested_at=None)
+            self._update(pc, power_action_at=self._clock(), wake_requested_at=None, power_action=action)
             self.on_sleeping(pc)
         return res
 
@@ -381,7 +386,16 @@ class MacPowerStore:
 
     def wake(self, did: str) -> dict:
         if self._is_pc(did):
-            return self._wake_by_button(did) or self._wake_pc(did)
+            by_button = self._wake_by_button(did)
+            if by_button:
+                return by_button
+            if self._linked_board(did) and self._shut_down(did):
+                # Wi-Fi wake can't start a shut-down PC (live 2026-11-24: the board had fallen back to Bluetooth
+                # while the server was down, and "turn on my PC" waited 2 minutes for nothing).
+                return {"ok": False, "error": "The PC is shut down and its power button board is offline, so nothing "
+                                              "can turn it on. Open the board in the Jarvis app and turn Direct "
+                                              "link back on."}
+            return self._wake_pc(did)
         d = self._update(did, wake_requested_at=self._clock())
         push = d.get("push") or {}
         pushed = False
@@ -409,6 +423,7 @@ class MacPowerStore:
             frame = {"type": "mac_power_set", "ts": self._clock(), "keep_awake": self._keep(d), "timer_on": bool(d["timer_on"])}
             if d.get("sleeping_at") is not None:
                 d["sleeping_at"] = None   # it connected: awake again
+                d["power_action"] = None
                 self._save()
         self._send(did, frame)
         with self._lock:
@@ -548,6 +563,7 @@ class MacPowerStore:
         if data.get("state") == "awake" and not going_down:
             fields["wake_requested_at"] = None
             fields["sleeping_at"] = None
+            fields["power_action"] = None   # running again: no longer shut down
         self._update(did, **fields)
 
     def on_token(self, did: str, data: dict) -> None:

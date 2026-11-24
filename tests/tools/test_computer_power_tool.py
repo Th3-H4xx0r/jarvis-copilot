@@ -214,7 +214,12 @@ import pytest
     ("lock my pc", ("lock", "pc")),
     ("my PC is frozen, force restart my pc", ("force_restart", "pc")),
     ("put my mac to sleep", ("sleep", "mac")),
-    ("launch warzone and turn on my Windows PC", None),
+    ("launch warzone and turn on my Windows PC", ("wake", "pc")),
+    ("Can you turn on my PC now and launch Warzone?", ("wake", "pc")),
+    ("wake up my pc", ("wake", "pc")),
+    ("turn my pc on", ("wake", "pc")),
+    ("start up the computer", ("wake", "computer")),
+    ("start Warzone on my PC", None),
     ("turn off dark mode on my mac", None),
     ("shut down the game on my PC", None),
     ("restart Spotify", None),
@@ -295,3 +300,35 @@ def test_routed_computer_turn_lets_the_model_answer_a_refused_power_action(monke
     messages = []
     assert turns.computer_first(SimpleNamespace(tool_progress_callback=None), messages, "Can you restart my PC?", "t1") is None
     assert drove == [] and "isn't connected" in messages[-1]["content"]
+
+
+SLEEPING_PC = [dict(ROWS[0], state="sleeping"), ROWS[1]]
+
+
+def _wake_rig(monkeypatch, words, ok=True):
+    store, asked, drove, D = _do_rig(monkeypatch, words)
+    store.rows = SLEEPING_PC
+    woke = []
+    monkeypatch.setattr(T, "_ensure_awake", lambda did: woke.append(did) or ((True, "The PC is awake.") if ok else
+                        (False, "The PC is shut down and its power button board is offline.")))
+    return store, woke, drove, D
+
+
+def test_turn_on_my_pc_goes_through_the_power_tool(monkeypatch):
+    store, woke, drove, D = _wake_rig(monkeypatch, "Can you turn on my PC?")
+    out = json.loads(D.handle_computer_do({"goal": "Can you turn on my PC?"}, task_id="t1"))
+    assert out == {"ok": True, "result": "The PC is awake."} and woke == ["pc-1"] and drove == []
+
+
+def test_turn_on_and_launch_wakes_first_then_drives(monkeypatch):
+    goal = "Can you turn on my PC now and launch Warzone?"
+    store, woke, drove, D = _wake_rig(monkeypatch, goal)
+    D.handle_computer_do({"goal": goal}, task_id="t1")
+    assert woke == ["pc-1"] and drove == [goal]
+
+
+def test_a_failed_wake_stops_before_any_clicking(monkeypatch):
+    goal = "Can you turn on my PC now and launch Warzone?"
+    store, woke, drove, D = _wake_rig(monkeypatch, goal, ok=False)
+    out = json.loads(D.handle_computer_do({"goal": goal}, task_id="t1"))
+    assert out["ok"] is False and "offline" in out["error"] and drove == []

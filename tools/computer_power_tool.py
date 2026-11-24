@@ -59,12 +59,18 @@ _INTENTS = (
     ("sleep", re.compile(r"\bput\s+" + _TARGET + r"\s+to\s+sleep\b", re.I)),
     ("sleep", re.compile(r"\bsleep\s+" + _TARGET, re.I)),
     ("lock", re.compile(r"\block\s+" + _TARGET, re.I)),
+    ("wake", re.compile(r"\b(?:turn\s*on|wake(?:\s*up)?|boot(?:\s*up)?|start(?:\s*up)?|power\s*(?:on|up))\s+" + _TARGET,
+                        re.I)),
+    ("wake", re.compile(r"\b(?:turn|wake|boot|start|power)\s+" + _TARGET + r"\s+(?:on|up)\b", re.I)),
 )
+# Words around a wake that ask for nothing more ("can you turn on my PC now?").
+_FILLER = frozenset("can could would will you please now right away jarvis hey sir for me just quickly go ahead and "
+                    "then up it".split())
 _NOT = re.compile(r"\b(?:don'?t|do\s+not|never|without|instead\s+of)\b", re.I)
 
 
-def power_intent(text):
-    """(action, 'pc' | 'mac' | 'computer') when the words ask for a power action on the computer itself, else None."""
+def _intent(text):
+    """(action, kind, match) for the first power request in the words, else None."""
     text = str(text or "")
     if _NOT.search(text):
         return None
@@ -75,24 +81,45 @@ def power_intent(text):
             kind = "mac" if obj.startswith("mac") else "computer" if obj == "computer" else "pc"
             if action in ("restart", "shutdown") and _FORCE.search(text):
                 action = "force_restart" if action == "restart" else "force_off"
-            return action, kind
+            return action, kind, m
     return None
+
+
+def power_intent(text):
+    """(action, 'pc' | 'mac' | 'computer') when the words ask for a power action on the computer itself, else None."""
+    found = _intent(text)
+    return found[:2] if found else None
+
+
+def _only_that(text, m) -> bool:
+    """Nothing asked beyond the matched power request."""
+    rest = f"{text[:m.start()]} {text[m.end():]}"
+    return all(w in _FILLER for w in re.findall(r"[a-z']+", rest.lower()))
 
 
 def hand_over(goal, computer, task_id, chat_os):
     """computer_do's power requests come here (its result), or None to let the fast hands do it. chat_os() is
     the chat's computer ("windows" / "macos"), asked only for a bare "my computer"."""
-    intent = power_intent(goal)
-    if not intent:
+    found = _intent(goal)
+    if not found:
         return None
-    action, kind = intent
+    action, kind, m = found
     if kind == "computer":
         want = str(computer or "")
         kind = ("mac" if _MAC_WORDS.search(want) else "pc" if _PC_WORDS.search(want)
                 else "mac" if chat_os() == "macos" else "pc")
     if kind == "mac" and action != "sleep":
         return None   # the Mac's restart / shutdown / lock aren't this tool's
-    return handle_computer_power({"computer": "Mac" if kind == "mac" else "PC", "action": action}, task_id=task_id)
+    out = handle_computer_power({"computer": "Mac" if kind == "mac" else "PC", "action": action}, task_id=task_id)
+    if action == "wake" and not _only_that(str(goal), m):
+        # "turn on my PC and launch Warzone": the PC is up now, so the fast hands do the rest; a failed wake stops
+        # here with its reason instead of clicking on nothing.
+        try:
+            ok = bool(json.loads(out).get("ok"))
+        except ValueError:
+            ok = False
+        return None if ok else out
+    return out
 
 
 def _store():
