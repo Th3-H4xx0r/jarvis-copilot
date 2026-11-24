@@ -582,7 +582,7 @@ DEFAULT_CONFIG = {
         # while driving — before they have any call history — so they can't wait
         # behind a tool search.
         "device_tools": {
-            "always_loaded_tokens": 8000,
+            "always_loaded_tokens": 4000,
             "pinned": ["device_car_directions"],
         },
     },

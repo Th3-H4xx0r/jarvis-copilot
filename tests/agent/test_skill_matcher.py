@@ -113,3 +113,23 @@ def test_only_the_users_own_words_are_matched():
                          "- brief_4. Collect news") == "Set an alarm."
     assert sm.user_words("A faster model handed this over to you. Finish it fully with your tools.\n\n"
                          "Hand-off note: plan my week") == "plan my week"
+
+
+def test_manifest_tools_parses_compact_format():
+    manifest = ("# Deferred tools\nThese tools are NOT in your tools list, so calling them "
+                "directly WILL FAIL. Two steps, both required.\n\n## devices\ndevice_set_alarm, device_x\n"
+                "\n## web\nweb_extract\n")
+    assert sm.manifest_tools(manifest) == [
+        {"name": "device_set_alarm", "description": ""},
+        {"name": "device_x", "description": ""},
+        {"name": "web_extract", "description": ""}]
+
+
+def test_matcher_uses_deferred_entries():
+    from types import SimpleNamespace
+    agent = SimpleNamespace(
+        _lazy_deferred_entries=[{"name": "device_set_alarm", "description": "Set an alarm", "toolset": "devices"}],
+        _lazy_tools_manifest="# Deferred tools\nh\n\n## devices\ndevice_set_alarm\n")
+    assert sm.deferred_tools(agent) == [{"name": "device_set_alarm", "description": "Set an alarm"}]
+    assert sm.deferred_tools(SimpleNamespace(_lazy_tools_manifest="## devices\ndevice_x\n")) == [
+        {"name": "device_x", "description": ""}]

@@ -47,10 +47,10 @@ def test_manifest_lists_every_deferred_tool_once():
     deferred = [{"name": "browser_navigate", "description": "Open a URL", "toolset": "browser"},
                 {"name": "delegate_task", "description": "Spawn a subagent", "toolset": "delegation"}]
     text = build_manifest_text(deferred)
-    assert text.count("browser_navigate") == 1
-    assert "Open a URL" in text and "delegate_task" in text
-    # grouped by toolset header
-    assert "browser" in text and "delegation" in text
+    assert text.count("browser_navigate") == 1 and text.count("delegate_task") == 1
+    # names only, grouped under a toolset header (tool_search returns the details)
+    assert "## browser\nbrowser_navigate" in text and "## delegation\ndelegate_task" in text
+    assert "Open a URL" not in text
 
 
 def test_manifest_empty_when_nothing_deferred():
@@ -502,3 +502,18 @@ def test_fingerprint_changes_when_a_tool_moves_between_loaded_and_on_demand(monk
     finally:
         for n in ("device_a", "device_b"):
             registry.deregister(n)
+
+
+def test_manifest_names_grouped():
+    deferred = [{"name": "y", "description": "Why", "toolset": "a"},
+                {"name": "x", "description": "Ex", "toolset": "a"},
+                {"name": "z", "description": "Zed", "toolset": "b"}]
+    text = build_manifest_text(deferred)
+    assert "## a\nx, y" in text and "## b\nz" in text
+    assert " — " not in text
+
+
+def test_guidance_no_longer_claims_all_devices_listed():
+    from tools.lazy_tools import LAZY_TOOLS_GUIDANCE
+    assert "call them directly, never through" not in LAZY_TOOLS_GUIDANCE
+    assert "under 'devices' in Deferred tools" in LAZY_TOOLS_GUIDANCE

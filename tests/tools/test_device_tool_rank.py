@@ -122,3 +122,26 @@ def test_a_failed_recount_is_not_retried_on_every_agent_build(tmp_path, monkeypa
     monkeypatch.setattr(r, "refresh_in_background", lambda: kicked.append(1))
     r.usage_counts()
     assert kicked == []  # backed off; tried again later, not now
+
+
+def test_default_budget_4000(monkeypatch):
+    monkeypatch.setattr("jarviscopilot_cli.config.load_config", lambda: {})
+    assert r._config()["always_loaded_tokens"] == 4000
+
+
+def test_rank_hysteresis_keeps_incumbent(monkeypatch, cfg):
+    cfg["always_loaded_tokens"] = 100
+    cands = {"device_inc": 100, "device_ch": 100}
+    counts = {"device_inc": 10}
+    monkeypatch.setattr(r, "usage_counts", lambda days=30: dict(counts))
+    assert r.always_loaded_device_tools(cands) == ["device_inc"]
+    counts["device_ch"] = 15  # better, but not by the margin (1.5 x 10 + 2 = 17)
+    assert r.always_loaded_device_tools(cands) == ["device_inc"]
+    counts["device_ch"] = 18  # clears the margin: swapped in
+    assert r.always_loaded_device_tools(cands) == ["device_ch"]
+
+
+def test_rank_hysteresis_first_run_uses_fresh_ranking(monkeypatch, cfg):
+    cfg["always_loaded_tokens"] = 100
+    monkeypatch.setattr(r, "usage_counts", lambda days=30: {"device_inc": 10, "device_ch": 15})
+    assert r.always_loaded_device_tools({"device_inc": 100, "device_ch": 100}) == ["device_ch"]

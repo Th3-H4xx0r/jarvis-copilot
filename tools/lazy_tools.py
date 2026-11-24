@@ -349,8 +349,8 @@ def partition_lazy_tools(full_defs: List[Dict[str, Any]], core_names: set
 
 
 def build_manifest_text(deferred: List[Dict[str, str]]) -> str:
-    """Render the deferred-tools manifest, grouped by toolset, one
-    ``- name — desc`` line each. Returns ``""`` when nothing is deferred.
+    """Render the deferred-tools manifest: per toolset a ``## toolset`` header
+    and one comma-separated line of names. Returns ``""`` when nothing is deferred.
 
     Toolset comes from the entry if present, else a registry lookup (so a pure
     ``partition_lazy_tools`` output is enriched here without the caller needing
@@ -382,10 +382,10 @@ def build_manifest_text(deferred: List[Dict[str, str]]) -> str:
         )
     lines = ["# Deferred tools", header]
     for ts in sorted(by_ts):
+        # Names only (tool_search returns the schema and description): a
+        # sentence per tool made this list ~9.8k tokens on a web chat.
         lines.append(f"\n## {ts}")
-        for e in sorted(by_ts[ts], key=lambda x: x["name"]):
-            desc = e.get("description") or ""
-            lines.append(f"- {e['name']}" + (f" — {desc}" if desc else ""))
+        lines.append(", ".join(sorted(e["name"] for e in by_ts[ts])))
     return "\n".join(lines)
 
 
@@ -429,6 +429,7 @@ def apply_lazy_partition(agent) -> None:
         agent._lazy_loaded_tools = set()
     if not hasattr(agent, "_lazy_tools_manifest"):
         agent._lazy_tools_manifest = ""
+        agent._lazy_deferred_entries = []
     if not lazy_tools_enabled() or not getattr(agent, "tools", None):
         return
     if uses_native_tool_search(agent):
@@ -447,6 +448,7 @@ def apply_lazy_partition(agent) -> None:
         agent.valid_tool_names.discard(None)
         agent._lazy_all_tool_names = set(agent.valid_tool_names)
         agent._lazy_tools_manifest = ""
+        agent._lazy_deferred_entries = []
         import hashlib
         agent._toolset_fingerprint = hashlib.sha1(
             ",".join(sorted(agent._lazy_all_tool_names)).encode("utf-8")
@@ -473,6 +475,7 @@ def apply_lazy_partition(agent) -> None:
         agent.valid_tool_names.discard(None)
         agent._lazy_all_tool_names = set(agent.valid_tool_names)
         agent._lazy_tools_manifest = ""
+        agent._lazy_deferred_entries = []
         return
     core_names = get_lazy_core_names() | set(agent._lazy_loaded_tools)
     # The device tools the user actually calls stay loaded (voice-first: "open
@@ -521,6 +524,9 @@ def apply_lazy_partition(agent) -> None:
         _warn_once("tool_call was missing from the advertised core; re-added")
     agent.tools = core
     agent._lazy_tools_manifest = build_manifest_text(deferred)
+    # The structured entries (name, first-sentence description) for code that
+    # needs more than the names — the skill matcher.
+    agent._lazy_deferred_entries = deferred
     agent.valid_tool_names = {c.get("function", {}).get("name") for c in core}
     agent.valid_tool_names.discard(None)
 
@@ -587,9 +593,10 @@ LAZY_TOOLS_GUIDANCE = (
     "Loaded tools stay available for the rest of the session. tool_search only "
     "loads AGENT tools (the ones in the Deferred tools list). Paired devices — "
     "the phone, its wearables (rings, bottle, glasses, dashcam, scale), the Mac, "
-    "the pod and boards — are already in your tools list as device_<skill> "
-    "(e.g. device_x5_get_status); call them directly, never through "
-    "tool_search or tool_call."
+    "the pod and boards — are device_<skill> tools (e.g. device_x5_get_status). "
+    "The most-used ones are in your tools list; the rest are listed under "
+    "'devices' in Deferred tools and load through tool_search like any other "
+    "deferred tool."
 )
 
 TOOL_SEARCH_SCHEMA = {

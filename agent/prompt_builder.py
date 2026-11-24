@@ -955,6 +955,18 @@ def _skill_should_show(
     return True
 
 
+def _short_desc(desc: str, limit: int = 60) -> str:
+    """A skill's catalog line: its description cut to ``limit`` characters at a
+    word boundary (the per-turn skill matcher and skill_view carry the rest)."""
+    desc = " ".join(str(desc or "").split())
+    if len(desc) <= limit:
+        return desc
+    cut = desc[:limit]
+    if " " in cut:
+        cut = cut[:cut.rindex(" ")]
+    return cut.rstrip(" ,;:.-") + "…"
+
+
 def build_skills_system_prompt(
     available_tools: "set[str] | None" = None,
     available_toolsets: "set[str] | None" = None,
@@ -1146,7 +1158,7 @@ def build_skills_system_prompt(
                     continue
                 seen.add(name)
                 if desc:
-                    index_lines.append(f"    - {name}: {desc}")
+                    index_lines.append(f"    - {name}: {_short_desc(desc)}")
                 else:
                     index_lines.append(f"    - {name}")
 

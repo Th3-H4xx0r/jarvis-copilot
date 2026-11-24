@@ -213,16 +213,41 @@ def loaded_skills(history: Iterable[dict]) -> set:
 
 
 _MANIFEST_LINE = re.compile(r"^- (\S+)(?: — (.*))?$")
+_TOOL_NAME = re.compile(r"^[A-Za-z0-9_.:-]+$")
 
 
 def manifest_tools(manifest: str) -> List[dict]:
-    """The on-demand tools listed in a deferred-tools manifest."""
+    """The on-demand tools listed in a deferred-tools manifest: the compact
+    form (a comma-separated line of names under each ``## toolset`` header)
+    or the older one (``- name — description`` lines)."""
     out = []
-    for line in (manifest or "").splitlines():
-        m = _MANIFEST_LINE.match(line.strip())
+    in_section = False
+    for raw in (manifest or "").splitlines():
+        line = raw.strip()
+        if line.startswith("## "):
+            in_section = True
+            continue
+        if not line or line.startswith("#"):
+            continue
+        m = _MANIFEST_LINE.match(line)
         if m:
             out.append({"name": m.group(1), "description": (m.group(2) or "").strip()})
+            continue
+        if in_section:
+            names = [n.strip() for n in line.split(",")]
+            if names and all(_TOOL_NAME.match(n) for n in names):
+                out.extend({"name": n, "description": ""} for n in names)
     return out
+
+
+def deferred_tools(agent) -> List[dict]:
+    """The agent's on-demand tools as ``[{name, description}]``: its structured
+    entries when it has them, else parsed from its manifest text."""
+    entries = getattr(agent, "_lazy_deferred_entries", None)
+    if entries:
+        return [{"name": e.get("name"), "description": e.get("description") or ""}
+                for e in entries if isinstance(e, dict) and e.get("name")]
+    return manifest_tools(getattr(agent, "_lazy_tools_manifest", "") or "")
 
 
 # ── the skill index (rebuilt when SKILL.md files change) ─────────────────────
@@ -346,7 +371,7 @@ def hint_for(agent, user_content, history) -> str:
             threshold = float(cfg.get("threshold", _THRESHOLD))
         except (TypeError, ValueError):
             threshold = _THRESHOLD
-        tools = manifest_tools(getattr(agent, "_lazy_tools_manifest", "") or "")
+        tools = deferred_tools(agent)
         result = match(text[:2000], skill_index(), tools, loaded=loaded_skills(history),
                        threshold=threshold)
         return hint_text(result)

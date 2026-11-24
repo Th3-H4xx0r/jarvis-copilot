@@ -8,7 +8,7 @@ a token budget, plus any pins — and everything else sits in the on-demand
 catalogue (``tool_search`` then ``tool_call``).
 
 Config (``agent.device_tools`` in config.yaml):
-    always_loaded_tokens  budget for the loaded set (default 8000)
+    always_loaded_tokens  budget for the loaded set (default 4000)
     pinned                tool names always loaded
 
 The counts are cached for a day in ``<home>/cache/device_tool_rank.json`` and
@@ -27,7 +27,12 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_BUDGET = 8000
+_DEFAULT_BUDGET = 4000
+# A tool already loaded keeps its place unless a challenger is used clearly
+# more: count >= weakest incumbent x _SWAP_RATIO + _SWAP_MARGIN. The loaded set
+# is the head of every agent's cached prompt, so churn costs a cold write.
+_SWAP_RATIO = 1.5
+_SWAP_MARGIN = 2
 _DAYS = 30
 _MAX_AGE_S = 24 * 3600
 _refreshing = threading.Lock()
@@ -70,6 +75,30 @@ def _home() -> Path:
 
 def _cache_path() -> Path:
     return _home() / "cache" / "device_tool_rank.json"
+
+
+def _loaded_path() -> Path:
+    return _home() / "cache" / "device_tool_loaded.json"
+
+
+def _previous_loaded() -> list:
+    try:
+        data = json.loads(_loaded_path().read_text())
+    except Exception:
+        return []
+    loaded = data.get("loaded") if isinstance(data, dict) else None
+    return [str(n) for n in loaded] if isinstance(loaded, list) else []
+
+
+def _save_loaded(names: list) -> None:
+    try:
+        path = _loaded_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"loaded": list(names), "saved_at": time.time()}))
+        tmp.replace(path)
+    except Exception:
+        logger.debug("device tools: loaded set not saved", exc_info=True)
 
 
 def count_usage(db_path, days: int = _DAYS) -> Counter:
@@ -177,9 +206,22 @@ def always_loaded_device_tools(candidates: dict) -> list:
                     key=lambda n: (-int(counts.get(n, 0) or 0), n))
     if counts:
         ranked = [n for n in ranked if counts.get(n)]
+    # Hysteresis: last time's loaded tools keep their place unless a challenger
+    # beats the weakest of them by the margin; strong challengers first, then
+    # the incumbents, then everyone else, each group most-used first.
+    incumbents = [n for n in ranked if n in set(_previous_loaded())]
+    if incumbents:
+        weakest = min(int(counts.get(n, 0) or 0) for n in incumbents)
+        bar = weakest * _SWAP_RATIO + _SWAP_MARGIN
+        strong = [n for n in ranked if n not in incumbents and int(counts.get(n, 0) or 0) >= bar]
+        rest = [n for n in ranked if n not in incumbents and n not in strong]
+        ranked = strong + incumbents + rest
     for name in ranked:
         cost = int(candidates[name] or 0)
         if spent + cost <= budget:
             chosen.add(name)
             spent += cost
-    return sorted(chosen)
+    result = sorted(chosen)
+    if result != sorted(_previous_loaded()):
+        _save_loaded(result)
+    return result

@@ -1199,3 +1199,14 @@ def test_browser_relay_guidance_content():
     assert "AppleScript" in g or "osascript" in g
     # tells the model the relay drives the user's real machine
     assert "user's computer" in g or "your computer" in g.lower() or "my Mac" in g
+
+
+
+def test_short_desc():
+    from agent.prompt_builder import _short_desc
+    long = "Track flights and alert when the gate changes or the departure slips"
+    out = _short_desc(long)
+    assert len(out) <= 61 and out.endswith("…")
+    assert long.startswith(out[:-1]) and long[len(out) - 1] == " "
+    assert _short_desc("Short one.") == "Short one."
+    assert _short_desc("x" * 60) == "x" * 60
