@@ -238,10 +238,19 @@ HANDOFF_RULE = (
     "how to do it. Answer yourself only quick questions and single simple actions.")
 
 
-def _collect_turn_context(*parts) -> str:
-    """Join this turn's notes (node instructions, voice rules, speaking device,
-    integration-setup note) for ``agent._turn_user_context``."""
-    return "\n\n".join(str(p).strip() for p in parts if p and str(p).strip())
+def _collect_turn_context(*parts) -> list:
+    """This turn's notes (voice/CarPlay/Pod rules, speaking device…) for
+    ``agent._turn_user_context``, one item per part: each is kept with the
+    user message and not repeated while unchanged (agent/turn_context.py)."""
+    return [str(p).strip() for p in parts if p and str(p).strip()]
+
+
+def _node_system_notes(instructions, tool_note, handoff_rule, setup_note) -> str:
+    """A harness node's constant notes (its instructions, tool note, hand-off
+    rule, integration-setup directive) for its agent's system tail. Each node
+    has its own agent, so another node's notes never sit in this history."""
+    return "\n\n".join(str(p).strip() for p in (instructions, tool_note, handoff_rule, setup_note)
+                       if p and str(p).strip())
 
 
 def _webui_ephemeral_system_prompt(personality_prompt: Optional[str]) -> str:
@@ -4221,7 +4230,7 @@ def _run_agent_streaming(
                         # Voice or chat, and the device: a voice job is read out when it ends.
                         origin=_job_origin(session_id, _harness_plan.surface),
                         **_job_node(_harness_plan.handoff_node))
-                    # Rides this turn's context (set below with the node's notes).
+                    # Rides the node's system tail (set below with its notes).
                     _handoff_rule = HANDOFF_RULE
                 except Exception:
                     logger.warning("harness: hand-off not bound", exc_info=True)
@@ -4242,9 +4251,13 @@ def _run_agent_streaming(
                 _setup_directive = directive_for(s)
             except Exception:
                 logger.debug("integration setup directive not applied", exc_info=True)
-            agent._turn_user_context = _collect_turn_context(
-                _harness_plan.instructions if _harness_plan else "", _node_tool_note, _handoff_rule,
-                turn.context, _setup_directive)
+            # Set (never appended) every turn: the node's constant notes ride its
+            # system tail; only the per-turn notes go with the user message.
+            agent.ephemeral_system_prompt = "\n\n".join(p for p in (
+                _webui_ephemeral_system_prompt(_personality_prompt),
+                _node_system_notes(_harness_plan.instructions if _harness_plan else "", _node_tool_note,
+                                   _handoff_rule, _setup_directive)) if p)
+            agent._turn_user_context = _collect_turn_context(turn.context)
             _turn_started_wall = time.time()
             _turn_handed_off = False
             # The agent's token counters are running session totals; snapshot

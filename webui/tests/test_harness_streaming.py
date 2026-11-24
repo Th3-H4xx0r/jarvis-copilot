@@ -3,7 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import api.config as cfg
-from api.streaming import _plan_for_turn
+from api.streaming import HANDOFF_RULE, _collect_turn_context, _node_system_notes, _plan_for_turn
 from api.turn_options import TurnOptions
 
 
@@ -152,10 +152,23 @@ def test_saved_reasoning_drops_a_trailing_copy_of_the_answer():
 
 
 def test_the_handoff_rule_survives_the_turn_context_rebuild():
-    """The turn's context is rebuilt after the hand-off block; the rule must be
-    in that final assignment, or fast nodes never see it."""
+    """The node's system tail is rebuilt after the hand-off block; the rule must
+    be in that final assignment, or fast nodes never see it."""
     src = (Path(__file__).resolve().parents[1] / "api" / "streaming.py").read_text()
-    last = src.rindex("agent._turn_user_context = _collect_turn_context(")
-    final = src[last:src.index(")\n", last)]
-    assert "_handoff_rule" in final
+    last = src.rindex("agent.ephemeral_system_prompt = ")
+    final = src[last:src.index("if p)", last)]
+    assert "_node_system_notes(" in final and "_handoff_rule" in final
     assert "_handoff_rule = HANDOFF_RULE" in src
+
+
+def test_node_notes_go_to_system_tail():
+    notes = _node_system_notes("Do X", "Tools: lean", HANDOFF_RULE, "")
+    assert "Do X" in notes and "Tools: lean" in notes and HANDOFF_RULE in notes
+    assert _collect_turn_context("[Voice mode — rules]\nbe brief", "", None, "Speaking device: watch") == [
+        "[Voice mode — rules]\nbe brief", "Speaking device: watch"]
+
+
+def test_node_system_notes_stable():
+    args = ("Do X", "Tools: lean", HANDOFF_RULE, "Setting up: Spotify")
+    assert _node_system_notes(*args) == _node_system_notes(*args)
+    assert _node_system_notes("", "", "", "") == ""

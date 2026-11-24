@@ -531,8 +531,10 @@ def run_conversation(
         if getattr(agent, "_computer_node", None):
             # Live: a Background job with a Computer node reached for the old chrome_*
             # tools (20 s timeouts each) instead of the fast loop.
-            agent._turn_user_context = "\n\n".join(p for p in (
-                getattr(agent, "_turn_user_context", "") or "", computer_turns.HANDS_NOTE) if p)
+            _cur_notes = getattr(agent, "_turn_user_context", "") or ""
+            agent._turn_user_context = (
+                list(_cur_notes) if isinstance(_cur_notes, (list, tuple)) else ([_cur_notes] if _cur_notes else [])
+            ) + [computer_turns.HANDS_NOTE]
     except Exception:
         logger.debug("computer: turn not bound", exc_info=True)
 

@@ -108,11 +108,29 @@ def test_the_handoff_runs_the_background_node_and_posts_the_result(harness, monk
     agent = _agent()
     ht.apply_node(agent, mp, task_id="t1", deliver=sent.append, platform="telegram",
                   question="find flights", toolsets=["web"])
-    assert "Be brief." in agent._turn_user_context and "handoff" in agent._turn_user_context
+    # Node notes live in the agent's system tail, not in each turn's message.
+    assert "Be brief." in agent.ephemeral_system_prompt and "handoff" in agent.ephemeral_system_prompt
+    assert "Be brief." not in (agent._turn_user_context or "")
     assert bound["task_id"] == "t1" and "handoff" in agent.valid_tool_names
     assert bound["question"] == "find flights"  # an automatic hand-off still knows the task
     out = bound["runner"]({"summary": "find flights to SF", "reason": "needs research"})
     assert out == "" and sent == ["bg did: find flights"]
+
+
+def test_node_notes_ride_the_system_tail_and_clear_restores_it(harness, monkeypatch):
+    harness()
+    monkeypatch.setattr("agent.escalation.bind_turn_context", lambda task_id, **kw: None)
+    agent = _agent()
+    agent.ephemeral_system_prompt = "Platform hint."
+    ht.apply_node(agent, _plan("find flights"), task_id="t", deliver=print, platform="telegram",
+                  question="q", toolsets=[])
+    first = agent.ephemeral_system_prompt
+    assert first.startswith("Platform hint.") and "Be brief." in first
+    ht.apply_node(agent, _plan("find flights"), task_id="t", deliver=print, platform="telegram",
+                  question="q", toolsets=[])
+    assert agent.ephemeral_system_prompt == first  # set, never appended turn over turn
+    ht.clear_node(agent)
+    assert agent.ephemeral_system_prompt == "Platform hint."
 
 
 def test_a_reused_agent_loses_the_last_nodes_limits(harness):
