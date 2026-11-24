@@ -1080,6 +1080,18 @@ void handle_reset_owner(const proto::Request& r) {
 
 void handle_auth(const proto::Request& r) {
   constexpr proto::Op op = proto::Op::auth;
+  if (!g_claimed && g_reply_link == Link::tcp && r.payload_len == proto::token_len) {
+    // An unowned board takes the first owner key presented on the home Wi-Fi (2026-11-24: after a reset the
+    // only way back was a Bluetooth claim, and a board on its direct link has Bluetooth off, so the phone sat on
+    // "board rejected the owner key"). Unowned happens only after a deliberate reset; the phone re-claims at once.
+    memcpy(g_owner_key, r.payload, proto::token_len);
+    g_claimed = true;
+    save_owner_key();
+    g_wifi.mark_authenticated();
+    send_status(op, proto::Status::ok);
+    Serial.println("[auth] unowned board claimed over the LAN by this phone's key");
+    return;
+  }
   if (!g_claimed || r.payload_len != proto::token_len || !key_matches(r.payload)) {
     send_status(op, proto::Status::unauthorized);
     if (g_reply_link == Link::tcp) g_wifi.drop_client();
