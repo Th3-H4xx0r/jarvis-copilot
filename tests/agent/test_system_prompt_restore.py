@@ -32,6 +32,10 @@ def _make_agent(session_db=None, prebuilt_prompt: str = "BUILT_PROMPT"):
     agent.platform = "cli"
     agent._session_db = session_db
     agent._build_system_prompt = MagicMock(return_value=prebuilt_prompt)
+    # A MagicMock attribute is a truthy fake signature that never equals the
+    # stored one, which made every restore look like a toolset change. No
+    # fingerprint = reuse the stored prompt (the signature tests below set one).
+    agent._toolset_fingerprint = ""
     return agent
 
 
@@ -217,6 +221,45 @@ class TestPromptStabilityInvariant:
         assert agent._cached_system_prompt == stored
         # Byte-level check
         assert agent._cached_system_prompt.encode("utf-8") == stored.encode("utf-8")
+
+
+class TestToolsetSignature:
+    """The stored prompt is reused while the toolset signature matches and
+    rebuilt (once) when it changed or was never stored."""
+
+    def _db(self, stored_prompt, stored_sig):
+        db = MagicMock()
+        db.get_session.return_value = {"system_prompt": stored_prompt}
+        db.get_meta.return_value = stored_sig
+        return db
+
+    def test_matching_signature_reuses_stored_prompt(self):
+        db = self._db("STORED", "sig-a")
+        agent = _make_agent(session_db=db)
+        agent._toolset_fingerprint = "sig-a"
+        _restore_or_build_system_prompt(agent, None, [{"role": "user", "content": "hi"}])
+        assert agent._cached_system_prompt == "STORED"
+        agent._build_system_prompt.assert_not_called()
+        db.get_meta.assert_called_with("sysprompt_sig:test-session-id")
+
+    def test_changed_signature_rebuilds_and_restamps(self, caplog):
+        db = self._db("STORED", "sig-old")
+        agent = _make_agent(session_db=db)
+        agent._toolset_fingerprint = "sig-new"
+        with caplog.at_level(logging.INFO, logger="agent.conversation_loop"):
+            _restore_or_build_system_prompt(agent, None, [{"role": "user", "content": "hi"}])
+        assert agent._cached_system_prompt == "BUILT_PROMPT"
+        db.update_system_prompt.assert_called_once_with("test-session-id", "BUILT_PROMPT")
+        db.set_meta.assert_called_once_with("sysprompt_sig:test-session-id", "sig-new")
+        assert any("Toolset changed" in r.getMessage() for r in caplog.records)
+
+    def test_missing_stored_signature_rebuilds_once(self):
+        db = self._db("STORED", "")
+        agent = _make_agent(session_db=db)
+        agent._toolset_fingerprint = "sig-a"
+        _restore_or_build_system_prompt(agent, None, [{"role": "user", "content": "hi"}])
+        assert agent._cached_system_prompt == "BUILT_PROMPT"
+        db.set_meta.assert_called_once_with("sysprompt_sig:test-session-id", "sig-a")
 
 
 if __name__ == "__main__":

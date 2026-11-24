@@ -228,6 +228,25 @@ def _supports_adaptive_thinking(model: str) -> bool:
     return any(v in model for v in _ADAPTIVE_THINKING_SUBSTRINGS) or _claude_version_at_least(model, (4, 6))
 
 
+def _thinking_off_params(model: str) -> Dict[str, Any]:
+    """Request fields that turn thinking OFF (or as low as it goes) on ``model``.
+
+    Per the Claude API: Fable / Mythos and Opus 5.5 can't disable thinking
+    (``disabled`` is a 400) → lowest effort. Sonnet 5.5 rejects ``disabled`` and
+    takes ``between_tools`` instead. Haiku 5.5, Opus 5, Sonnet 5 and Opus 4.7/4.8
+    accept ``disabled`` (they think by default when it's omitted). Older models
+    don't think unless asked, so nothing is sent.
+    """
+    m = (model or "").lower()
+    if "fable" in m or "mythos" in m or ("opus" in m and _claude_version_at_least(m, (5, 5))):
+        return {"output_config": {"effort": "low"}}
+    if "sonnet" in m and _claude_version_at_least(m, (5, 5)):
+        return {"thinking": {"type": "between_tools"}}
+    if ("haiku" in m and _claude_version_at_least(m, (5, 0))) or _claude_version_at_least(m, (4, 7)):
+        return {"thinking": {"type": "disabled"}}
+    return {}
+
+
 def _supports_xhigh_effort(model: str) -> bool:
     """Return True for models that accept the 'xhigh' adaptive effort level.
 
@@ -2235,6 +2254,14 @@ def build_anthropic_kwargs(
                 # Anthropic requires temperature=1 when thinking is enabled on older models
                 kwargs["temperature"] = 1
                 kwargs["max_tokens"] = max(effective_max_tokens, budget + 4096)
+        elif reasoning_config.get("enabled") is False and not _is_third_party_anthropic_endpoint(base_url):
+            # Reasoning OFF (voice turns): sending nothing does not turn
+            # thinking off on the Claude 5.x family — adaptive is on by default.
+            for _k, _v in _thinking_off_params(model).items():
+                if _k == "output_config":
+                    kwargs.setdefault("output_config", {}).update(_v)
+                else:
+                    kwargs[_k] = _v
 
     # ── Strip sampling params on 4.7+ ─────────────────────────────────
     # Opus 4.7 rejects any non-default temperature/top_p/top_k with a 400.
