@@ -44,6 +44,10 @@ class Config:
     min_conf: float = 0.5
     instructions: str = ""
     verify: bool = True   # look once more at the end: is what he asked for done? (his ask 2026-11-20)
+    # All the waiting one run may do for an app that is still getting ready (live 2026-11-24: Battle.net signing in
+    # after a cold wake took over a minute; the run had clicked a dead Play and given up after 15 s). Waiting
+    # doesn't count against max_seconds, which is for moves.
+    max_wait_s: float = 90.0
 
 
 @dataclass
@@ -120,10 +124,26 @@ def describe(action: dict, look: dict) -> str:
 
 LAUNCH_TRIES = 30          # a launcher or a game takes a while to show its window (~45 s)
 LAUNCH_POLL_S = 1.5
+WAIT_POLL_S = 1.5          # while waiting, look again this often
+WAIT_STEP_S = 15.0         # one "wait" move: until the screen changes, at most this long
+CHECK_WAIT_S = 30.0        # the end check saw the app still loading: wait this long for it, then check again
+CHECK_WAITS = 6            # at most this many waits in one end check (a progress % changes the screen every look)
 
 
 _NAMED = re.compile(r"\bclick (?:on )?(?:the )?[\"“']?(.+?)[\"”']? (?:button|tab|icon|link)\b|"
                     r"\bselect [\"“']?(.+?)[\"”']? in\b", re.I)
+
+
+def _names(label, want: str) -> bool:
+    """The label is that control's own name ("Play", "Play Now", a tile "Call of Duty: Black Ops 6" for "Call of
+    Duty"), not a sentence that uses the word (live 2026-11-24: "This game requires you to log in to Battle.net in
+    order to play." passed for the Play button)."""
+    lab = str(label or "").strip().lower()
+    if not lab or not re.search(rf"(?<!\w){re.escape(want)}(?!\w)", lab):
+        return False
+    if lab.endswith((".", "!", "?")) and lab.rstrip(".!?") != want:
+        return False
+    return lab.startswith(want) or len(lab.split()) <= len(want.split()) + 2
 
 
 def _unlabeled_target(step: dict, look: dict) -> bool:
@@ -135,10 +155,16 @@ def _unlabeled_target(step: dict, look: dict) -> bool:
     want = (m.group(1) or m.group(2) or "").strip().lower()
     if not want:
         return False
-    return not any(want in str(e.get("label") or "").lower() for e in look.get("elements") or [])
+    return not any(_names(e.get("label"), want) for e in look.get("elements") or [])
 
 
 _VAGUE_ROLES = ("group", "image", "statictext", "text", "pane", "generic", "unknown", "document", "window")
+
+
+def _sentence(label: str) -> bool:
+    """A label that is a message, not a name (a group carrying a notice's text)."""
+    lab = str(label or "").strip()
+    return len(lab.split()) > 6 or lab.endswith((".", "!", "?"))
 
 
 def _vague_target(action: dict, look: dict) -> bool:
@@ -151,7 +177,10 @@ def _vague_target(action: dict, look: dict) -> bool:
     if el is None:
         return True
     role = str(el.get("role") or "").lower().replace("ax", "", 1)
-    return not str(el.get("label") or "").strip() and any(role.startswith(r) for r in _VAGUE_ROLES)
+    label = str(el.get("label") or "").strip()
+    # A group whose "label" is a whole sentence is a message on the page, not a control (live 2026-11-24: a click on
+    # Battle.net's sign-in notice finished the "click Play" step).
+    return (not label or _sentence(label)) and any(role.startswith(r) for r in _VAGUE_ROLES)
 
 
 VERIFY_SETTLE_S = 1.0
@@ -262,8 +291,53 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
     # Planning and reading are text work: a fast model there saves ~20 s a task (Terra 9 s/call,
     # Celeris-1 0.3 s, live 2026-11-18); `computer.planner_model` in config.yaml, else as before.
     planner = _planner_ref() or cfg.fallback_ref
-    out.timing = {"plan_ms": 0, "decide_ms": 0, "hands_ms": 0, "total_ms": 0}
+    # The screenshot model (the Computer node's fallback, else the chat model). When its provider fails (out of
+    # credit, rate-limited, down) the planning model, which reads screenshots too, takes over for the rest of the run
+    # instead of every move paying for the failure (live 2026-11-23: a 429 on each call; 21 s, then stuck).
+    fb_ref = [cfg.fallback_ref]
+
+    def swap_screenshot_model(why: str) -> bool:
+        if not planner or planner == fb_ref[0]:
+            return False
+        logger.warning("Computer: screenshot model %s failed (%s); using %s for the rest of the run", fb_ref[0],
+                       str(why)[:120], planner)
+        fb_ref[0] = planner
+        return True
+    out.timing = {"plan_ms": 0, "decide_ms": 0, "hands_ms": 0, "wait_ms": 0, "total_ms": 0}
     mac = _Timed(mac, out.timing)  # every look and move on the computer counts as hands
+    waited = [0.0]   # seconds spent waiting for an app to get ready (not counted against max_seconds)
+
+    def wait_for_screen(current: dict, most: float, look_again) -> dict:
+        """Look again every WAIT_POLL_S until the screen differs from ``current`` (or ``most`` seconds pass, or the
+        run's wait budget is spent), like a person watching a spinner. The latest screen seen."""
+        left = min(most, cfg.max_wait_s - waited[0])
+        if left <= 0:
+            return current
+        t0, sig, latest = time.monotonic(), current.get("sig"), current
+        while time.monotonic() - t0 < left:
+            if should_stop and should_stop():
+                break
+            time.sleep(WAIT_POLL_S)
+            try:
+                fresh = look_again()
+            except Exception:  # noqa: BLE001
+                fresh = {}
+            if isinstance(fresh, dict) and fresh.get("ok"):
+                latest = fresh
+                if not sig or fresh.get("sig") != sig:
+                    break
+        spent = time.monotonic() - t0
+        waited[0] += spent
+        out.timing["wait_ms"] += int(spent * 1000)
+        changed = latest.get("sig") != sig
+        logger.info("Computer wait: %.1f s (%s)", spent, "changed" if changed else "no change")
+        history.append(f"waited {spent:.0f} s; " + ("the screen changed" if changed else "the screen didn't change"))
+        if progress:
+            try:
+                progress(f"waiting for {latest.get('app') or 'the app'} to get ready · {spent:.0f} s")
+            except Exception:
+                pass
+        return latest
 
     def can(skill: str, feature: str) -> bool:
         # Old jc-clients reject arguments they don't know: only what this device advertises.
@@ -344,9 +418,10 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
     replans = [0]
     checks = [0]
 
-    def replan(why: str, keep_current: bool) -> bool:
-        """Plan what's left from the screen now (a person adjusting when reality isn't the plan). At most twice."""
-        if replans[0] >= 2 or not planner:
+    def replan(why: str, keep_current: bool, loaded: bool = False) -> bool:
+        """Plan what's left from the screen now (a person adjusting when reality isn't the plan). At most twice — once
+        more when the app just finished getting ready (``loaded``): the earlier plans were made on a loading screen."""
+        if replans[0] >= (3 if loaded else 2) or not planner:
             return False
         replans[0] += 1
         if "apps" not in plan_extra:
@@ -376,7 +451,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             return False
         checks[0] += 1
         time.sleep(VERIFY_SETTLE_S)            # let the last click show (a button turning into "Launching…")
-        now = {}
+        now, checked_on = {}, None
         # The app it worked in — or, when that's gone (the task closed it), whatever is in front now.
         for where in ([anchor, None] if anchor else [None]):
             try:
@@ -384,21 +459,41 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             except Exception:  # noqa: BLE001
                 now = {}
             if isinstance(now, dict) and now.get("ok"):
+                checked_on = where
                 break
         if not (isinstance(now, dict) and now.get("ok")):
             out.check = {"done": None, "seen": "", "missing": ""}   # no fresh screen: never judge a stale one
             return False
         look = now
-        t_check = time.monotonic()
-        out.check = verify(cfg.fallback_ref, look, goal, history)
-        out.timing["decide_ms"] += int((time.monotonic() - t_check) * 1000)
-        logger.info("Computer check: done=%s seen=%s missing=%s", out.check.get("done"), out.check.get("seen"),
-                    out.check.get("missing"))
+
+        def check():
+            t_check = time.monotonic()
+            out.check = verify(fb_ref[0], look, goal, history)
+            if out.check.get("error") and swap_screenshot_model(out.check["error"]):
+                out.check = verify(fb_ref[0], look, goal, history)
+            out.timing["decide_ms"] += int((time.monotonic() - t_check) * 1000)
+            logger.info("Computer check: done=%s busy=%s seen=%s missing=%s", out.check.get("done"),
+                        bool(out.check.get("busy")), out.check.get("seen"), out.check.get("missing"))
+
+        check()
+        # Not done because the app is still getting ready (signing in, connecting, updating): wait for it like a
+        # person, then look again — that second look isn't another check (live 2026-11-24: Battle.net "Connecting…").
+        loaded = False
+        for _ in range(CHECK_WAITS):
+            if not (out.check.get("done") is False and out.check.get("busy")) or waited[0] >= cfg.max_wait_s:
+                break
+            if should_stop and should_stop():
+                break
+            history.append(f"the app is still getting ready ({out.check.get('seen') or 'loading'}); waiting")
+            look = wait_for_screen(look, CHECK_WAIT_S,
+                                   lambda: mac.look(device, app=checked_on) if checked_on else mac.look(device))
+            loaded = True
+            check()
         if out.check.get("done") is not False:
             return False
         missing = out.check.get("missing") or "the screen doesn't show it done"
         history.append(f"checked: not done yet ({missing})")
-        if replan(f"the request isn't done yet: {missing}", keep_current=True):
+        if replan(f"the request isn't done yet: {missing}", keep_current=True, loaded=loaded):
             return True                         # the new steps run next, then it's checked again
         out.status, out.reason = "stuck", f"The screen doesn't show it done: {missing}."
         return False
@@ -571,7 +666,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 break
             if step.get("_max") and len(out.actions) - moves_before >= step["_max"]:
                 break  # a bounded navigation step: the read after it decides
-            if time.monotonic() - started > cfg.max_seconds:
+            if time.monotonic() - started - waited[0] > cfg.max_seconds:
                 out.status, out.reason = "stuck", f"Ran out of time ({int(cfg.max_seconds)} s)."
                 break
             t = time.monotonic()
@@ -589,8 +684,13 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             if (move is None or early_done or move.action.get("action") == "stuck"
                     or (move.confidence or 0) < cfg.min_conf):
                 first = move
-                move = fallback(cfg.fallback_ref, look, goal, step, history, instructions=cfg.instructions,
+                move = fallback(fb_ref[0], look, goal, step, history, instructions=cfg.instructions,
                                 plan=steps, at=at) if cfg.fallback_ref else first
+                if (cfg.fallback_ref and move is not None and move is not first and getattr(move, "failed", False)
+                        and swap_screenshot_model(move.why)):
+                    out.timing["decide_ms"] += move.ms or 0
+                    move = fallback(fb_ref[0], look, goal, step, history, instructions=cfg.instructions,
+                                    plan=steps, at=at)
                 if cfg.fallback_ref and move is not None and move is not first:
                     out.timing["decide_ms"] += move.ms or 0
                 if move is None or move.action.get("action") == "stuck":
@@ -663,6 +763,11 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             new_look = res.get("look") if isinstance(res.get("look"), dict) else None
             if new_look is None or not new_look.get("ok", True):
                 new_look = relook()
+            waiting = action.get("action") == "wait"
+            if waiting and res.get("ok") and new_look.get("sig") == look.get("sig"):
+                # "Still loading": watch the screen until it changes instead of a half-second pause (live
+                # 2026-11-24: Battle.net was signing in; Play did nothing until it finished).
+                new_look = wait_for_screen(new_look, WAIT_STEP_S, relook)
             key = json.dumps(action, sort_keys=True)
             unchanged = new_look.get("sig") == look.get("sig")
             repeats = repeats + 1 if (key == last_key and unchanged) else 0
@@ -675,8 +780,9 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             if new_look.get("ok", True):
                 look = new_look
             sig = look.get("sig")
-            visits[sig] = visits.get(sig, 0) + 1
-            if sig and visits[sig] >= 3 and not unchanged:
+            if not waiting:   # a loading screen moving through its states isn't going in circles
+                visits[sig] = visits.get(sig, 0) + 1
+            if sig and not waiting and visits[sig] >= 3 and not unchanged:
                 out.status, out.reason = "stuck", ("Going in circles between the same screens on step "
                                                    f"“{step.get('do')}”; stopped (the screen shows where it got to).")
                 break
@@ -698,6 +804,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             break
     out.look = look
     out.timing["total_ms"] = int((time.monotonic() - started) * 1000)
-    logger.info("Computer task: total=%sms plan=%sms decide=%sms hands=%sms moves=%s", out.timing["total_ms"],
-                out.timing["plan_ms"], out.timing["decide_ms"], out.timing["hands_ms"], len(out.actions))
+    logger.info("Computer task: total=%sms plan=%sms decide=%sms hands=%sms wait=%sms moves=%s", out.timing["total_ms"],
+                out.timing["plan_ms"], out.timing["decide_ms"], out.timing["hands_ms"], out.timing["wait_ms"],
+                len(out.actions))
     return out

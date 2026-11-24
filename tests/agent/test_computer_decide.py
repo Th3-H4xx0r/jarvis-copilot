@@ -249,3 +249,33 @@ def test_the_goal_check_counts_starting_as_done():
     from agent.computer import decide as D
     assert "launching" in D._VERIFY_PROMPT and "loading" in D._VERIFY_PROMPT
 
+
+def test_the_goal_check_says_when_the_app_is_still_loading():
+    from agent.computer import decide as D
+    reply = lambda text: (lambda **kw: type("R", (), {"choices": [type("C", (), {"message": type("M", (), {  # noqa
+        "content": text})()})()]})())
+    busy = D.verify_goal("@f:m", {}, "launch Warzone", [], call=reply(
+        '{"done": false, "busy": true, "seen": "Connecting...", "missing": "wait, then press Play"}'))
+    assert busy["done"] is False and busy["busy"] is True
+    assert "busy" not in D.verify_goal("@f:m", {}, "g", [], call=reply('{"done": false, "missing": "press Play"}'))
+    assert '"busy"' in D._VERIFY_PROMPT
+
+
+def test_the_models_are_told_to_wait_while_an_app_loads():
+    from agent.computer import decide as D
+    from agent.computer.choices import FIXED
+    assert "wait" in D._FALLBACK_PROMPT and "loading" in D._FALLBACK_PROMPT.lower()
+    assert "connecting" in dict(FIXED)["wait"].lower()
+
+
+def test_a_fallback_whose_provider_fails_says_so():
+    from agent.computer import decide as D
+
+    def boom(**kw):
+        raise RuntimeError("HTTP 429: The usage limit has been reached")
+    move = D.fallback_step("@f:m", {"elements": []}, "g", {"do": "x"}, [], call=boom)
+    assert move.action == {"action": "stuck"} and move.failed and "429" in move.why
+    ok = D.fallback_step("@f:m", {"elements": []}, "g", {"do": "x"}, [],
+                         call=lambda **kw: type("R", (), {"choices": [type("C", (), {"message": type("M", (), {
+                             "content": '{"action": "stuck", "why": "no way"}'})()})()]})())
+    assert not ok.failed

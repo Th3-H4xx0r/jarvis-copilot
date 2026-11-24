@@ -20,7 +20,8 @@ from agent.harness.refs import split_ref
 logger = logging.getLogger(__name__)
 
 QUESTION = ("Which single move gets the current step done? Pick done when the screen already shows the step "
-            "finished, and stuck when no option moves it forward.")
+            "finished, wait while the app is still loading, connecting or signing in (its buttons don't work yet), "
+            "and stuck when no option moves it forward.")
 DECISION_TIMEOUT = 3.0
 FALLBACK_TIMEOUT = 25.0
 _FALLBACK_ACTIONS = ("click", "fill", "key", "scroll", "open_app", "wait", "done", "stuck")
@@ -39,18 +40,24 @@ Reply with ONLY one JSON object:
 - open_app: switch to or launch an app by name. Never use Spotlight (cmd+space) or cmd+tab for that.
 - A popup in the way (cookies, notifications, location, sign-in): close it (Close / Not now / Don't Allow / ×) \
 — never Allow or Accept unless the task says so.
+- wait: the app is still getting ready — loading, connecting, signing in or updating (a spinner, "Connecting…", \
+"Loading…", a greyed-out button). Its buttons do nothing yet: wait instead of clicking (the screen is watched \
+until it changes).
 - done: the current step already shows as finished. stuck: you cannot see a way forward, or the window shown is \
 not the app this task is about."""
 
 _VERIFY_PROMPT = """The user asked for this on their computer: {goal}
 Moves made so far: {history}
 
-Look at the screenshot. Is what the user asked for done? Something visibly starting, launching or loading counts \
-as done (apps and games take a while to open). Only the thing they asked for counts: a page or app that merely \
-shows it, with the asked action not taken, is not done.
+Look at the screenshot. Is what the user asked for done? The thing they asked for visibly starting, launching or \
+loading counts as done (apps and games take a while to open). Only the thing they asked for counts: a page or app \
+that merely shows it, with the asked action not taken, is not done.
+busy: not done yet, and the app on screen is still getting ready before the next move can work — loading, \
+connecting, signing in or updating (a spinner, "Connecting…", "Loading…", greyed-out buttons).
 
 Reply with ONLY one JSON object:
-{{"done": true|false, "seen": "<what the screen shows, a few words>", "missing": "<what is still to do, if not done>"}}"""
+{{"done": true|false, "busy": true|false, "seen": "<what the screen shows, a few words>", \
+"missing": "<what is still to do, if not done>"}}"""
 
 _PLAN_PROMPT = """The user asked for something to be done on their {computer}. Split it into as few UI steps as possible.
 
@@ -85,6 +92,7 @@ class Move:
     by: str  # decision · fallback
     ms: int
     why: str = ""
+    failed: bool = False  # the model call itself failed (provider down, out of credit) — not a judgment
 
 
 def data_url(look: dict) -> str | None:
@@ -217,7 +225,7 @@ def fallback_step(ref, look, goal, step, history, *, instructions="", call=None,
     except Exception as exc:
         logger.debug("computer: fallback step failed", exc_info=True)
         return Move({"action": "stuck"}, None, "fallback", int((time.monotonic() - started) * 1000),
-                    why=str(exc)[:160] or type(exc).__name__)
+                    why=str(exc)[:160] or type(exc).__name__, failed=True)
     raw = _json(out)
     why = str(raw.get("why") or "")[:160] if isinstance(raw, dict) else str(out or "")[:160]
     return Move(_valid(raw, look, step), None, "fallback", int((time.monotonic() - started) * 1000), why=why)
@@ -234,7 +242,10 @@ def verify_goal(ref, look, goal, history, *, call=None) -> dict:
         return {"done": None, "seen": "", "missing": "", "error": str(exc)[:160]}
     if not isinstance(raw, dict) or not isinstance(raw.get("done"), bool):
         return {"done": None, "seen": "", "missing": ""}
-    return {"done": raw["done"], "seen": str(raw.get("seen") or "")[:160], "missing": str(raw.get("missing") or "")[:200]}
+    out = {"done": raw["done"], "seen": str(raw.get("seen") or "")[:160], "missing": str(raw.get("missing") or "")[:200]}
+    if raw["done"] is False and raw.get("busy") is True:
+        out["busy"] = True   # still loading / connecting / signing in: the run waits for it, then looks again
+    return out
 
 
 _WINDOWS_APP_NAMES = (" by its Windows name (Settings, File Explorer, Calculator, Notepad, Microsoft Edge, Task "

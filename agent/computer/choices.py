@@ -15,7 +15,7 @@ FIXED = (
     ("scroll up", "Scroll back up"),
     ("press return", "Press Return (submit or confirm)"),
     ("press escape", "Press Escape (close a menu, popup or dialog)"),
-    ("wait", "Wait: the screen is still loading"),
+    ("wait", "Wait: the app is still loading, connecting or signing in (its buttons don't work yet)"),
     ("done", "This step has already happened on screen"),
     ("stuck", "Nothing here moves this step forward"),
 )

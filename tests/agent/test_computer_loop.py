@@ -622,7 +622,7 @@ def test_timing_logged():
     mac = FakeMac()
     decide = _decider(Move({"action": "click", "element": 1}, 0.9, "decision", 40))
     r = L.run("g", [{"do": "get the result"}], _cfg(), device="m", decide=decide, fallback=_never, mac=mac)
-    assert set(r.timing) == {"plan_ms", "decide_ms", "hands_ms", "total_ms"}
+    assert set(r.timing) == {"plan_ms", "decide_ms", "hands_ms", "wait_ms", "total_ms"}
     assert r.timing["decide_ms"] >= 40 and r.timing["total_ms"] >= 0  # the fake's 40 ms never elapsed
 
 
@@ -1051,3 +1051,226 @@ def test_no_fresh_screen_means_no_guess(monkeypatch):
     r = L.run("g", [{"do": "click the 7 button"}], _cfg(verify=True), device="m", decide=_decider(), fallback=_never,
               mac=BlindMac(), verify=verify)
     assert verify.calls == [] and r.status == "done" and "couldn't confirm" in r.summary()
+
+
+
+# --- an app that is still loading (live 2026-11-24: Battle.net "Connecting…" right after a cold wake) -----------
+
+class _Clock:
+    """A fake clock: sleeping moves it on, so waits measured in seconds take no real time."""
+
+    def __init__(self):
+        self.t = 1000.0
+
+    def monotonic(self):
+        return self.t
+
+    def sleep(self, s):
+        self.t += s
+
+
+def test_a_wait_keeps_looking_until_the_screen_changes(monkeypatch):
+    """Live 2026-11-24: Battle.net was still signing in; a 0.5 s wait, then clicks on a Play that did nothing."""
+    clock = _Clock()
+    monkeypatch.setattr(L.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(L.time, "sleep", clock.sleep)
+    loading = {"ok": True, "did": "wait", "via": "", "look": _look(1, sig="loading")}
+    mac = FakeMac(act_results=[loading])
+    polls = []
+
+    def look(device, app=None, **kw):
+        polls.append(clock.t)
+        return _look(2, sig="loading" if len(polls) < 4 else "ready")
+    mac.look = look
+    decide = _decider(Move({"action": "wait"}, 0.9, "decision", 1), Move({"action": "click", "element": 2}, 0.9, "decision", 1))
+    r = L.run("g", [{"do": "click the first video"}], _cfg(), device="m", decide=decide, fallback=_never, mac=mac)
+    assert r.status == "done" and [a[0]["action"] for a in mac.acts] == ["wait", "click"]
+    assert len(polls) >= 4                      # it kept looking while the screen showed the same thing
+    assert mac.acts[1][1] == "L2"               # and clicked on the screen that had changed
+    assert r.timing["wait_ms"] > 0
+
+
+def test_waiting_stops_at_the_runs_wait_budget(monkeypatch):
+    clock = _Clock()
+    monkeypatch.setattr(L.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(L.time, "sleep", clock.sleep)
+    same = {"ok": True, "did": "wait", "via": "", "look": _look(1, sig="same")}
+    mac = FakeMac(act_results=[same] * 50)
+    mac.look = lambda device, app=None, **kw: _look(1, sig="same")
+    decide = _decider(*[Move({"action": "wait"}, 0.9, "decision", 1)] * 50)
+    start = clock.t
+    r = L.run("g", [{"do": "x"}], _cfg(max_wait_s=40), device="m", decide=decide, fallback=_never, mac=mac,
+              plan=lambda *a, **k: {"steps": [], "say": ""})
+    assert r.status == "stuck"
+    assert clock.t - start <= 40 + 2 * L.WAIT_POLL_S + 5   # never waits past the budget (+ a poll and the 0.4 s pauses)
+
+
+def test_waiting_does_not_use_up_the_time_for_moves(monkeypatch):
+    clock = _Clock()
+    monkeypatch.setattr(L.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(L.time, "sleep", clock.sleep)
+    loading = {"ok": True, "did": "wait", "via": "", "look": _look(1, sig="loading")}
+    mac = FakeMac(act_results=[loading])
+    polls = []
+
+    def look(device, app=None, **kw):
+        polls.append(1)
+        return _look(2, sig="loading") if len(polls) < 9 else _look(3, sig="ready")   # ~12 s of "Connecting…"
+    mac.look = look
+    decide = _decider(Move({"action": "wait"}, 0.9, "decision", 1), Move({"action": "click", "element": 2}, 0.9, "decision", 1))
+    r = L.run("g", [{"do": "click the first video"}], _cfg(max_seconds=10), device="m", decide=decide,
+              fallback=_never, mac=mac)
+    assert r.status == "done", r.reason
+    assert mac.acts[1][1] == "L3"   # clicked once it was ready, not on the loading screen
+
+
+def test_a_button_name_inside_a_sentence_is_not_that_button():
+    """Live 2026-11-24: "This game requires you to log in to Battle.net in order to play." counted as the Play
+    button, so the fast model got the step and clicked the message."""
+    seen = []
+
+    def fallback(ref, look, goal, step, history, **kw):
+        seen.append(step.get("do"))
+        return Move({"action": "done"}, 0.9, "fallback", 1)
+    note = [{"i": 1, "role": "group", "label": "This game requires you to log in to Battle.net in order to play."},
+            {"i": 2, "role": "group", "label": ""}]
+    mac = FakeMac()
+    mac.look = lambda device, app=None, **kw: _look(1, els=note)
+    decide = _decider(Move({"action": "click", "element": 1}, 0.68, "decision", 1))
+    L.run("launch Warzone", [{"do": "click the Play button"}], _cfg(), device="pc", app="Battle.net", decide=decide,
+          fallback=fallback, mac=mac)
+    assert decide.calls == [] and seen
+
+
+def test_a_short_label_holding_the_name_is_that_button():
+    els = [{"i": 1, "role": "button", "label": "Play Now"}]
+    assert not L._unlabeled_target({"do": "click the Play button"}, {"elements": els})
+
+
+def test_a_click_on_a_sentence_is_checked_on_the_screen():
+    """A click on a message (a group labelled with a whole sentence) isn't a control: it doesn't finish the step."""
+    note = [{"i": 1, "role": "group", "label": "This game requires you to log in to Battle.net in order to play."},
+            {"i": 2, "role": "AXButton", "label": "="}]
+    seen = []
+
+    def fallback(ref, look, goal, step, history, **kw):
+        seen.append(1)
+        return Move({"action": "done"}, 0.9, "fallback", 1)
+    mac = FakeMac()
+    mac.look = lambda device, app=None, **kw: _look(1, els=note)
+    decide = _decider(Move({"action": "click", "element": 1}, 0.9, "decision", 1))
+    L.run("g", [{"do": "open the game"}], _cfg(), device="pc", app="Battle.net", decide=decide, fallback=fallback,
+          mac=mac)
+    assert seen   # the screenshot model looked again before the step counted
+
+
+def test_a_check_that_sees_the_app_still_loading_waits_then_carries_on(monkeypatch):
+    clock = _Clock()
+    monkeypatch.setattr(L.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(L.time, "sleep", clock.sleep)
+    verify = _verifier({"done": False, "busy": True, "missing": "wait for it to finish connecting"},
+                       {"done": False, "missing": "press Play"},
+                       {"done": True, "seen": "launching"})
+    progress = []
+
+    def plan(ref, goal, look, **kw):
+        progress.append(kw.get("progress", ""))
+        return {"steps": [{"do": "click the = button"}], "say": ""}
+    r = L.run("launch Warzone", [{"do": "click the 7 button"}], _cfg(verify=True), device="pc", decide=_decider(),
+              fallback=_never, mac=FakeMac(), verify=verify, plan=plan)
+    assert r.status == "done" and len(verify.calls) == 3          # the re-check after loading isn't a new check
+    assert len(progress) == 1 and "press Play" in progress[0]     # planned from the loaded screen, not the spinner
+    assert r.timing["wait_ms"] > 0
+
+
+def test_after_loading_the_rest_can_be_planned_even_when_replans_ran_out(monkeypatch):
+    """Live 2026-11-24: both re-plans went on clicks while Battle.net signed in; once it was ready nothing was left."""
+    clock = _Clock()
+    monkeypatch.setattr(L.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(L.time, "sleep", clock.sleep)
+    plans = []
+
+    def plan(ref, goal, look, **kw):
+        plans.append(kw.get("progress", ""))
+        return {"steps": [[{"do": "find the other thing"}], [{"do": "click the 7 button"}],
+                          [{"do": "click the = button"}]][min(len(plans) - 1, 2)], "say": ""}
+    stuck = lambda *a, **k: Move({"action": "stuck"}, None, "fallback", 1, why="nothing to press")   # noqa: E731
+    verify = _verifier({"done": False, "busy": True, "missing": "wait"}, {"done": False, "missing": "press Play"},
+                       {"done": True, "seen": "launching"})
+    r = L.run("launch Warzone", [{"do": "find the thing"}], _cfg(verify=True), device="pc",
+              decide=_decider(*[Move({"action": "stuck"}, 0.9, "decision", 1)] * 6), fallback=stuck, mac=FakeMac(),
+              verify=verify, plan=plan)
+    assert len(plans) == 3 and r.status == "done", r.reason
+
+
+
+def test_a_screenshot_model_that_fails_is_swapped_for_the_planner(monkeypatch):
+    """Live 2026-11-23: the chat model (the screenshot model) was at its usage limit; every move paid ~5 s for a 429
+    and the run stopped. The planning model reads screenshots too: use it for the rest of the run."""
+    monkeypatch.setattr(L, "_planner_ref", lambda: "@p:m")
+    refs = []
+
+    def fallback(ref, look, goal, step, history, **kw):
+        refs.append(ref)
+        if ref == "@f:m":
+            return Move({"action": "stuck"}, None, "fallback", 5000, why="HTTP 429: usage limit", failed=True)
+        return Move({"action": "click", "element": 2}, None, "fallback", 300)
+    decide = _decider(*[Move({"action": "stuck"}, 0.9, "decision", 1)] * 3)
+    r = L.run("g", [{"do": "get the result"}], _cfg(), device="m", decide=decide, fallback=fallback, mac=FakeMac())
+    assert r.status == "done" and refs[0] == "@f:m" and len(refs) >= 2 and set(refs[1:]) == {"@p:m"}
+    assert r.timing["decide_ms"] >= 5300   # the failed call's time still counts
+
+
+def test_a_screenshot_model_that_merely_cant_find_a_way_is_not_swapped(monkeypatch):
+    monkeypatch.setattr(L, "_planner_ref", lambda: "@p:m")
+    refs = []
+
+    def fallback(ref, look, goal, step, history, **kw):
+        refs.append(ref)
+        return Move({"action": "stuck"}, None, "fallback", 1, why="no such button")
+    L.run("g", [{"do": "press ×"}], _cfg(), device="m", decide=_decider(*[Move({"action": "stuck"}, 0.9, "decision", 1)] * 5),
+          fallback=fallback, mac=FakeMac(), plan=lambda *a, **k: {"steps": [], "say": ""})
+    assert refs and set(refs) == {"@f:m"}
+
+
+def test_a_check_whose_model_fails_is_asked_of_the_planner(monkeypatch):
+    monkeypatch.setattr(L.time, "sleep", lambda s: None)
+    monkeypatch.setattr(L, "_planner_ref", lambda: "@p:m")
+    refs = []
+
+    def verify(ref, look, goal, history, **kw):
+        refs.append(ref)
+        if ref == "@f:m":
+            return {"done": None, "seen": "", "missing": "", "error": "HTTP 429"}
+        return {"done": True, "seen": "launching"}
+    r = L.run("launch it", [{"do": "click the 7 button"}], _cfg(verify=True), device="pc", decide=_decider(),
+              fallback=_never, mac=FakeMac(), verify=verify)
+    assert refs == ["@f:m", "@p:m"] and r.status == "done" and "launching" in r.summary()
+
+
+
+def test_a_long_tile_name_still_names_the_item():
+    els = [{"i": 1, "role": "group", "label": "Call of Duty: Black Ops 6 - Warzone"}]
+    assert not L._unlabeled_target({"do": "select Call of Duty in the game list"}, {"elements": els})
+
+
+def test_waiting_tells_him_and_the_deciders(monkeypatch):
+    clock = _Clock()
+    monkeypatch.setattr(L.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(L.time, "sleep", clock.sleep)
+    mac = FakeMac(act_results=[{"ok": True, "did": "wait", "via": "", "look": _look(1, sig="loading")}])
+    polls = []
+
+    def look(device, app=None, **kw):
+        polls.append(1)
+        return _look(2, sig="loading") if len(polls) < 3 else _look(3, sig="ready")
+    mac.look = look
+    seen, lines = [], []
+
+    def decide(ref, look, goal, step, history, **kw):
+        seen.append(list(history))
+        return Move({"action": "wait"}, 0.9, "decision", 1) if len(seen) == 1 else Move({"action": "done"}, 0.9, "decision", 1)
+    L.run("g", [{"do": "get it ready"}], _cfg(), device="m", progress=lines.append, decide=decide, fallback=_never,
+          mac=mac)
+    assert any("waited" in h and "changed" in h for h in seen[1])
+    assert any(line.startswith("waiting for Calc") for line in lines)
