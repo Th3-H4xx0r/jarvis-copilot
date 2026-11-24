@@ -4253,13 +4253,14 @@ def _run_agent_streaming(
                 _setup_directive = directive_for(s)
             except Exception:
                 logger.debug("integration setup directive not applied", exc_info=True)
-            # Set (never appended) every turn: the node's constant notes ride its
-            # system tail; only the per-turn notes go with the user message.
-            agent.ephemeral_system_prompt = "\n\n".join(p for p in (
-                _webui_ephemeral_system_prompt(_personality_prompt),
-                _node_system_notes(_harness_plan.instructions if _harness_plan else "", _node_tool_note,
-                                   _handoff_rule, _setup_directive)) if p)
-            agent._turn_user_context = _collect_turn_context(turn.context)
+            # The system prompt never changes between turns (live 2026-11-24: notes
+            # in it varied with the route and re-wrote a 74k-token chat 8 minutes
+            # after the last turn). Node notes ride the turn as list parts: kept
+            # with the user message and not repeated while unchanged.
+            agent.ephemeral_system_prompt = _webui_ephemeral_system_prompt(_personality_prompt)
+            agent._turn_user_context = _collect_turn_context(
+                _harness_plan.instructions if _harness_plan else "", _node_tool_note, _handoff_rule,
+                turn.context, _setup_directive)
             _turn_started_wall = time.time()
             _turn_handed_off = False
             # The agent's token counters are running session totals; snapshot

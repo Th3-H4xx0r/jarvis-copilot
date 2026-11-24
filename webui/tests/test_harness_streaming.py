@@ -152,12 +152,15 @@ def test_saved_reasoning_drops_a_trailing_copy_of_the_answer():
 
 
 def test_the_handoff_rule_survives_the_turn_context_rebuild():
-    """The node's system tail is rebuilt after the hand-off block; the rule must
-    be in that final assignment, or fast nodes never see it."""
+    """The turn's context is rebuilt after the hand-off block; the rule must be
+    in that final assignment, or fast nodes never see it. The system tail never
+    carries node notes (it must not change between turns)."""
     src = (Path(__file__).resolve().parents[1] / "api" / "streaming.py").read_text()
-    last = src.rindex("agent.ephemeral_system_prompt = ")
-    final = src[last:src.index("if p)", last)]
-    assert "_node_system_notes(" in final and "_handoff_rule" in final
+    last = src.rindex("agent._turn_user_context = _collect_turn_context(")
+    final = src[last:src.index(")\n", src.index("_setup_directive", last))]
+    assert "_handoff_rule" in final
+    tail = src.rindex("agent.ephemeral_system_prompt = ")
+    assert "_node_system_notes(" not in src[tail:src.index("\n", tail)]
     assert "_handoff_rule = HANDOFF_RULE" in src
 
 

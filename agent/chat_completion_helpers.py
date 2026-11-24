@@ -300,6 +300,8 @@ def interruptible_api_call(agent, api_kwargs: dict):
                     on_first_delta=getattr(agent, "_codex_on_first_delta", None),
                 )
             elif agent.api_mode == "anthropic_messages":
+                from agent import cache_keepwarm
+                cache_keepwarm.remember(agent, api_kwargs)
                 result["response"] = agent._anthropic_messages_create(api_kwargs)
             elif agent.api_mode == "bedrock_converse":
                 # Bedrock uses boto3 directly — no OpenAI client needed.
@@ -1754,6 +1756,8 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
         _diag = stream_diag_init()
         request_client_slot.diag = _diag
         # Use the Anthropic SDK's streaming context manager
+        from agent import cache_keepwarm
+        cache_keepwarm.remember(agent, api_kwargs)
         with agent._anthropic_client.messages.stream(**api_kwargs) as stream:
             # The Anthropic SDK exposes the raw httpx response on
             # ``stream.response``.  Snapshot diagnostic headers
