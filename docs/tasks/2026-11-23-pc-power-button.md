@@ -1,0 +1,51 @@
+# PC power button — 2026-11-23
+
+His ask: "add this option into jarvis for the app + web for the pc power controls instead of using the regular software wake thing we have, just have that code as a backup incase the esp isn't connected or working".
+Spec: docs/superpowers/specs/2026-11-23-pc-power-button-design.md · Plan: docs/superpowers/plans/2026-11-23-pc-power-button.md · Wiring: https://claude.ai/artifact/RYX5oZ12tLh6HWqoJjxxPs
+
+- [ ] 1. Firmware logic: light classifier + press rules (host-tested)
+    - Built + host-tested (1067b51).
+- [ ] 2. Firmware: pc_button role, presses, power light, server-only skills, event
+    - Built, compiles (firmware 1.4, 2a20b0d; review fix dc8c085d7). ✅ Flashed to the board 20:13 UTC. Waiting: pair in the app + role on.
+- [ ] 3. Server: link the board, light-driven card state
+    - Built + tested (971f9fb). ✅ Deployed to hermes 20:07 UTC (dc8c085d7).
+- [ ] 4. Server: button-first wake, sleep fallback, clean restart/shutdown, force run
+    - Built + tested (70adef3). ✅ Deployed to hermes 20:07 UTC (dc8c085d7).
+- [ ] 5. Server: Face ID approvals for force restart / force off
+    - Built + tested (4d8f964). ✅ Deployed to hermes 20:07 UTC (dc8c085d7).
+- [ ] 6. Jarvis tool: restart / shutdown / force, wake can boot an off PC
+    - Built + tested (36515d8). ✅ Deployed to hermes 20:07 UTC (dc8c085d7).
+- [ ] 7. jc-client on the PC: clean restart/shutdown, report power-button action
+    - Built + tested (29afc8a). ✅ Live on the PC 2026-11-23 20:09 (reports button_action "sleep").
+- [ ] 8. Web card
+    - Built + tested (6d0d0eb). ✅ Deployed to hermes 20:07 UTC (dc8c085d7).
+- [ ] 9. iPhone card + approvals (helper agent)
+    - Built + tested (helper; 355d4b4 range). ✅ Released: iPhone build 263272008 (20:14 UTC).
+- [ ] 10. iPhone ESP32 board screen: role switch + light readout (helper agent)
+    - Built + tested. ✅ Released in build 263272008.
+- [ ] 12. Jarvis on the PC as a startup service (his ask 2026-11-23: "installing jarvis on pc as a core service bc it doesn't launch after a restart unless I login after power on, but rdp works since it's a core service that launches even without logging in"). Next after the power button ships: look at what can run before sign-in (jc-client link, status, power, wake check-in) vs what needs his session (Jarvis app: island, screen, voice).
+    - Design approved (his picks: jc-client at boot; the unlock service keeps its own password copy): docs/superpowers/specs/2026-11-23-pc-boot-client-design.md
+    - ✅ jc-client boot mode + takeover (bf/…), install-boot-task; task registered on the PC 20:33 (S4U, at startup + 5-min watchdog). Checked: while he's signed in it exits at once (result 0, no second client).
+    - ✅ Card copy "At the sign-in screen" (web live; iPhone in the next build).
+    - ✅ JarvisUnlock signs him in before sign-in (C#; 848 tests) — service reinstalled on the PC 20:41; Windows app 263272039 published; iPhone 263272040 published.
+    - ✅ LIVE 2026-11-23 ~21:00: his restart test passed (online at the sign-in screen, signed in from the phone). Follow-ups shipped: no "open the app" line at the sign-in screen; a linked power button turns the 15-min self-wake off (his ask).
+- [ ] 13. Pairing in the Jarvis app with a QR code (his ask 2026-11-23, screenshot of the Python "Pair this device" window "(Not Responding)" with an old https://192.168.1.10:8787 default): "redesign this so it uses the jarvis app instead of this python window, and it also has a QR code for quick pair maybe, so that I can scan it on my phone app and it will login". Next: brainstorm.
+    - Design approved (his pick: hand-off over home Wi-Fi): docs/superpowers/specs/2026-11-23-qr-pairing-design.md · contract: docs/superpowers/plans/2026-11-23-qr-pairing.md
+    - ✅ jc-client listener + app-link calls (1088 jc-client tests); live on PC + Mac 21:06; PC firewall rule for TCP 47913 (Private).
+    - ✅ Windows + Mac "Pair with your iPhone" screens (Windows 892 tests, Mac 350) and the iPhone scan flow (24 tests) built; installer opens the Jarvis app instead of the Python dialog.
+    - ✅ Published: Windows app 263272119, Mac app 263272121, iPhone ios-263272115.ipa.
+    - ⏳ For him: a real QR pairing (re-pairing an existing computer makes a new device entry; I clean up the old one after).
+    - Live 2026-11-23 20:57: after the restart Credential Manager had lost the PC's Jarvis session (cause unknown) → island stuck "reconnecting". Re-paired from the Mac into his session (new device 82fb7307…), power button link moved over, old record removed. Fallback shipped: the client now also reads the DPAPI-machine session copy if Credential Manager loses it.
+- [ ] 14. Windows update loop (his report 2026-11-23: "it keeps saying install now for jarvis update, but as I keep doing it, it restarts then shows popup again"). Found (update.log): "move failed … being used by another process" ×10 → "couldn't move the old app aside" → old app restarted. Cause: JarvisUpdater started the new app with its working directory in the app folder; that app started the next updater, which inherited it. Fixed (SafeCwd: updater leaves the folder first + starts the app in %LOCALAPPDATA%\Jarvis; app leaves the folder at startup; updater launched in its own folder). Published — tick after his next Install now sticks.
+- [ ] 11. Ship: tests, review, deploy, release, flash, pair, live checks
+
+- [ ] 15. Unattended / vacation readiness (his ask 2026-11-24: "go through everything you added for pc control and PC power … I am going on vacation soon and I want full control over things here, there can be no failure points"; and "fix those things you were working on before these as well, add them to the list").
+    - [ ] a. Firmware: boards never give up on the server. Live 2026-11-23: the 6-min server freeze made both boards fall back to Bluetooth after 5 min; they only go back after 60 s with NO phone on BLE, and his iPhone holds the link, so a replug didn't help. Retry forever, restart the board if stuck offline, and keep PC-button / door boards on the server even with the phone nearby. Flash both boards (each needs the Mac's USB once).
+    - [ ] b. Server freeze watchdog: the webui froze silently 23:52–23:58 UTC (needed his reboot; the SSH relay runs through it too). Restart it when it stops answering, dumping thread stacks first (kill -USR1 hook shipped in 73b183a84).
+    - [ ] c. Independent review of the whole chain (Opus reviewer running) → fix every critical / important finding.
+    - [ ] d. Live tests of every path: wake by button from sleep and from off, sleep, restart (locked + unlocked), shutdown (stays off), force restart, force off (stays off), unlock, voice "turn on my PC and launch Warzone", web + iPhone cards, Jarvis reaching the PC after a power cut.
+    - [ ] e. His checklist before leaving (things code can't fix): BIOS USB Keyboard/Remote Power On → Disabled with the ESP32 on the front port (rear port + that setting bounced the PC back on after shutdown / force off); BIOS power-loss → Power On; Windows Update reboots; anything else the review finds.
+    - [ ] f. Carried over: QR pairing live test (13); Windows update-loop confirmation (14); unpowered-board safety test (USB unplugged with the PC off); light wires → set light_wired; deferred minors (not-linked copy, Mac restart no-op, duplicate Face ID card, old device record).
+    - ✅ Done 2026-11-23/24: shutdown/restart on a locked PC (/f retry, b444f907a); "shut down my PC" → computer_power not the screen loop (06f7fb920); "turn on my PC" runs the power wake first and a shut-down PC with its board offline fails at once (18b8d07d4); wake skips the board's light check while the light is unwired; unwired light ignored; 15-min check-in kept (his call, 93f684843).
+
+Done before this list (2026-11-23): bench test with throwaway firmware (pc_button/, pcbtn CLI) — sleep + wake by button worked; Windows power button set to Sleep; wiring page with breadboard junctions + power light.

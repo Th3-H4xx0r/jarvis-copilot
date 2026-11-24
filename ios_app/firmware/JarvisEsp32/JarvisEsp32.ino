@@ -32,6 +32,8 @@
 #include "WifiLink.h"
 #include "ScriptRuntime.h"
 #include "CloudLink.h"
+#include "CloudPolicy.h"
+#include <esp_task_wdt.h>
 #include "Ancs.h"
 #include "BondKeeper.h"
 #include "TuyaLocal.h"
@@ -101,6 +103,7 @@ uint32_t g_pairing_boot_started = 0;
 // In Bluetooth mode: how long the board has had Wi‑Fi, a Jarvis session and no phone.
 uint32_t g_unattended_since_ms = 0;
 uint32_t g_auto_cloud_delay_ms = 60000;
+uint32_t g_last_phone_request_ms = 0;  // the phone's last request over Bluetooth or the LAN
 
 constexpr uint8_t boot_button_gpio = 0;
 constexpr uint32_t boot_button_hold_ms = 3000;
@@ -915,7 +918,7 @@ void handle_cloud_status(const proto::Request&) {
 void handle_cloud_pause(const proto::Request&) {
   send_status(proto::Op::cloud_pause, proto::Status::ok);
   if (g_cloud_boot) {
-    g_cloud.disarm();
+    g_cloud.disarm(/*fallback=*/true);   // his pause: 10 minutes before the board goes back by itself
     g_cloud.request_reboot(600);
   }
 }
@@ -947,16 +950,23 @@ void handle_notify_relay(const proto::Request& r) {
   }
 }
 
-// A set-up board runs on its own: if it is linked to Jarvis, on Wi‑Fi, and no phone has
-// been connected for a while, switch into cloud mode. After an automatic fallback the
-// wait is longer so a flaky server doesn't make the board flap between modes.
+// Boards Jarvis must always reach: the PC power button and the door hub.
+bool must_stay_online() { return g_pc.on() || g_door.configured(); }
+
+// A set-up board runs on its own: if it is linked to Jarvis and on Wi‑Fi, and no phone is
+// around, switch into cloud mode. A board that must stay online switches even while iOS
+// holds a passive Bluetooth link, once the phone has sent nothing for 5 minutes (live
+// 2026-11-23: his iPhone's link kept the PC power button off the server). After a pause he
+// asked for (app or BOOT button) the wait is longer.
 void service_auto_cloud(uint32_t now) {
   // The notification relay needs the phone's Bluetooth link, which cloud mode turns off.
   if (g_cloud_boot || g_pairing_boot || g_relay_enabled || !g_cloud.paired()) return;
   const bool phone = g_ble_connected || g_wifi.client_connected();
-  if (phone || g_wifi.state() != proto::WifiState::connected) { g_unattended_since_ms = 0; return; }
+  const bool must = must_stay_online();
+  if (g_wifi.state() != proto::WifiState::connected || (phone && !must)) { g_unattended_since_ms = 0; return; }
   if (g_unattended_since_ms == 0) { g_unattended_since_ms = now; return; }
-  if (now - g_unattended_since_ms < g_auto_cloud_delay_ms) return;
+  const uint32_t quiet = g_last_phone_request_ms ? now - g_last_phone_request_ms : UINT32_MAX;
+  if (!cloudpolicy::auto_cloud_due(must, phone, now - g_unattended_since_ms, quiet, g_auto_cloud_delay_ms)) return;
   Serial.println("[cloud] no phone around; switching to the direct Jarvis link");
   g_cloud.arm();
   g_cloud.request_reboot(200);
@@ -1104,6 +1114,7 @@ void handle_pc_role(const proto::Request& r) {
 }
 
 void dispatch(const uint8_t* bytes, size_t len, Link link) {
+  if (link == Link::ble || link == Link::tcp) g_last_phone_request_ms = millis();
   g_reply_link = link;
   proto::Request req{};
   const proto::Status st = proto::decode(bytes, len, req);
@@ -1403,6 +1414,15 @@ void setup() {
   Serial.printf("\nJarvis ESP32 firmware %u.%u, protocol %u\n",
                 cfg::firmware_major, cfg::firmware_minor, proto::version);
 
+  // A loop stuck for 90 s (a network call that never returns) restarts the board instead of leaving it
+  // dead; the longest legitimate block (a TLS connect plus its reads) is well under that.
+  esp_task_wdt_config_t wdt = {};
+  wdt.timeout_ms = 90000;
+  wdt.idle_core_mask = 1;   // keep watching core 0's idle task, as the default does
+  wdt.trigger_panic = true;
+  if (esp_task_wdt_reconfigure(&wdt) != ESP_OK) esp_task_wdt_init(&wdt);
+  enableLoopWDT();
+
   // PC power button: both buttons released before anything else (no-op when the role is off).
   g_pc.begin([](const char* event, const String& data) {
     return g_cloud.connected() && g_cloud.send_event(event, data);
@@ -1495,7 +1515,7 @@ void loop() {
       if (g_boot_pressed_ms == 0) g_boot_pressed_ms = now;
       else if (now - g_boot_pressed_ms > boot_button_hold_ms) {
         Serial.println("[boot] BOOT held, rebooting into Bluetooth mode");
-        g_cloud.disarm();
+        g_cloud.disarm(/*fallback=*/true);   // 10 minutes before the board goes back by itself
         g_cloud.request_reboot(100);
         g_boot_pressed_ms = 0;
       }

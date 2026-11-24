@@ -61,10 +61,10 @@ class CloudLink {
 
   /// Boots into cloud mode next time (session must exist).
   void arm();
-  /// Leaves cloud mode for the next boot but keeps the session. `fallback` marks an
-  /// automatic exit (server unreachable) so the next boot waits longer before re-arming.
+  /// Leaves cloud mode for the next boot but keeps the session. `fallback` marks a pause
+  /// he asked for (the app's pause, the BOOT button) so the next boot waits longer before re-arming.
   void disarm(bool fallback = false);
-  /// True once, on the boot right after an automatic fallback.
+  /// True once, on the boot right after such a pause.
   bool came_from_fallback() const { return from_fallback_; }
   /// Drops everything.
   void forget();

@@ -5,6 +5,7 @@
 #include <esp_random.h>
 #include <mbedtls/base64.h>
 
+#include "CloudPolicy.h"
 #include "Config.h"
 
 namespace cfg = jarvis::config;
@@ -32,7 +33,6 @@ constexpr uint32_t http_timeout_ms = 12000;
 constexpr uint32_t ws_ping_interval_ms = 30000;
 constexpr uint32_t ws_dead_after_ms = 75000;      // server pings every ~18 s
 constexpr uint32_t backoff_max_ms = 60000;
-constexpr uint32_t fallback_after_ms = 5 * 60 * 1000;  // no link this long → back to BLE
 constexpr size_t rx_max = 24 * 1024;              // upload_script sources are ≤ 16 KB
 
 // Reads the HTTP status line, waiting for the first bytes and skipping any blank
@@ -358,11 +358,11 @@ void CloudLink::service(uint32_t now, bool wifi_connected) {
     ws_poll(now);
   }
 
-  // Nothing for minutes: hand the board back to Bluetooth so the phone can reach it.
-  if (offline_since_ms_ != 0 && now - offline_since_ms_ > fallback_after_ms &&
-      state_ != proto::CloudState::expired) {
-    Serial.println("[cloud] unreachable for too long, rebooting into Bluetooth mode");
-    disarm(/*fallback=*/true);
+  // Never give up on the server (live 2026-11-23: dropping to Bluetooth after a 5-minute outage left the
+  // boards off the server for good). Offline this long: restart, still on the direct link, and try again.
+  if (offline_since_ms_ != 0 && cloudpolicy::restart_due(now - offline_since_ms_)) {
+    Serial.println("[cloud] unreachable for 10 minutes, restarting to try again");
+    offline_since_ms_ = 0;
     reboot_at_ = now + 200;
   }
 }
