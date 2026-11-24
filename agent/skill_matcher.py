@@ -25,6 +25,7 @@ import logging
 import math
 import re
 import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -285,6 +286,10 @@ def read_skill_docs(dirs: Iterable[Path], disabled: Iterable[str] = ()) -> List[
 
 _INDEX_LOCK = threading.Lock()
 _INDEX: Dict[str, Any] = {"key": None, "docs": []}
+# The fingerprint stats every SKILL.md; reuse it for a few seconds so a burst
+# of turns doesn't re-walk the skills tree on every message.
+_FP_TTL_S = 5.0
+_FP_CACHE: Dict[str, Any] = {}
 
 
 def _fingerprint(dirs: List[Path]):
@@ -315,7 +320,15 @@ def skill_index() -> List[dict]:
     except Exception:
         logger.debug("skills dirs unavailable", exc_info=True)
         return []
-    key = (_fingerprint(dirs), tuple(sorted(disabled)))
+    now = time.monotonic()
+    dirs_key = tuple(str(d) for d in dirs)
+    cached = _FP_CACHE.get(dirs_key)
+    if cached and now - cached[0] < _FP_TTL_S:
+        fp = cached[1]
+    else:
+        fp = _fingerprint(dirs)
+        _FP_CACHE[dirs_key] = (now, fp)
+    key = (fp, tuple(sorted(disabled)))
     with _INDEX_LOCK:
         if _INDEX["key"] != key:
             _INDEX["docs"] = read_skill_docs(dirs, disabled)

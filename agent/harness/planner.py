@@ -194,8 +194,14 @@ def classify_with_model(node, text, timeout=1.5, *, one_shot=None):
     t.join(timeout)
     ms = int((time.monotonic() - started) * 1000)
     if t.is_alive():
-        return RouteDecision(None, by, ref, None, ms, "timed out")
-    return RouteDecision(result.get("label"), by, ref, result.get("confidence"), ms, result.get("error"))
+        decision = RouteDecision(None, by, ref, None, ms, "timed out")
+    else:
+        decision = RouteDecision(result.get("label"), by, ref, result.get("confidence"), ms, result.get("error"))
+    # One line per routed turn, so a mis-route (e.g. a schedule sent to the
+    # Computer node) can be seen in agent.log.
+    logger.info("harness route: label=%s by=%s ref=%s conf=%s ms=%s err=%s",
+                decision.label, by, ref, decision.confidence, ms, decision.error)
+    return decision
 
 
 # How long a model Route may take to label a message. A user waiting on a chat

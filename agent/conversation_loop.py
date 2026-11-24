@@ -93,6 +93,39 @@ from agent.conversation_compression import replay_compression_warning
 logger = logging.getLogger(__name__)
 
 
+def start_memory_prefetch(agent, query: str, recent_messages):
+    """Run the memory manager's ``on_turn_start`` and then ``prefetch_all``
+    in a background thread; return ``collect() -> str`` (the prefetched
+    block, or "" on any failure). Same calls, same order as before — just
+    overlapped with the rest of turn setup instead of after it."""
+    mm = getattr(agent, "_memory_manager", None)
+    if not mm:
+        return lambda: ""
+    turn = getattr(agent, "_user_turn_count", 0)
+    box = {"result": ""}
+
+    def _run():
+        # on_turn_start must come BEFORE prefetch_all so providers know which
+        # turn it is and can gate refreshes via their cadences.
+        try:
+            mm.on_turn_start(turn, query, recent_messages=recent_messages)
+        except Exception:
+            pass
+        try:
+            box["result"] = mm.prefetch_all(query) or ""
+        except Exception:
+            box["result"] = ""
+
+    thread = threading.Thread(target=_run, daemon=True, name="jc-memory-prefetch")
+    thread.start()
+
+    def collect() -> str:
+        thread.join()
+        return box["result"]
+
+    return collect
+
+
 def build_api_messages(agent, messages, current_turn_user_idx, injections) -> list:
     """The per-call API copy of ``messages``.
 
@@ -686,6 +719,13 @@ def run_conversation(
         _turn_skill_hint = _skill_hint_for(agent, user_message, messages[:current_turn_user_idx])
     except Exception:
         _turn_skill_hint = ""
+    # Memory: on_turn_start + prefetch run in the background while the turn is
+    # set up (system prompt, hooks, checks); collected before the tool loop.
+    # Use original_user_message (clean input) — user_message may contain
+    # injected skill content that bloats / breaks provider queries.
+    _collect_memory = start_memory_prefetch(
+        agent, original_user_message if isinstance(original_user_message, str) else "",
+        _recent_messages_for_memory(messages))
 
     if not agent.quiet_mode:
         _print_preview = _summarize_user_message_for_log(user_message)
@@ -859,30 +899,10 @@ def run_conversation(
         agent._interrupt_message = None
         agent._interrupt_thread_signal_pending = False
 
-    # Notify memory providers of the new turn so cadence tracking works.
-    # Must happen BEFORE prefetch_all() so providers know which turn it is
-    # and can gate context/dialectic refresh via contextCadence/dialecticCadence.
-    if agent._memory_manager:
-        try:
-            _turn_msg = original_user_message if isinstance(original_user_message, str) else ""
-            agent._memory_manager.on_turn_start(
-                agent._user_turn_count, _turn_msg,
-                recent_messages=_recent_messages_for_memory(messages))
-        except Exception:
-            pass
-
-    # External memory provider: prefetch once before the tool loop.
-    # Reuse the cached result on every iteration to avoid re-calling
-    # prefetch_all() on each tool call (10 tool calls = 10x latency + cost).
-    # Use original_user_message (clean input) — user_message may contain
-    # injected skill content that bloats / breaks provider queries.
-    _ext_prefetch_cache = ""
-    if agent._memory_manager:
-        try:
-            _query = original_user_message if isinstance(original_user_message, str) else ""
-            _ext_prefetch_cache = agent._memory_manager.prefetch_all(_query) or ""
-        except Exception:
-            pass
+    # External memory provider: prefetched once before the tool loop (started
+    # in the background at the top of the turn — see start_memory_prefetch) and
+    # reused on every iteration (10 tool calls = 10x latency + cost otherwise).
+    _ext_prefetch_cache = _collect_memory()
 
     # Optional opt-in runtime: if api_mode == codex_app_server, hand the
     # turn to the codex app-server subprocess (terminal/file ops/patching

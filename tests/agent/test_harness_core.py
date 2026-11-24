@@ -152,3 +152,16 @@ def test_claude_cli_detection_honours_the_command_env(monkeypatch):
     assert refs.claude_cli_installed() is True
     monkeypatch.setenv("HERMES_CLAUDE_CODE_COMMAND", "nope")
     assert refs.claude_cli_installed() is False
+
+
+
+def test_route_decisions_are_logged(caplog):
+    import logging
+
+    import agent.harness.planner as planner
+    node = {"model": FAST, "labels": ["deep"]}
+    with caplog.at_level(logging.INFO, logger="agent.harness.planner"):
+        d = planner.classify_with_model(node, "plan my week", timeout=2.0,
+                                        one_shot=lambda *a, **k: "deep")
+    assert d.label == "deep"
+    assert any("harness route: label=deep" in r.getMessage() for r in caplog.records)

@@ -5592,23 +5592,23 @@ class TestMemoryProviderTurnStart:
     """
 
     def test_on_turn_start_called_before_prefetch(self):
-        """Source-level check: on_turn_start appears before prefetch_all in run_conversation."""
+        """Source-level check: the turn's background memory prefetch calls
+        on_turn_start before prefetch_all, and run_conversation starts it."""
         import inspect
-        from agent.conversation_loop import run_conversation as _rc
-        src = inspect.getsource(_rc)
-        # Find the actual method calls, not comments
+        from agent.conversation_loop import run_conversation as _rc, start_memory_prefetch as _sp
+        src = inspect.getsource(_sp)
         idx_turn_start = src.index(".on_turn_start(")
         idx_prefetch = src.index(".prefetch_all(")
         assert idx_turn_start < idx_prefetch, (
-            "on_turn_start() must be called before prefetch_all() in run_conversation "
-            "so that memory providers have the correct turn count for cadence checks"
+            "on_turn_start() must be called before prefetch_all() so that memory "
+            "providers have the correct turn count for cadence checks"
         )
+        assert "start_memory_prefetch(" in inspect.getsource(_rc)
 
     def test_on_turn_start_uses_user_turn_count(self):
         """Source-level check: on_turn_start receives the user_turn_count."""
         import inspect
-        from agent.conversation_loop import run_conversation as _rc
-        src = inspect.getsource(_rc)
-        # The extracted body uses ``agent.X`` rather than ``self.X``;
-        # assert the extracted-form spelling directly.
-        assert "on_turn_start(agent._user_turn_count" in "".join(src.split())
+        from agent.conversation_loop import start_memory_prefetch as _sp
+        flat = "".join(inspect.getsource(_sp).split())
+        assert 'turn=getattr(agent,"_user_turn_count",0)' in flat
+        assert "on_turn_start(turn," in flat

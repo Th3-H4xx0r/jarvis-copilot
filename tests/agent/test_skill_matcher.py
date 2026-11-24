@@ -133,3 +133,20 @@ def test_matcher_uses_deferred_entries():
     assert sm.deferred_tools(agent) == [{"name": "device_set_alarm", "description": "Set an alarm"}]
     assert sm.deferred_tools(SimpleNamespace(_lazy_tools_manifest="## devices\ndevice_x\n")) == [
         {"name": "device_x", "description": ""}]
+
+
+def test_skill_index_fingerprint_cached_5s(monkeypatch, tmp_path):
+    calls = []
+    clock = [100.0]
+    monkeypatch.setattr(sm, "_fingerprint", lambda dirs: calls.append(1) or ("k", 0, 0, 0))
+    monkeypatch.setattr(sm.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr("agent.skill_utils.get_all_skills_dirs", lambda: [str(tmp_path)])
+    monkeypatch.setattr("agent.skill_utils.get_disabled_skill_names", lambda: set())
+    sm._FP_CACHE.clear()
+    sm.skill_index()
+    clock[0] += 1
+    sm.skill_index()
+    assert len(calls) == 1
+    clock[0] += 6
+    sm.skill_index()
+    assert len(calls) == 2
