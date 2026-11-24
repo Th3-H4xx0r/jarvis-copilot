@@ -139,8 +139,12 @@ def apply_anthropic_cache_control(
 
     if retention in ("standard", "long"):
         head = _build_marker("1h" if retention == "long" else "5m")
-        newest = _build_marker("5m")
-        older = newest if one_shot else head
+        # Message markers share ONE lifetime. Measured live (2026-11-24): an
+        # older 1h marker next to a newest 5m one made the next turn miss the
+        # cache entirely; uniform markers read the whole previous turn. Chats
+        # use the head's tier (1h on "long", surviving pauses); one-shot runs
+        # use 5m (nothing reads their messages after the run).
+        older = newest = _build_marker("5m") if one_shot else head
     else:
         head = older = newest = _build_marker(cache_ttl)
 

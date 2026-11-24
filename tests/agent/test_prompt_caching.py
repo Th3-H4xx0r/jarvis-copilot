@@ -173,13 +173,18 @@ class TestOneShotRetention:
         message_markers = [mk for m in out[1:] for mk in self._markers(m)]
         assert message_markers == [{"type": "ephemeral"}] * 3
 
-    def test_default_long_retention_unchanged(self):
+    def test_long_retention_uses_uniform_1h_message_markers(self):
+        """Measured live (2026-11-24, Haiku and Sonnet 5.5): an older 1h marker
+        next to a newest 5m marker made the NEXT turn miss the cache entirely
+        (read 0, re-wrote everything); uniform message markers (all 1h, or all
+        5m) read the whole previous turn. Chats use 1h throughout."""
         out = apply_anthropic_cache_control(self._msgs(), native_anthropic=True, retention="long")
-        assert [self._markers(m) for m in out[1:]] == [
-            [{"type": "ephemeral", "ttl": "1h"}],
-            [{"type": "ephemeral", "ttl": "1h"}],
-            [{"type": "ephemeral"}],
-        ]
+        assert self._markers(out[0]) == [{"type": "ephemeral", "ttl": "1h"}]
+        assert [self._markers(m) for m in out[1:]] == [[{"type": "ephemeral", "ttl": "1h"}]] * 3
+
+    def test_standard_retention_all_5m(self):
+        out = apply_anthropic_cache_control(self._msgs(), native_anthropic=True, retention="standard")
+        assert [mk for m in out for mk in self._markers(m)] == [{"type": "ephemeral"}] * 4
 
     def test_one_shot_run_is_cron_only(self):
         assert one_shot_run(SimpleNamespace(platform="cron")) is True

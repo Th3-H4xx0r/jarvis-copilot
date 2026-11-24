@@ -51,7 +51,9 @@ def test_long_retention_puts_every_1h_marker_before_any_5m_one():
     ttls = [m.get("ttl", "5m") for m in _markers(msgs)]
     # The tools marker (1h) comes before all of these in the request.
     assert ttls == sorted(ttls, key=lambda t: 0 if t == "1h" else 1)
-    assert ttls[-1] == "5m" and ttls[0] == "1h"
+    # Uniform message markers (an older 1h next to a newest 5m made the next
+    # turn miss the cache entirely — measured live 2026-11-24).
+    assert set(ttls) == {"1h"}
 
 
 def test_standard_retention_is_all_5m():
