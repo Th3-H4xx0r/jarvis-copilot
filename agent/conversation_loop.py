@@ -137,20 +137,20 @@ def build_api_messages(agent, messages, current_turn_user_idx, injections) -> li
     sent, and the provider's prompt cache reads the history instead of
     writing it again each turn. The transcript keeps ``content`` (his words).
     """
-    from agent.turn_context import api_user_content, dedupe_blocks, turn_blocks
+    from agent.turn_context import api_user_content, plan_blocks, turn_blocks
 
     api_messages = []
     for idx, msg in enumerate(messages):
         if idx == current_turn_user_idx and isinstance(msg, dict) and msg.get("role") == "user" \
                 and "api_blocks" not in msg:
             prior = [m for m in messages[:idx] if isinstance(m, dict) and m.get("role") == "user"]
-            blocks = dedupe_blocks(
+            send, effective = plan_blocks(
                 turn_blocks(injections, getattr(agent, "_turn_user_context", "") or ""), prior)
-            # [] marks "computed for this turn" so later calls in the same
-            # turn send the same bytes even if an input changed meanwhile.
-            msg["api_blocks"] = blocks
-            if blocks:
-                msg["api_content"] = api_user_content(msg.get("content", ""), blocks)
+            # Always set (even []): marks "computed for this turn" so later calls
+            # in the same turn send the same bytes even if an input changed.
+            msg["api_blocks"] = effective
+            if send:
+                msg["api_content"] = api_user_content(msg.get("content", ""), send)
         api_msg = msg.copy()
         if msg.get("role") == "user" and "api_content" in msg:
             api_msg["content"] = msg["api_content"]

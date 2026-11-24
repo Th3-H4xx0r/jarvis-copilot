@@ -2106,6 +2106,8 @@ def _sanitize_messages_for_api(messages, *, cfg: dict = None):
         sanitized = {k: v for k, v in msg.items() if k in _API_SAFE_MSG_KEYS}
         if strip_native_images and 'content' in sanitized:
             sanitized['content'] = _strip_native_image_parts_from_content(sanitized.get('content'))
+        if strip_native_images and isinstance(sanitized.get('api_content'), list):
+            sanitized['api_content'] = _strip_native_image_parts_from_content(sanitized['api_content'])
         if sanitized.get('role'):
             clean.append(sanitized)
     return clean

@@ -244,6 +244,13 @@ def _build_replay_entry(role: str, content: Any, msg: Dict[str, Any]) -> Dict[st
     providers.
     """
     entry: Dict[str, Any] = {"role": role, "content": content}
+    if role == "user":
+        # A user message's API copy is resent byte-identical so the prompt
+        # cache holds across turns (agent/turn_context.py).
+        if msg.get("api_content") is not None:
+            entry["api_content"] = msg["api_content"]
+        if msg.get("api_blocks"):
+            entry["api_blocks"] = msg["api_blocks"]
     if role == "assistant":
         for _rkey in _ASSISTANT_REPLAY_FIELDS:
             if _rkey not in msg:

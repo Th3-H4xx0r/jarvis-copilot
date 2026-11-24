@@ -1760,10 +1760,16 @@ def _estimate_message_chars(msg: Dict[str, Any]) -> int:
     if not isinstance(msg, dict):
         return len(str(msg))
     shadow: Dict[str, Any] = {}
+    # A user message's API copy (agent/turn_context.py) is what is sent in
+    # place of its content: count it once, as the content, and never the
+    # bookkeeping in api_blocks.
+    has_api_copy = msg.get("role") == "user" and msg.get("api_content") is not None
     for k, v in msg.items():
-        if k == "_anthropic_content_blocks":
+        if k in ("_anthropic_content_blocks", "api_blocks", "api_content"):
             continue
         if k == "content":
+            if has_api_copy:
+                v = msg["api_content"]
             if isinstance(v, list):
                 cleaned = []
                 for part in v:

@@ -1826,6 +1826,20 @@ def looks_like_codex_intermediate_ack(
 _ANTHROPIC_THINKING_TYPES = frozenset(("thinking", "redacted_thinking"))
 
 
+def drop_thinking_blocks(messages) -> None:
+    """Remove Anthropic thinking (``reasoning_details`` of thinking /
+    redacted_thinking blocks) from every message, in place. Used after
+    compression rewrites history: kept turns' signed thinking no longer
+    validates against the edited prefix. Other providers' details stay."""
+    for msg in messages or []:
+        if not isinstance(msg, dict):
+            continue
+        details = msg.get("reasoning_details")
+        if isinstance(details, list) and details and all(
+                isinstance(d, dict) and d.get("type") in _ANTHROPIC_THINKING_TYPES for d in details):
+            msg.pop("reasoning_details", None)
+
+
 def strip_foreign_thinking(api_msg: dict, *, api_mode: str, base_url: str) -> None:
     """Drop ``reasoning_details`` holding only Anthropic thinking blocks from an
     outgoing message bound for a provider that can't read them (anything but

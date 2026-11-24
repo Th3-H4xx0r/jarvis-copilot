@@ -253,18 +253,10 @@ class _StreamErrorEvent(Exception):
 
 
 def _api_content_for_db(api_content):
-    """A user message's API copy as stored: list content keeps its text parts,
-    and images become "[screenshot]", the same reduction the content gets
-    (base64 images would bloat the session DB)."""
-    if not isinstance(api_content, list):
-        return api_content
-    out = []
-    for p in api_content:
-        if isinstance(p, dict) and p.get("type") == "text":
-            out.append(str(p.get("text", "")))
-        elif isinstance(p, dict) and p.get("type") in {"image", "image_url", "input_image"}:
-            out.append("[screenshot]")
-    return "\n".join(out) if out else None
+    """A user message's API copy as stored: images become "[screenshot]", the
+    same reduction the content gets (base64 would bloat the session DB)."""
+    from agent.turn_context import reduce_api_content
+    return reduce_api_content(api_content)
 
 
 class AIAgent:
@@ -999,6 +991,9 @@ class AIAgent:
         """
         self._drop_trailing_empty_response_scaffolding(messages)
         self._apply_persist_user_message_override(messages)
+        # The turn is over: API copies keep no image data (agent/turn_context.py).
+        from agent.turn_context import finalize_api_copies
+        finalize_api_copies(messages)
         self._session_messages = messages
         self._save_session_log(messages)
         self._flush_messages_to_session_db(messages, conversation_history)
@@ -3574,11 +3569,18 @@ class AIAgent:
         ``force=False``.
         """
         from agent.conversation_compression import compress_context
-        return compress_context(
+        compressed, new_system_prompt = compress_context(
             self, messages, system_message,
             approx_tokens=approx_tokens, task_id=task_id, focus_topic=focus_topic,
             force=force,
         )
+        if compressed is not messages:
+            # Compression rewrote earlier history; Anthropic would reject (or
+            # drop) the kept turns' thinking blocks, so strip them up front
+            # rather than pay a signature 400 and a retry.
+            from agent.agent_runtime_helpers import drop_thinking_blocks
+            drop_thinking_blocks(compressed)
+        return compressed, new_system_prompt
 
     def _set_tool_guardrail_halt(self, decision: ToolGuardrailDecision) -> None:
         """Record the first guardrail decision that should stop this turn."""

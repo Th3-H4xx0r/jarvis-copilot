@@ -119,8 +119,6 @@ def apply_node(agent, mp: MessagePlan, *, task_id: str, deliver: Callable[[str],
     if getattr(agent, "_jc_harness_node", None) is None:
         # The agent's own limits, saved once, before any node changes them.
         agent._jc_harness_node = {"max_iterations": getattr(agent, "max_iterations", None)}
-    if "ephemeral_system_prompt" not in agent._jc_harness_node:
-        agent._jc_harness_node["ephemeral_system_prompt"] = getattr(agent, "ephemeral_system_prompt", None)
     own_steps = agent._jc_harness_node.get("max_iterations")
     allowed, note = node_tool_policy(plan.tools)
     agent.allowed_tool_names = allowed
@@ -155,12 +153,13 @@ def apply_node(agent, mp: MessagePlan, *, task_id: str, deliver: Callable[[str],
             node_id=node.get("id") or "", node_label=node.get("label") or node.get("id") or "",
             kind=node.get("type") or "")
         notes.append(HANDOFF_RULE)
-    # The node's notes ride the agent's system tail — set from the agent's own
-    # prompt each turn, never appended — so they aren't repeated in every user
-    # message and another node's notes never stay in this history.
-    base = agent._jc_harness_node.get("ephemeral_system_prompt") or ""
-    agent.ephemeral_system_prompt = "\n\n".join(
-        p.strip() for p in [base] + notes if p and p.strip()) or None
+    # Gateway agents are cached per session and shared by every node, so the
+    # node's notes ride the turn as list parts (kept with the user message and
+    # not repeated while unchanged — agent/turn_context.py), never the system
+    # tail: a node switch there would rewrite the whole cached prompt.
+    current = getattr(agent, "_turn_user_context", "") or ""
+    parts = list(current) if isinstance(current, (list, tuple)) else ([current] if current else [])
+    agent._turn_user_context = [p.strip() for p in parts + notes if p and str(p).strip()]
 
 
 def clear_node(agent) -> None:
@@ -174,8 +173,6 @@ def clear_node(agent) -> None:
     agent._handoff_wired = False
     agent._computer_node = None
     agent._computer_first = False
-    if "ephemeral_system_prompt" in saved:
-        agent.ephemeral_system_prompt = saved["ephemeral_system_prompt"]
     agent._jc_harness_node = None
 
 

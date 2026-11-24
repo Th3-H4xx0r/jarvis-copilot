@@ -23,3 +23,11 @@ def test_large_redacted_block_round_trips_unchanged():
     details = [{"type": "redacted_thinking", "data": "x" * 100_000}]
     out = _sanitize_messages_for_api(_turn(details))
     assert out[1]["reasoning_details"] == details
+
+
+def test_text_image_mode_strips_images_from_api_content():
+    msgs = [{"role": "user", "content": "look",
+             "api_content": [{"type": "text", "text": "look"},
+                             {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}]}]
+    out = _sanitize_messages_for_api(msgs, cfg={"agent": {"image_input_mode": "text"}})
+    assert "data:image" not in str(out[0]["api_content"]) and "look" in str(out[0]["api_content"])

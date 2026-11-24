@@ -5069,12 +5069,14 @@ async def async_call_llm(
         tools=tools, timeout=timeout, extra_body=extra_body)
     client, kwargs = next(attempts)
     while True:
+        started = time.monotonic()
         try:
             response = _validate_llm_response(await _await_completion(client, **kwargs), task)
         except Exception as exc:
             step, value = attempts.throw, exc
         else:
             step, value = attempts.send, response
+            _log_aux_usage(task, client, kwargs, response, time.monotonic() - started)
         try:
             client, kwargs = step(value)
         except StopIteration as done:

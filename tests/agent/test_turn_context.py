@@ -2,7 +2,8 @@
 user message's bytes never change after it is first sent (prompt cache)."""
 from types import SimpleNamespace
 
-from agent.turn_context import api_user_content, block_kind, dedupe_blocks, turn_blocks
+from agent.turn_context import (api_user_content, block_kind, block_sha, finalize_api_copy, plan_blocks,
+                                turn_blocks)
 
 VOICE = "[Voice mode — rules]\nSpeak briefly."
 BRIEF_A = "<memory-context>\nnow: Tue 9:00\nCOTA trip Friday"
@@ -29,24 +30,58 @@ def test_turn_blocks_kinds():
     assert block_kind("\n\n  x" * 1 + "y" * 200).startswith("x") and len(block_kind("z" * 200)) == 80
 
 
-def test_dedupe_skips_unchanged_latest_of_kind():
-    prior = [_user("q1", turn_blocks([BRIEF_A], [VOICE]))]
-    assert dedupe_blocks(turn_blocks([BRIEF_A], [VOICE]), prior) == []
+def _eff(*texts, sent=True):
+    return [{"kind": block_kind(t), "sha": block_sha(t), "sent": sent} for t in texts]
 
 
-def test_dedupe_looks_past_turns_that_sent_nothing_of_that_kind():
-    prior = [_user("q1", turn_blocks([BRIEF_A], [])), _user("q2", [])]
-    assert dedupe_blocks(turn_blocks([BRIEF_A], []), prior) == []
+def _send(blocks, prior):
+    return plan_blocks(blocks, prior)[0]
+
+
+def test_dedupe_skips_unchanged_from_previous_turn():
+    prior = [_user("q1", _eff(BRIEF_A, VOICE))]
+    assert _send(turn_blocks([BRIEF_A], [VOICE]), prior) == []
+
+
+def test_consecutive_turns_carry_without_resending():
+    # Turn 2 carried both; turn 3 still sees them as in effect.
+    prior = [_user("q1", _eff(BRIEF_A, VOICE)), _user("q2", _eff(BRIEF_A, VOICE, sent=False))]
+    send, effective = plan_blocks(turn_blocks([BRIEF_A], [VOICE]), prior)
+    assert send == [] and [e["sent"] for e in effective] == [False, False]
+
+
+def test_voice_rules_resent_after_a_typed_turn():
+    # voice (rules) → typed (no rules) → voice: the rules must be sent again.
+    prior = [_user("q1", _eff(VOICE)), _user("q2", [])]
+    assert _send(turn_blocks([], [VOICE]), prior) == turn_blocks([], [VOICE])
 
 
 def test_dedupe_resends_after_change_and_revert():
-    prior = [_user("q1", turn_blocks([BRIEF_A], [])), _user("q2", turn_blocks([BRIEF_B], []))]
-    assert dedupe_blocks(turn_blocks([BRIEF_A], []), prior) == turn_blocks([BRIEF_A], [])
+    prior = [_user("q1", _eff(BRIEF_A)), _user("q2", _eff(BRIEF_B))]
+    assert _send(turn_blocks([BRIEF_A], []), prior) == turn_blocks([BRIEF_A], [])
 
 
 def test_block_dropped_by_compression_is_resent():
     prior = [{"role": "user", "content": "[summary of earlier turns]"}]
-    assert dedupe_blocks(turn_blocks([BRIEF_A], [VOICE]), prior) == turn_blocks([BRIEF_A], [VOICE])
+    assert _send(turn_blocks([BRIEF_A], [VOICE]), prior) == turn_blocks([BRIEF_A], [VOICE])
+
+
+def test_carried_block_whose_sent_copy_was_compressed_away_is_resent():
+    # Only a carrying turn survived compression: the text itself is gone.
+    prior = [{"role": "user", "content": "[summary]"}, _user("q9", _eff(BRIEF_A, sent=False))]
+    assert _send(turn_blocks([BRIEF_A], []), prior) == turn_blocks([BRIEF_A], [])
+
+
+def test_finalize_api_copy_drops_image_data():
+    msg = {"role": "user", "content": "look",
+           "api_content": [{"type": "text", "text": "look"},
+                           {"type": "image_url", "image_url": {"url": "data:image/png;base64," + "A" * 10_000}},
+                           {"type": "text", "text": BRIEF_A}]}
+    finalize_api_copy(msg)
+    assert msg["api_content"] == "look\n[screenshot]\n" + BRIEF_A
+    plain = {"role": "user", "content": "hi", "api_content": "hi\n\nx"}
+    finalize_api_copy(plain)
+    assert plain["api_content"] == "hi\n\nx"
 
 
 def test_api_user_content_str_and_list():

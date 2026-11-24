@@ -14,6 +14,8 @@ latest copy still in history isn't repeated.
 """
 from __future__ import annotations
 
+import hashlib
+
 
 def merge_injections(content, injections, turn_context: str = ""):
     parts = [p for p in (injections or []) if p]
@@ -49,22 +51,65 @@ def turn_blocks(injections, turn_context="") -> list:
     return [{"kind": block_kind(p), "text": str(p)} for p in parts]
 
 
-def dedupe_blocks(blocks, prior_user_messages) -> list:
-    """Drop a block when the most recent prior user message carrying a block of
-    the same kind carried exactly this text — the model already has it. A kind
-    no prior message carries (never sent, or compressed away) is sent."""
-    out = []
+def block_sha(text: str) -> str:
+    return hashlib.sha1(str(text).encode("utf-8")).hexdigest()[:16]
+
+
+def plan_blocks(blocks, prior_user_messages):
+    """Which of this turn's blocks to send: ``(send, effective)``.
+
+    A block is carried (not sent) only when the IMMEDIATELY preceding user
+    message had exactly this block in effect AND a copy of it that was really
+    sent is still in history (not compressed away). So a rule that lapsed for
+    a turn (voice → typed → voice) is sent again, and nothing is assumed that
+    the model can no longer see. ``effective`` (``[{"kind", "sha", "sent"}]``)
+    is what this message keeps in ``api_blocks`` for the next turn."""
+    prior = [m for m in (prior_user_messages or []) if isinstance(m, dict)]
+    prev_eff = {}
+    if prior:
+        for e in prior[-1].get("api_blocks") or []:
+            if isinstance(e, dict) and e.get("sha"):
+                prev_eff[e.get("kind")] = e["sha"]
+    sent_in_history = {
+        (e.get("kind"), e.get("sha"))
+        for m in prior for e in (m.get("api_blocks") or [])
+        if isinstance(e, dict) and e.get("sent") and e.get("sha")
+    }
+    send, effective = [], []
     for block in blocks or []:
-        latest = None
-        for msg in reversed(prior_user_messages or []):
-            for prev in (msg.get("api_blocks") or []) if isinstance(msg, dict) else []:
-                if isinstance(prev, dict) and prev.get("kind") == block["kind"]:
-                    latest = prev.get("text")
-            if latest is not None:
-                break
-        if latest != block["text"]:
-            out.append(block)
-    return out
+        sha = block_sha(block["text"])
+        carried = prev_eff.get(block["kind"]) == sha and (block["kind"], sha) in sent_in_history
+        effective.append({"kind": block["kind"], "sha": sha, "sent": not carried})
+        if not carried:
+            send.append(block)
+    return send, effective
+
+
+def reduce_api_content(api_content):
+    """List content as text: text parts kept, images become "[screenshot]"
+    (base64 data would bloat history, storage and the token estimate)."""
+    if not isinstance(api_content, list):
+        return api_content
+    out = []
+    for p in api_content:
+        if isinstance(p, dict) and p.get("type") == "text":
+            out.append(str(p.get("text", "")))
+        elif isinstance(p, dict) and p.get("type") in {"image", "image_url", "input_image"}:
+            out.append("[screenshot]")
+    return "\n".join(out) if out else None
+
+
+def finalize_api_copy(msg) -> None:
+    """After its turn, a user message's API copy keeps no image data: like the
+    content, the image goes from context once the turn is over (one cache
+    rewrite at that message, as before this copy existed)."""
+    if isinstance(msg, dict) and msg.get("role") == "user" and isinstance(msg.get("api_content"), list):
+        msg["api_content"] = reduce_api_content(msg["api_content"])
+
+
+def finalize_api_copies(messages) -> None:
+    for msg in messages or []:
+        finalize_api_copy(msg)
 
 
 def api_user_content(content, blocks):
