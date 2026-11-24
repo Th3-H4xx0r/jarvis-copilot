@@ -546,3 +546,45 @@ def test_forgetting_a_board_drops_its_link_so_the_live_board_takes_over(tmp_path
     assert rig.store.button_board(PC) == BOARD
     rig.store.forget(BOARD)
     assert rig.store.device(PC).get("button_board") in (None, "")
+
+
+# ── The power light wires are found by themselves (his ask 2026-11-24: nothing should need anyone to step in) ──
+def _awake_pc(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    assert rig.store.button_board(PC) == BOARD
+    return rig
+
+
+def _report(rig, state, n):
+    for _ in range(n):
+        rig.t += 60
+        rig.store.on_status(PC, PC_STATUS) if PC in rig.connected else None
+        rig.store.on_light(BOARD, {"light": state, "since_s": 60})
+
+
+def test_wired_light_is_detected_once_it_tracks_the_pc(tmp_path):
+    rig = _awake_pc(tmp_path)
+    _report(rig, "on", 5)                       # steady on while the PC is up
+    assert not rig.store.device(PC).get("light_wired")
+    rig.store.on_sleeping(PC)
+    rig.connected = {BOARD}
+    _report(rig, "asleep", 2)                   # and blinking once it sleeps
+    assert rig.store.device(PC).get("light_wired") is True
+
+
+def test_floating_pins_never_count_as_wired(tmp_path):
+    rig = _awake_pc(tmp_path)
+    for s in ["off", "on", "off", "off", "on", "on", "off", "asleep", "on", "off"] * 3:
+        _report(rig, s, 1)
+    rig.store.on_sleeping(PC)
+    rig.connected = {BOARD}
+    _report(rig, "off", 3)
+    assert not rig.store.device(PC).get("light_wired")
+
+
+def test_a_wired_light_that_stops_tracking_counts_as_unwired_again(tmp_path):
+    rig = _awake_pc(tmp_path)
+    rig.store.set_light_wired(PC, True)
+    _report(rig, "off", 5)                      # the PC is up but the light says dark: wires came loose
+    assert rig.store.device(PC).get("light_wired") is False

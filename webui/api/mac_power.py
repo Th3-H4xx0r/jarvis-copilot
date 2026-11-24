@@ -38,6 +38,9 @@ BUTTON_SKILL = "esp32_pc_press"
 LIGHTS = frozenset({"on", "asleep", "off", "unknown"})
 TAP_MS = 300                   # a short press: wake / boot / Windows' power-button action (Sleep)
 FORCE_OFF_MS = 6000            # held past ~4 s the board cuts power
+LIGHT_LEARN_ON = 5             # steady "on" reports while the PC is up …
+LIGHT_LEARN_DARK = 2           # … then dark/blinking once it's down: the light wires are connected
+LIGHT_LOOSE = 5                # a wired light dark this many reports while the PC is up: wires came loose
 SHUTDOWN_SETTLE_S = 150.0      # a wake press waits this long after "shut down" / force off (Windows still going down)
 RESTART_SETTLE_S = 240.0       # after a restart it comes back by itself: no press this long
 WAKE_REPEAT_UNWIRED_S = 240.0   # light unwired: can't see a PC still booting, so one press per 4 minutes
@@ -209,7 +212,10 @@ class MacPowerStore:
             d = self.device(pc)
             prev = (d.get("light") or {}).get("light")
             d["light"] = {"light": state, "since": since, "at": now}
-            if not d.get("light_wired"):
+            flipped = self._learn_wiring(pc, d, state)
+            if flipped:
+                self._save()
+            if not d.get("light_wired") and not flipped:
                 return   # floating pins (review 2026-11-24): kept in memory only, no file write, no push
             if state in ("on", "asleep"):
                 # Unwired LED pins read 0 V, the same as a dark light: trust "off" only once it has been lit.
@@ -217,6 +223,35 @@ class MacPowerStore:
             self._save()
         if prev != state:
             self._changed()
+
+    def _learn_wiring(self, pc: str, d: dict, state: str) -> bool:
+        """Find out by itself whether the power-light wires are connected (his ask 2026-11-24: nothing should need
+        anyone to step in). Wired = it read a steady "on" for LIGHT_LEARN_ON reports while the PC was up, then
+        "asleep"/"off" for LIGHT_LEARN_DARK once it went down; floating pins never hold a streak like that. A wired
+        light that reads dark for LIGHT_LOOSE reports while the PC is up has come loose. True when it flipped."""
+        reporting = self._reporting(pc)
+        up = reporting and (d.get("status") or {}).get("state") == "awake"
+        down = not reporting and d.get("sleeping_at") is not None
+        if d.get("light_wired"):
+            if up:
+                d["light_loose"] = 0 if state == "on" else int(d.get("light_loose") or 0) + 1
+                if d["light_loose"] >= LIGHT_LOOSE:
+                    d.update(light_wired=False, light_trusted=False, light_loose=0, light_on_streak=0,
+                             light_on_ok=False)
+                    log.info("PC power light stopped tracking the PC: treating its wires as loose")
+                    return True
+            return False
+        if up:
+            d["light_on_streak"] = int(d.get("light_on_streak") or 0) + 1 if state == "on" else 0
+            d["light_on_ok"] = d["light_on_streak"] >= LIGHT_LEARN_ON
+            d["light_dark_streak"] = 0
+        elif down and d.get("light_on_ok"):
+            d["light_dark_streak"] = int(d.get("light_dark_streak") or 0) + 1 if state in ("asleep", "off") else 0
+            if d["light_dark_streak"] >= LIGHT_LEARN_DARK:
+                d.update(light_wired=True, light_trusted=True, light_dark_streak=0, light_on_streak=0, light_loose=0)
+                log.info("PC power light tracks the PC: its wires are connected")
+                return True
+        return False
 
     def light(self, pc: str) -> str:
         """"on" | "asleep" | "off" | "unknown" (no board, board offline, or no news for LIGHT_FRESH)."""
