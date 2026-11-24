@@ -332,3 +332,34 @@ def test_a_failed_wake_stops_before_any_clicking(monkeypatch):
     store, woke, drove, D = _wake_rig(monkeypatch, goal, ok=False)
     out = json.loads(D.handle_computer_do({"goal": goal}, task_id="t1"))
     assert out["ok"] is False and "offline" in out["error"] and drove == []
+
+
+# Review 2026-11-24: shutdown/restart matched inside other requests ("turn off the PC lights" shut the PC down).
+@pytest.mark.parametrize("goal", ["turn off the PC lights", "turn off my pc monitor", "restart my PC game",
+                                  "turn off my computer screen"])
+def test_power_words_inside_another_request_stay_with_the_fast_hands(monkeypatch, goal):
+    store, asked, drove, D = _do_rig(monkeypatch, goal)
+    D.handle_computer_do({"goal": goal}, task_id="t1")
+    assert store.calls == [] and asked == [] and drove == [goal]
+
+
+@pytest.mark.parametrize("goal,call", [("Can you turn off my PC?", ("shutdown", "pc-1")),
+                                       ("restart my PC please, it's frozen", None),
+                                       ("Please restart the computer now", ("restart", "pc-1"))])
+def test_plain_power_requests_still_hand_over(monkeypatch, goal, call):
+    store, asked, drove, D = _do_rig(monkeypatch, goal)
+    D.handle_computer_do({"goal": goal}, task_id="t1")
+    assert drove == []
+    if call:
+        assert store.calls == [call]
+    else:
+        assert asked == [("pc-1", "force_restart", "Jarvis")]
+
+
+def test_two_pc_records_pick_the_one_seen_last(monkeypatch):
+    # A re-pair leaves the old PC record behind; "Which computer?" then failed every voice power action.
+    rows = [dict(ROWS[0], device_id="pc-old", name="pranav-computer", seen_at=100.0),
+            dict(ROWS[0], device_id="pc-1", name="pranav-computer", seen_at=900.0), ROWS[1]]
+    store, asked = _brig(monkeypatch, "restart my pc", rows=rows)
+    out = json.loads(T.handle_computer_power({"computer": "PC", "action": "restart"}, task_id="t1"))
+    assert out["ok"] is True and store.calls == [("restart", "pc-1")]

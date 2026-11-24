@@ -122,7 +122,7 @@ def _mac(c, method, p, body):
     if not device_id:
         return _err(400, "device_id is required")
     if p == "/agents/mac/wake":
-        return _ok(power.wake(device_id))
+        return _result(power.wake(device_id))   # a failed wake is an error the cards show (review 2026-11-24)
     if p == "/agents/mac/keep-awake":
         return _ok(power.keep_awake(device_id, bool(body.get("on"))))
     if p == "/agents/mac/timer":

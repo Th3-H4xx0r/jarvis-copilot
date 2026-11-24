@@ -418,6 +418,11 @@ def revoke_device(device_id: str) -> bool:
         devices["devices"] = [d for d in devices["devices"] if d.get("id") != device_id]
         if gone:
             _write_devices(devices)
+            try:   # its power record too (a stale PC record broke the power button link; review 2026-11-24)
+                from api import mac_power
+                mac_power.store().forget(device_id)
+            except Exception:
+                pass
             from security.events import emit
             emit("device", "device.revoked",
                  {"device_id": str(device_id), "device_name": str(gone[0].get("name") or "")})

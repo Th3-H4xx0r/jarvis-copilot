@@ -407,3 +407,66 @@ def test_pc_reporting_again_clears_the_shutdown(tmp_path):
     rig.connected = set()
     rig.t += 300
     assert "Direct link" not in str(rig.store.wake(PC))
+
+
+# ── Vacation review 2026-11-24 ─────────────────────────────────────────────────
+def test_unwired_wake_never_presses_twice_within_four_minutes(tmp_path):
+    # With the light unwired a second press 20 s later could sleep a PC that is still booting.
+    rig = asleep_pc(tmp_path, connected=(BOARD,))
+    rig.store.wake(PC)
+    rig.t += 120
+    rig.store.wake(PC)
+    assert len(rig.presses()) == 1
+    rig.t += 130
+    rig.store.wake(PC)
+    assert len(rig.presses()) == 2
+
+
+def test_a_failed_wake_is_an_error_for_the_cards(tmp_path, monkeypatch):
+    # The cards only show failures they get as errors (the route said 200 for {"ok": false}).
+    from api import agents_routes
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    assert rig.store.button_board(PC) == BOARD
+    rig.store.shutdown(PC)
+    rig.connected = set()
+    rig.t += 300
+
+    class C:
+        mac_power = rig.store
+    monkeypatch.setattr(agents_routes, "_core", lambda: C())
+    status, body = agents_routes._v2("POST", "/agents/mac/wake", {}, {"device_id": PC})
+    assert status == 409 and "Direct link" in body["error"]
+
+
+OLD_PC = "dev-pc-old"
+
+
+def test_a_repaired_pc_takes_over_the_power_button(tmp_path):
+    # A re-pair leaves the old PC record behind: the button follows the PC seen most recently.
+    rig = Rig(tmp_path)
+    rig.store.on_status(OLD_PC, dict(PC_STATUS))
+    rig.store._devices[OLD_PC]["status"]["os"] = "windows"
+    rig.t += 60
+    rig.store.on_status(PC, PC_STATUS)
+    assert rig.store.button_board(PC) == BOARD
+    assert rig.store._pc_of_board(BOARD) == PC
+
+
+def test_forgetting_a_device_drops_its_power_record(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    rig.store.forget(PC)
+    assert PC not in rig.store._devices
+
+
+def test_unwired_light_events_dont_write_or_push(tmp_path):
+    # GPIO 34/35 float until wired: every noisy event rewrote mac_power.json and pushed the agents list.
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    assert rig.store.button_board(PC) == BOARD
+    pushes = []
+    rig.store._changed = lambda: pushes.append(1)
+    for state in ("on", "off", "asleep", "off"):
+        rig.store.on_light(BOARD, {"light": state, "since_s": 1})
+    assert pushes == []

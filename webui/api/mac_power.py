@@ -38,6 +38,7 @@ BUTTON_SKILL = "esp32_pc_press"
 LIGHTS = frozenset({"on", "asleep", "off", "unknown"})
 TAP_MS = 300                   # a short press: wake / boot / Windows' power-button action (Sleep)
 FORCE_OFF_MS = 6000            # held past ~4 s the board cuts power
+WAKE_REPEAT_UNWIRED_S = 240.0   # light unwired: can't see a PC still booting, so one press per 4 minutes
 WAKE_CONFIRM_S = 15.0          # no light after a wake press by then: try the Wi-Fi wake too
 SLEEP_CONFIRM_S = 25.0         # still lit after a software sleep by then: press the button
 WAKE_REPEAT_S = 20.0           # a second Wake this soon after a button wake never presses again (it would sleep it)
@@ -139,15 +140,33 @@ class MacPowerStore:
             return [did for did, d in self._devices.items() if (d.get("status") or {}) and self._is_pc(did)]
 
     def _autolink(self) -> None:
-        """One board and one PC: link them. Anything else is ambiguous and stays unlinked."""
+        """One board: link it to the PC seen most recently (a re-pair leaves the old PC record behind, and two PC
+        records used to leave the button unlinked; review 2026-11-24). Several boards stay unlinked."""
         boards, pcs = self._boards(), self._pcs()
-        if len(boards) != 1 or len(pcs) != 1:
+        if len(boards) != 1 or not pcs:
             return
         with self._lock:
-            d = self.device(pcs[0])
+            pc = max(pcs, key=lambda did: float((self._devices.get(did) or {}).get("seen_at") or 0))
+            changed = False
+            for did, rec in self._devices.items():
+                if did != pc and rec.get("button_board") == boards[0]:
+                    rec.pop("button_board", None)
+                    changed = True
+            d = self.device(pc)
             if d.get("button_board") != boards[0]:
                 d["button_board"] = boards[0]
+                changed = True
+            if changed:
                 self._save()
+
+    def forget(self, did: str) -> None:
+        """A device was unpaired: drop its record (a stale PC record broke linking and Jarvis's PC pick)."""
+        with self._lock:
+            gone = self._devices.pop(did, None) is not None
+            if gone:
+                self._save()
+        if gone:
+            self._changed()
 
     def _linked_board(self, pc: str) -> str:
         if not (self._devices.get(pc) or {}).get("button_board"):
@@ -184,6 +203,8 @@ class MacPowerStore:
             d = self.device(pc)
             prev = (d.get("light") or {}).get("light")
             d["light"] = {"light": state, "since": since, "at": now}
+            if not d.get("light_wired"):
+                return   # floating pins (review 2026-11-24): kept in memory only, no file write, no push
             if state in ("on", "asleep"):
                 # Unwired LED pins read 0 V, the same as a dark light: trust "off" only once it has been lit.
                 d["light_trusted"] = True
@@ -246,7 +267,8 @@ class MacPowerStore:
             self._update(pc, wake_requested_at=self._clock())
             return {"ok": True, "already_on": True}
         last = float((self._devices.get(pc) or {}).get("button_wake_at") or 0)
-        if self._clock() - last < WAKE_REPEAT_S:
+        wired = bool((self._devices.get(pc) or {}).get("light_wired"))
+        if self._clock() - last < (WAKE_REPEAT_S if wired else WAKE_REPEAT_UNWIRED_S):
             # Still resuming from the last tap (the light isn't steady for ~3 s): one press only.
             return {"ok": True, "sent": True, "via": "power button"}
         # Until the LED wires are connected the board's own light reading is noise (floating pins), so

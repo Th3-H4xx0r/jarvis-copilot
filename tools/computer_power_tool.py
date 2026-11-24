@@ -65,7 +65,8 @@ _INTENTS = (
 )
 # Words around a wake that ask for nothing more ("can you turn on my PC now?").
 _FILLER = frozenset("can could would will you please now right away jarvis hey sir for me just quickly go ahead and "
-                    "then up it".split())
+                    "then up it it's its is my the pc computer force forced frozen stuck hung hangs not responding "
+                    "unresponsive again".split())
 _NOT = re.compile(r"\b(?:don'?t|do\s+not|never|without|instead\s+of)\b", re.I)
 
 
@@ -110,6 +111,10 @@ def hand_over(goal, computer, task_id, chat_os):
                 else "mac" if chat_os() == "macos" else "pc")
     if kind == "mac" and action != "sleep":
         return None   # the Mac's restart / shutdown / lock aren't this tool's
+    if action != "wake" and not _only_that(str(goal), m):
+        # Review 2026-11-24: "turn off the PC lights" / "restart my PC game" matched a shutdown / restart. Only a
+        # plain power request acts here; anything more goes back to the model and the fast hands.
+        return None
     out = handle_computer_power({"computer": "Mac" if kind == "mac" else "PC", "action": action}, task_id=task_id)
     if action == "wake" and not _only_that(str(goal), m):
         # "turn on my PC and launch Warzone": the PC is up now, so the fast hands do the rest; a failed wake stops
@@ -176,6 +181,9 @@ def _pick(rows: list, computer: str):
             return r
     kind = "windows" if _PC_WORDS.search(want) else "macos" if _MAC_WORDS.search(want) else ""
     matches = [r for r in rows if kind and (r.get("os") or "macos") == kind]
+    if len(matches) > 1 and len({str(r.get("name") or "") for r in matches}) == 1:
+        # The same computer twice: a re-pair left its old record (review 2026-11-24). The one seen last is live.
+        return max(matches, key=lambda r: float(r.get("seen_at") or 0))
     return matches[0] if len(matches) == 1 else None
 
 

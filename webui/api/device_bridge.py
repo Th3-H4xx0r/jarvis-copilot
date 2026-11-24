@@ -68,6 +68,9 @@ class _DeviceConn:
         self.connected_at = time.time()
         self.last_seen = time.time()
         self.closed = False
+        # Its session, renewed while it pings so a link up for weeks never expires (_renew_if_due).
+        self.session_cookie = ""
+        self.renewed_at = time.time()
         # It sends the 20 s text ping (jc-client): silence then means the link is dead.
         self.pings = False
         # session_id -> {"on_frame": callable(str), "on_event": callable(str, dict)}
@@ -1277,6 +1280,7 @@ def handle_websocket(handler, parsed) -> bool:
         conn=ws,
         name=device.get("name", "") or "device",
     )
+    conn.session_cookie = _session_cookie(handler)
     _register(conn)
     # One line each way, so "was the device actually offline?" is answerable
     # from agent.log after the fact (a pending call only says "disconnected").
@@ -1305,6 +1309,33 @@ def handle_websocket(handler, parsed) -> bool:
 
 
 # ── Internals ───────────────────────────────────────────────────────────────
+
+_RENEW_EVERY_S = 86400.0
+
+
+def _session_cookie(handler) -> str:
+    try:
+        jar = http.cookies.SimpleCookie()
+        jar.load(handler.headers.get("Cookie") or "")
+        morsel = jar.get("hermes_session")
+        return morsel.value if morsel else ""
+    except Exception:
+        return ""
+
+
+def _renew_if_due(conn, now: float) -> None:
+    """A link that stays up for weeks renews its session while it pings, at most once a day (review 2026-11-24:
+    it renewed only on connect, so a board up 30+ days got a 401 on its next reconnect and stayed offline)."""
+    cookie = getattr(conn, "session_cookie", "") or ""
+    if not cookie or now - float(getattr(conn, "renewed_at", 0.0) or 0.0) < _RENEW_EVERY_S:
+        return
+    conn.renewed_at = now
+    try:
+        from api.auth import renew_session
+        renew_session(cookie)
+    except Exception:
+        pass
+
 
 def _resolve_device_for_handler(handler) -> Optional[dict]:
     """Map the request's session cookie back to a paired device record.
@@ -1669,11 +1700,13 @@ def _handle_message(conn: _DeviceConn, msg: dict) -> None:
         return
     if t == "ping":
         conn.pings = True
+        _renew_if_due(conn, time.time())
         try:
             _ws_send_text(conn, json.dumps({"type": "pong"}))
         except Exception:
             pass
         return
     if t == "pong":
+        _renew_if_due(conn, time.time())
         return
     # Unknown type — ignore (forward-compat).
