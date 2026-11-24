@@ -257,11 +257,14 @@ struct JcRow<Trailing: View>: View {
     var subtitleLines = 2
     var last = false
     var danger = false
+    /// The title keeps its whole width — a short label ("Default", "Voice") next to a
+    /// long trailing value or menu, which then truncates instead of crushing it.
+    var fixedTitle = false
     var action: (() -> Void)?
     @ViewBuilder var trailing: Trailing
 
     init(symbol: String? = nil, title: String, subtitle: String? = nil, subtitleLines: Int = 2,
-         last: Bool = false, danger: Bool = false, action: (() -> Void)? = nil,
+         last: Bool = false, danger: Bool = false, fixedTitle: Bool = false, action: (() -> Void)? = nil,
          @ViewBuilder trailing: () -> Trailing) {
         self.symbol = symbol
         self.title = title
@@ -269,6 +272,7 @@ struct JcRow<Trailing: View>: View {
         self.subtitleLines = subtitleLines
         self.last = last
         self.danger = danger
+        self.fixedTitle = fixedTitle
         self.action = action
         self.trailing = trailing()
     }
@@ -295,6 +299,7 @@ struct JcRow<Trailing: View>: View {
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(danger ? JcTheme.danger : JcTheme.text)
                     .lineLimit(2)
+                    .fixedSize(horizontal: fixedTitle, vertical: false)
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
                         .font(.system(size: 12))

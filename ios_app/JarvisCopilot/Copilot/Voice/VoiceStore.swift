@@ -551,7 +551,7 @@ final class VoiceStore {
             if event == .began {
                 self.audioInterrupted = true
                 self.captureReady = false
-                self.pushLiveActivity()   // `shownState` falls back to connecting
+                self.pushLiveActivity()   // the island drops "Listening" while the mic is paused
                 self.amplitude = 0
                 self.micHealthTimer?.cancel()
                 // Supersede startup retries as well as a live engine. A retry
@@ -561,6 +561,7 @@ final class VoiceStore {
                 return
             }
             self.audioInterrupted = false
+            self.pushLiveActivity()   // the island stops saying the mic is paused
             do {
                 try self.audioSession.setActive(true)
                 if self.foreground && self.wantsCapture {
@@ -1092,7 +1093,10 @@ final class VoiceStore {
             modeAfterOneShot = nil
             machine.mode = mode
         }
-        pushLiveActivity()
+        // A Stop always re-sends the frame, even an idle the throttle thinks the
+        // island already has: the island's own ✕ on a stuck "Listening" (01:46,
+        // 2026-11-24, "stopRequested: idle→idle") is exactly that case.
+        pushLiveActivity(force: event == .stopRequested)
     }
 
     private func perform(_ effect: VoiceTurnEffect) {

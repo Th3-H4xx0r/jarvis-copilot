@@ -310,6 +310,7 @@ final class LiveActivityCoordinator {
         state.devices = voice.devices
         state.voiceHold = voice.holdsCard
         state.stateSince = voiceSince.timeIntervalSince1970
+        state.voiceResend = voice.resend
 
         var showCoding = false
         var activeDesign: IslandDesign?
@@ -372,8 +373,13 @@ final class LiveActivityCoordinator {
         guard enabled else { return }
         let state = compose()
         guard state != lastPushed else { return }
+        // The same frame sent again (a Stop, the keep-fresh beat) goes to ActivityKit
+        // but never pops the island open: nothing on it is new.
+        var same = state
+        same.voiceResend = lastPushed?.voiceResend ?? state.voiceResend
+        let onlyResent = same == lastPushed
         lastPushed = state
-        controller.update(state, alert: alert(for: state))
+        controller.update(state, alert: onlyResent ? nil : alert(for: state))
     }
 
     /// The next voice talk pops the island open on every change until it ends.

@@ -180,6 +180,46 @@ final class VoiceLiveActivityTests: XCTestCase {
         XCTAssertEqual(box.pushes.count, 1)
     }
 
+    /// 2026-11-24: the island sat on "Listening · It" while the app was idle, and his
+    /// ✕ on it did nothing — idle had already "been sent", so Stop was a duplicate.
+    /// A forced offer goes out even then, marked so the coordinator can't drop it.
+    func testAForcedOfferResendsWhatWasAlreadySent() {
+        let (throttle, _, box) = make()
+        throttle.offer(snapshot("listening", "It"), terminal: false)
+        throttle.offer(snapshot("idle"), terminal: true)
+        throttle.offer(snapshot("idle"), terminal: true)
+        XCTAssertEqual(box.pushes.count, 2, "an unforced repeat is still deduped")
+
+        throttle.offer(snapshot("idle"), terminal: true, force: true)
+        XCTAssertEqual(box.pushes.map(\.state), ["listening", "idle", "idle"])
+        XCTAssertNotEqual(box.pushes[2], box.pushes[1], "both dedupe layers see the re-send as new")
+
+        throttle.offer(snapshot("idle"), terminal: true)
+        XCTAssertEqual(box.pushes.count, 3, "and once re-sent it dedupes again")
+    }
+
+    /// A live frame carries a `staleDate`, so a long talk is re-sent before it
+    /// lapses; a finished one is not — its frame may rest on the island for good.
+    func testALiveFrameIsKeptFreshAndAFinishedOneIsNot() {
+        let (throttle, clock, box) = make()
+        throttle.offer(snapshot("listening"), terminal: false)
+        clock.advance(ms: VoiceLiveActivityThrottle.keepFreshMs)
+        clock.advance(ms: VoiceLiveActivityThrottle.keepFreshMs)
+        XCTAssertEqual(box.pushes.map(\.state), ["listening", "listening", "listening"],
+                       "nobody talking for two minutes is still listening")
+
+        throttle.offer(snapshot("idle"), terminal: true)
+        clock.advance(ms: VoiceLiveActivityThrottle.keepFreshMs * 3)
+        XCTAssertEqual(box.pushes.last?.state, "idle")
+        XCTAssertEqual(box.pushes.count, 4, "no beat once the talk is over")
+    }
+
+    func testTheKeepFreshBeatComesWellBeforeAFrameGoesStale() {
+        XCTAssertLessThan(Double(VoiceLiveActivityThrottle.keepFreshMs) / 1000 + 10,
+                          VoiceLiveActivityThrottle.staleAfterSeconds,
+                          "a live frame must be re-sent before iOS marks it stale")
+    }
+
     // MARK: - Line builders
 
     func testFirstLineTakesOneLineAndCapsItsLength() {

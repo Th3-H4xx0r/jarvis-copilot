@@ -34,6 +34,21 @@ func jcVoiceTint(_ st: JarvisActivityAttributes.ContentState) -> Color {
     }
 }
 
+/// What the voice card draws for `st`. A live frame (listening / thinking /
+/// speaking) that has gone stale — its `staleDate` passed with nothing newer, so
+/// the app was suspended or killed, or iOS lost its updates — is drawn at rest:
+/// never a "Listening 10:05" that ended ten minutes ago. Anything else as sent.
+func jcVoiceShown(_ st: JarvisActivityAttributes.ContentState,
+                  isStale: Bool) -> JarvisActivityAttributes.ContentState {
+    guard isStale, st.mode == .voice, ["listening", "thinking", "speaking"].contains(st.state) else { return st }
+    var rest = st
+    rest.state = "idle"
+    rest.transcript = ""
+    rest.activity = ""
+    rest.stateSince = 0
+    return rest
+}
+
 /// Whether there are words for the exchange (his, or Jarvis's).
 func jcVoiceHasWords(_ st: JarvisActivityAttributes.ContentState) -> Bool {
     !st.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

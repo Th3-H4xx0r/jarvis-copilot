@@ -225,6 +225,66 @@ final class LiveActivityTests: XCTestCase {
         XCTAssertEqual(controller.alerts, [nil, nil])
     }
 
+    /// The Stop / keep-fresh re-send: the same frame reaches ActivityKit again
+    /// (what was sent may not be what the island shows), but never pops it open.
+    func testAResentFrameIsUpdatedAgainWithoutPoppingTheIsland() {
+        var clock = Date(timeIntervalSince1970: 1_700_000_000)
+        let controller = FakeActivityController()
+        let (coordinator, _) = makeCoordinator(controller: controller, now: { clock })
+        coordinator.presentVoiceTurn()
+        coordinator.reportVoice(voice("listening"))
+        clock += LiveActivityCoordinator.islandOpenFor + 1
+        var again = voice("listening")
+        again.resend = 1
+        coordinator.reportVoice(again)
+        XCTAssertEqual(controller.updates.count, 2)
+        XCTAssertEqual(controller.updates.last?.state, "listening")
+        XCTAssertEqual(controller.alerts, [LiveActivityAlert(title: "Jarvis", body: "Listening"), nil])
+    }
+
+    /// 01:46, 2026-11-24: idle had been sent, the island still said "Listening", and
+    /// his ✕ produced no update at all. A re-sent idle has to get through.
+    func testAResentIdleGetsPastTheDedupe() {
+        let controller = FakeActivityController()
+        let (coordinator, _) = makeCoordinator(controller: controller)
+        coordinator.reportVoice(voice("listening", said: "It"))
+        coordinator.reportVoice(voice("idle"))
+        var stop = voice("idle")
+        stop.resend = 1
+        coordinator.reportVoice(stop)
+        XCTAssertEqual(controller.updates.map(\.state), ["listening", "idle", "idle"])
+    }
+
+    /// A live voice frame expires so a dead app can't leave "Listening" up; a
+    /// resting one (the launcher, the fleet, a design) doesn't.
+    func testOnlyALiveVoiceFrameGoesStale() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        for state in ["listening", "thinking", "speaking"] {
+            XCTAssertEqual(DefaultActivityController.staleDate(LiveActivityState(state: state), now: now),
+                           now.addingTimeInterval(VoiceLiveActivityThrottle.staleAfterSeconds), state)
+        }
+        XCTAssertNil(DefaultActivityController.staleDate(LiveActivityState(state: "idle"), now: now))
+        XCTAssertNil(DefaultActivityController.staleDate(LiveActivityState(state: "idle", voiceHold: true), now: now))
+        XCTAssertNil(DefaultActivityController.staleDate(LiveActivityState(mode: .coding, sessionTotal: 2), now: now))
+    }
+
+    func testAStaleLiveFrameIsDrawnAtRest() {
+        var listening = JarvisActivityAttributes.ContentState()
+        listening.state = "listening"
+        listening.transcript = "It"
+        listening.stateSince = 1_700_000_000
+        let rest = jcVoiceShown(listening, isStale: true)
+        XCTAssertEqual(rest.state, "idle")
+        XCTAssertEqual(rest.transcript, "", "no stale words either")
+        XCTAssertFalse(jcVoiceActive(rest), "no stop and no running timer")
+        XCTAssertEqual(jcVoiceShown(listening, isStale: false), listening, "a fresh frame is drawn as sent")
+
+        var coding = JarvisActivityAttributes.ContentState()
+        coding.mode = .coding
+        coding.state = "listening"
+        XCTAssertEqual(jcVoiceShown(coding, isStale: true), coding, "only the voice card rests")
+    }
+
     func testIdenticalSnapshotsAreNotPushedTwice() {
         let controller = FakeActivityController()
         let (coordinator, _) = makeCoordinator(controller: controller)
@@ -491,8 +551,9 @@ final class LiveActivityTests: XCTestCase {
 
     /// ActivityKit updates must land in the order they were produced. An
     /// unstructured `Task` per update lets a slow early frame overwrite a newer
-    /// one and freeze the island on stale text.
-    func testTheUpdateQueueRunsWorkInSubmissionOrder() async {
+    /// one and freeze the island on stale text. A frame superseded before it
+    /// started is never sent: only the newest is worth drawing.
+    func testTheUpdateQueueRunsWorkInOrderAndSkipsSupersededFrames() async {
         let queue = ActivityUpdateQueue()
         let order = OrderRecorder()
 
@@ -502,8 +563,26 @@ final class LiveActivityTests: XCTestCase {
         await queue.drain()
 
         let values = await order.values
-        XCTAssertEqual(values, [1, 2, 3],
-                       "a slow first update must not be overtaken by the ones after it")
+        XCTAssertEqual(values, [1, 3],
+                       "a slow first update is not overtaken, and the frame it held back is obsolete")
+    }
+
+    /// 2026-11-24: one ActivityKit call that didn't come back held every later
+    /// frame — the final idle included — behind it, and the island froze on
+    /// "Listening". A stuck call stops blocking the newest frame, and if it does
+    /// return late the newest is sent again so it ends up on top.
+    func testAStuckCallDoesNotHoldTheNewestFrameBack() async {
+        let queue = ActivityUpdateQueue(stallAfter: 0.05)
+        let order = OrderRecorder()
+
+        queue.enqueue { try? await Task.sleep(nanoseconds: 400_000_000); await order.append(1) }
+        queue.enqueue { await order.append(2) }
+        await queue.drain()
+
+        let values = await order.values
+        XCTAssertEqual(values.first, 2, "the newest frame went out while the first call was stuck")
+        XCTAssertEqual(values.last, 2, "and was sent again after the stuck call landed its older frame")
+        XCTAssertEqual(values, [2, 1, 2])
     }
 
     func testDrainingAnEmptyQueueIsANoOp() async {

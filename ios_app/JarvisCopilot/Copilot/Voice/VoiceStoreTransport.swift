@@ -659,15 +659,19 @@ extension VoiceStore {
     // MARK: - Live Activity (Dynamic Island)
 
     /// Recompute the desired content and hand it to the throttle. Called on every
-    /// state change and whenever a line of text changes.
-    func pushLiveActivity() {
+    /// state change and whenever a line of text changes. `force` sends it even if
+    /// it is what was sent last (a Stop: see `VoiceLiveActivityThrottle.offer`).
+    func pushLiveActivity(force: Bool = false) {
         maybeRefreshDevices()
         let holding = replyHoldUntil != nil && machine.state == .idle
+        // A paused mic (a call, Siri, another app's audio) isn't listening, whatever
+        // the turn's state: the island says so until capture is back.
+        let shown: VoiceState = shownState == .listening && audioInterrupted ? .connecting : shownState
         let snapshot = VoiceLiveActivitySnapshot(
             // `connecting` shows as `thinking`: the island has no distinct art
             // for it and flipping between the two reads as a glitch. Once the mic
             // is live it is listening (`shownState`).
-            state: shownState == .connecting ? "thinking" : shownState.rawValue,
+            state: shown == .connecting ? "thinking" : shown.rawValue,
             transcript: voiceFirstLine(userTranscript),
             activity: voiceOutputLine(error: error, toolStatus: toolStatus,
                                       state: machine.state, assistantText: reply.text,
@@ -676,7 +680,7 @@ extension VoiceStore {
             devices: deviceKinds,
             holdsCard: holding)
         let terminal = machine.state == .idle || machine.state == .error
-        liveActivity.offer(snapshot, terminal: terminal)
+        liveActivity.offer(snapshot, terminal: terminal, force: force)
     }
 
     /// The voice moved on through the reply: the island turns to the page Jarvis is

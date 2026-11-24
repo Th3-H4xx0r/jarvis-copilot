@@ -16,6 +16,10 @@ struct VoiceLiveActivitySnapshot: Equatable, Sendable {
     let devices: [String]
     /// A one-shot (CarPlay Talk) reply holding the card after its turn ended.
     var holdsCard = false
+    /// Bumped to send a frame again that the island may never have drawn (a Stop,
+    /// the keep-fresh beat), so neither dedupe layer drops it as unchanged. App-side
+    /// only — never part of the ContentState.
+    var resend = 0
 }
 
 /// Throttles + dedupes Live Activity pushes. iOS gives an app a limited update
@@ -41,6 +45,18 @@ final class VoiceLiveActivityThrottle {
     /// The strip plus the 4 KB cap.
     static let maxDevices = 6
 
+    /// How long a live voice frame (listening / thinking / speaking) is good for on
+    /// the island: its `staleDate`. Past it iOS marks the activity stale and the
+    /// widget draws it at rest (`jcVoiceShown`) — the app was suspended or killed,
+    /// or iOS lost its updates, so "Listening" there would be a lie (2026-11-24: the
+    /// island sat on "Listening 10:05 · It" with the app idle since 01:37).
+    static let staleAfterSeconds: TimeInterval = 90
+
+    /// While a talk is on, the frame on the island is sent again this often even if
+    /// nothing changed, which moves its `staleDate` on: a real long "Listening"
+    /// never goes stale, one whose app stopped sending does.
+    static let keepFreshMs = 60_000
+
     private let clock: VoiceClock
     /// Called with the content that should be on the island now.
     var onPush: ((VoiceLiveActivitySnapshot) -> Void)?
@@ -49,11 +65,21 @@ final class VoiceLiveActivityThrottle {
     private var lastPush = Date(timeIntervalSince1970: 0)
     private var pendingTimer: VoiceTimerToken?
     private var desired: VoiceLiveActivitySnapshot?
+    /// Stamped on every offer; `force` and the keep-fresh beat bump it.
+    private var resends = 0
+    private var keepFresh: VoiceTimerToken?
 
     init(clock: VoiceClock) { self.clock = clock }
 
-    /// Offer new content. `terminal` (idle/error) pushes immediately.
-    func offer(_ snapshot: VoiceLiveActivitySnapshot, terminal: Bool) {
+    /// Offer new content. `terminal` (idle/error) pushes immediately. `force` pushes
+    /// it even when it is what was last sent: what was sent is not always what the
+    /// island shows (iOS can drop or never apply an update), and a Stop has to put
+    /// the true state back — the island's ✕ on a stuck "Listening" used to do
+    /// nothing at all, because idle had already "been sent".
+    func offer(_ snapshot: VoiceLiveActivitySnapshot, terminal: Bool, force: Bool = false) {
+        if force { resends += 1 }
+        var snapshot = snapshot
+        snapshot.resend = resends
         desired = snapshot
         // Nothing new on screen → don't churn the activity.
         if sent == snapshot {
@@ -63,24 +89,45 @@ final class VoiceLiveActivityThrottle {
         }
         let sinceMs = Int(clock.now.timeIntervalSince(lastPush) * 1000)
         let newState = sent?.state != snapshot.state || sent?.connected != snapshot.connected
-        if terminal || newState || sinceMs >= Self.windowMs {
+        if terminal || newState || force || sinceMs >= Self.windowMs {
             pendingTimer?.cancel()
             pendingTimer = nil
-            push(snapshot)
+            push(snapshot, terminal: terminal)
         } else if pendingTimer == nil {
             // Trailing edge: re-run after the window so the LATEST state is sent.
+            // Terminal frames never wait here, so what it sends is a live one.
             pendingTimer = clock.schedule(after: Self.windowMs - sinceMs) { [weak self] in
                 guard let self else { return }
                 self.pendingTimer = nil
-                if let latest = self.desired, latest != self.sent { self.push(latest) }
+                if let latest = self.desired, latest != self.sent { self.push(latest, terminal: false) }
             }
         }
     }
 
-    private func push(_ snapshot: VoiceLiveActivitySnapshot) {
+    private func push(_ snapshot: VoiceLiveActivitySnapshot, terminal: Bool) {
         sent = snapshot
         lastPush = clock.now
+        armKeepFresh(live: !terminal)
         onPush?(snapshot)
+    }
+
+    /// A live frame goes again after `keepFreshMs` without a newer one; a terminal
+    /// frame ends the beat. Nothing to keep fresh with no island attached (the Mac).
+    private func armKeepFresh(live: Bool) {
+        keepFresh?.cancel()
+        keepFresh = nil
+        guard live, onPush != nil else { return }
+        keepFresh = clock.schedule(after: Self.keepFreshMs) { [weak self] in
+            guard let self else { return }
+            self.keepFresh = nil
+            guard var again = self.desired ?? self.sent else { return }
+            self.resends += 1
+            again.resend = self.resends
+            self.desired = again
+            self.pendingTimer?.cancel()
+            self.pendingTimer = nil
+            self.push(again, terminal: false)
+        }
     }
 }
 

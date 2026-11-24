@@ -5,13 +5,15 @@ import UIKit
 
 struct JarvisLiveActivity: Widget {
     var body: some WidgetConfiguration {
+        // A live voice frame past its `staleDate` is drawn at rest (`jcVoiceShown`): the
+        // app stopped updating it, so its "Listening" is no longer true.
         ActivityConfiguration(for: JarvisActivityAttributes.self) { context in
-            JarvisFamilyLockScreen(st: context.state)
+            JarvisFamilyLockScreen(st: jcVoiceShown(context.state, isStale: context.isStale))
                 .activityBackgroundTint(Color.black.opacity(0.65))
                 .activitySystemActionForegroundColor(.white)
                 .widgetURL(URL(string: jcWidgetURL(context.state)))
         } dynamicIsland: { context in
-            jarvisDynamicIsland(context.state)
+            jarvisDynamicIsland(jcVoiceShown(context.state, isStale: context.isStale))
         }
         // The `.small` card: the CarPlay Dashboard (and the Watch Smart Stack).
         .supplementalActivityFamilies([.small])

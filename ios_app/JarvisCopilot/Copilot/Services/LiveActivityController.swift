@@ -25,7 +25,7 @@ final class DefaultActivityController: ActivityControlling {
     private var recentSent: [JarvisActivityAttributes.ContentState] = []
     private var observing = false
     /// Serialises the `await`-ing ActivityKit calls (see `ActivityUpdateQueue`).
-    private let queue = ActivityUpdateQueue()
+    private let queue = ActivityUpdateQueue(onLog: { VoiceLogFile.shared.append("[island] \($0)") })
 
     /// Await whatever ActivityKit work is in flight (tests, scene handoffs).
     func drain() async { await queue.drain() }
@@ -45,7 +45,7 @@ final class DefaultActivityController: ActivityControlling {
     func update(_ state: LiveActivityState, alert: LiveActivityAlert?) {
         guard areActivitiesEnabled else { return }
         images?.prefetch(IslandImageCache.urls(inData: state.data))
-        let content = ActivityContent(state: Self.contentState(state), staleDate: nil,
+        let content = ActivityContent(state: Self.contentState(state), staleDate: Self.staleDate(state),
                                       relevanceScore: Self.relevance(state))
         recentSent.append(content.state)
         if recentSent.count > 4 { recentSent.removeFirst(recentSent.count - 4) }
@@ -120,6 +120,17 @@ final class DefaultActivityController: ActivityControlling {
         let states = activities.map { "\($0.activityState)" }.joined(separator: ",")
         VoiceLogFile.shared.append("[island] \(what) state=\(st.state) mode=\(st.mode) said=\(st.transcript.count)ch "
                                    + "reply=\(st.activity.count)ch activities=\(activities.count)[\(states)]")
+    }
+
+    /// A live voice frame expires: if nothing newer lands within
+    /// `VoiceLiveActivityThrottle.staleAfterSeconds` (the app was suspended or
+    /// killed, or iOS dropped its updates) the activity goes stale and the widget
+    /// draws it at rest (`jcVoiceShown`). The throttle re-sends a live frame well
+    /// inside that, so a real long talk never does. At rest nothing expires: the
+    /// tap-to-talk launcher, the fleet and designs are true until replaced.
+    static func staleDate(_ s: LiveActivityState, now: Date = Date()) -> Date? {
+        guard s.mode == .voice, ["listening", "thinking", "speaking"].contains(s.state) else { return nil }
+        return now.addingTimeInterval(VoiceLiveActivityThrottle.staleAfterSeconds)
     }
 
     /// How strongly iOS should prefer this activity for the Dynamic Island when
@@ -198,23 +209,98 @@ final class DefaultActivityController: ActivityControlling {
     }
 }
 
-/// Runs `await`-ing work strictly in the order it was submitted.
+/// Runs `await`-ing ActivityKit work one call at a time, newest frame wins.
 ///
 /// ActivityKit's `update` / `end` are async, and firing an unstructured `Task`
 /// per call lets the runtime interleave them: a stale frame can land after a
 /// newer one and leave the island showing old text until the next update.
+///
+/// But a strict FIFO let ONE call that never returned hold back every frame after
+/// it, for good: 2026-11-24 the island froze on "Listening · It" (01:36:36) while
+/// ~50 later frames — thinking, speaking, the final idle — were all logged as sent
+/// and none was drawn. So: a frame superseded before it started is dropped (only
+/// the newest is worth drawing), a call still running after `stallAfter` stops
+/// holding the newest back, and if that stalled call does come back later — when it
+/// may have just drawn its older frame over a newer one — the newest is sent again.
 @MainActor
 final class ActivityUpdateQueue {
-    private var tail: Task<Void, Never>?
+    typealias Work = @Sendable () async -> Void
 
-    func enqueue(_ work: @escaping @Sendable () async -> Void) {
-        let previous = tail
-        tail = Task { @MainActor in
-            await previous?.value
-            await work()
+    /// Past this an ActivityKit call is treated as stuck (they take milliseconds).
+    nonisolated static let stallSeconds: TimeInterval = 4
+
+    private let stallAfter: TimeInterval
+    private let sleeper: @Sendable (TimeInterval) async -> Void
+    private let onLog: ((String) -> Void)?
+    private var nextID = 0
+    /// The call running now, and when it started.
+    private var inFlight: (id: Int, task: Task<Void, Never>, started: Date)?
+    /// The newest frame not yet started (an older one waiting is replaced).
+    private var pending: (id: Int, work: Work)?
+    /// The newest frame started so far.
+    private var newest: (id: Int, work: Work)?
+
+    init(stallAfter: TimeInterval = ActivityUpdateQueue.stallSeconds,
+         sleeper: @escaping @Sendable (TimeInterval) async -> Void = {
+             try? await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000))
+         },
+         onLog: ((String) -> Void)? = nil) {
+        self.stallAfter = stallAfter
+        self.sleeper = sleeper
+        self.onLog = onLog
+    }
+
+    func enqueue(_ work: @escaping Work) {
+        nextID += 1
+        pending = (nextID, work)
+        if inFlight == nil { startPending() }
+    }
+
+    /// Await whatever is queued or running (tests, and scene-phase handoffs).
+    func drain() async {
+        while let running = inFlight?.task { await running.value }
+    }
+
+    private func startPending() {
+        guard let next = pending else { return }
+        pending = nil
+        newest = next
+        let id = next.id
+        let task = Task { @MainActor [weak self] in
+            await next.work()
+            self?.finished(id)
+        }
+        inFlight = (id, task, Date())
+        let stallAfter = self.stallAfter
+        let sleeper = self.sleeper
+        Task { @MainActor [weak self] in
+            await sleeper(stallAfter)
+            self?.stallCheck(id)
         }
     }
 
-    /// Await everything currently queued (tests, and scene-phase handoffs).
-    func drain() async { await tail?.value }
+    private func stallCheck(_ id: Int) {
+        guard let running = inFlight, running.id == id else { return }   // it returned in time
+        onLog?("an ActivityKit call hasn't returned in \(Int(stallAfter)) s; not waiting for it"
+               + (pending == nil ? "" : " — sending the newest frame"))
+        inFlight = nil
+        startPending()
+    }
+
+    private func finished(_ id: Int) {
+        if let running = inFlight, running.id == id {
+            let took = Date().timeIntervalSince(running.started)
+            if took >= 1 { onLog?(String(format: "an ActivityKit call took %.1f s", took)) }
+            inFlight = nil
+            startPending()
+            return
+        }
+        // A call given up on came back after a newer one was sent: it may have just
+        // drawn its older frame over the newest. Put the newest back on top.
+        onLog?("a stalled ActivityKit call returned")
+        guard let newest, newest.id > id, pending == nil else { return }
+        nextID += 1
+        pending = (nextID, newest.work)
+        if inFlight == nil { startPending() }
+    }
 }

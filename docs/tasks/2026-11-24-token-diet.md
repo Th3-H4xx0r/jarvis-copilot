@@ -28,12 +28,16 @@ Found: the World news cron (Sonnet via a router mislabel) was ~85% of Anthropic 
 11. [x] Voice "reasoning off" on Claude 5.5 models
     - ✅ a43e5b580f, live 07:55 UTC; live probe: Sonnet 5.5 between_tools, Haiku 5.5 disabled, Opus 5.5 effort low all accepted.
     - Found: the adapter sends NO thinking param when reasoning is off, so Sonnet/Haiku/Opus 5.5 think adaptively anyway (no 400 — the review's claim was wrong); voice is slower than designed. Fix: model-correct "off" (Sonnet 5.5 between_tools; Haiku 5.5 / Opus 5 / 4.7-4.8 / Sonnet 5 disabled; Opus 5.5 / Fable low effort).
-12. [ ] iPhone: voice Live Activity / Dynamic Island stays on "Listening" after listening stops (his lock-screen screenshot 1:46, "Jarvis · Listening 10:… It")
+12. [x] iPhone: voice Live Activity / Dynamic Island stays on "Listening" after listening stops (his lock-screen screenshot 1:46, "Jarvis · Listening 10:… It")
 
 13. [x] Chats are all going through computer_do ("all my recent chats have been going through computer do, look at my latest chat, this shouldn't be happening")
     - Found: the Celeris router read only the current message; "computer" label + "monitor" words pulled "put my PC to sleep" (0.89-0.92) and "use the email monitor skill" (0.49-0.61) onto the Mac screen; his harness takes the top pick and a computer pick runs computer_do first.
     - ✅ Live probe: added exclusions to the computer label description + router instructions in his two stored designs (backups *.bak-2026-11-24) → 9/9 test phrases right (PC sleep, email monitor, calendar → default; Spotify/Amazon/dark mode/YouTube → computer).
     - ✅ 49235fb7ad: a Computer pick below 0.6 confidence takes the default wire (its model still has the Mac as hands). Live 07:55 UTC.
+
+14. [x] iPhone Harnesses screen layout broken (his screenshot 1:55): "Default" label crushed to one char per line, picker values wrap 2–3 lines, Chat row clipped at the card bottom, long harness names squeezed by the node-chain glyph
+
+    - ✅ (12 + 14) iPhone build 263280808 published via release.sh 08:14 UTC — Found from voice.log: the ActivityKit update queue ran calls strictly in order, so one hung call froze every later frame (idle included) and Stop was deduped as "already idle"; now newest-frame-only queue with a 4 s stuck-call bypass, forced re-send on Stop, 90 s staleDate + 60 s refresh while live, interrupted mic shows thinking. Harnesses: fixed-width row labels, one-line menu values ("Same as default"), capped node glyph.
 
 ## Shipped
 - Server at 6b788b552, webui + gateway restarted 07:39 UTC (healthy 302).

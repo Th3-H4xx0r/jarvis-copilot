@@ -2280,6 +2280,24 @@ final class VoiceStoreTests: XCTestCase {
         await rig.store.stopAll()
     }
 
+    /// 01:46, 2026-11-24: the island still said "Listening · It" though the session
+    /// had been idle since 01:37, and his ✕ on it logged "stopRequested: idle→idle"
+    /// with no island update — idle had already "been sent". A Stop always re-sends.
+    func testAStopAlwaysResendsTheIslandsFrameEvenWhenIdle() async {
+        final class Pushes { var all: [VoiceLiveActivitySnapshot] = [] }
+        let rig = makeRig()
+        let pushes = Pushes()
+        rig.store.liveActivity.onPush = { pushes.all.append($0) }
+        await startListening(rig)
+        await rig.store.stopAll()
+        XCTAssertEqual(pushes.all.last?.state, "idle")
+        let afterStop = pushes.all.count
+
+        await rig.store.stopAll()   // the island's ✕, with the session already idle
+        XCTAssertEqual(pushes.all.count, afterStop + 1)
+        XCTAssertEqual(pushes.all.last?.state, "idle")
+    }
+
     func testBeforeTheMicIsLiveItStillSaysConnecting() async {
         let rig = makeRig()
         rig.connector.holdConnect = true

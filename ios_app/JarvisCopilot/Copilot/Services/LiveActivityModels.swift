@@ -21,6 +21,9 @@ struct LiveActivityState: Equatable, Sendable {
     var voiceHold = false
     /// When the voice state began (Unix seconds): the island's ring sweeps from here.
     var stateSince: Double = 0
+    /// `VoiceLiveActivitySnapshot.resend`: a bump is a frame to send again even
+    /// though nothing on it changed. App-side only — not part of the ContentState.
+    var voiceResend = 0
 
     var mode: ActivityMode = .voice
 

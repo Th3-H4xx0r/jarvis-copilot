@@ -47,6 +47,70 @@ final class HarnessRenderTests: XCTestCase {
         try RenderHarness.write(NavigationStack { DefaultChoiceScreen() }, size: size, name: "settings-default")
     }
 
+    /// His harnesses (2026-11-24 screenshot): six-step chains with long names.
+    private func longHarness(_ id: String, _ name: String, icon: String = "") -> String {
+        """
+        {"id":"\(id)","name":"\(name)","icon":"\(icon)","builtin":true,
+         "nodes":[{"id":"in","type":"message","x":40,"y":40},
+                  {"id":"a","type":"answer","model":"@anthropic-api:claude-haiku-5","tools":"lean","x":40,"y":120},
+                  {"id":"b","type":"answer","model":"@anthropic-api:claude-sonnet-5-5","tools":"all","x":40,"y":200},
+                  {"id":"c","type":"background","model":"@claude-code:claude-sonnet-5-5","tools":"all","deliver":"speak_or_notify","x":40,"y":280},
+                  {"id":"d","type":"background","model":"@claude-code:claude-sonnet-5-5","tools":"all","deliver":"speak_or_notify","x":40,"y":360},
+                  {"id":"e","type":"computer","label":"Mac","model":"@celeris:celeris-1-decision","max_steps":30,"x":40,"y":440},
+                  {"id":"f","type":"answer","model":"@anthropic-api:claude-haiku-5","tools":"lean","x":40,"y":520}],
+         "edges":[{"from":"in","to":"a","when":"always"}],"problems":[]}
+        """
+    }
+
+    private func seedLongNames() -> [AgentHarness] {
+        let json = """
+        {"harnesses":[\(longHarness("haiku-long", "Haiku Fast + Claude Sonnet + Long Running + Computer", icon: "⚡")),
+                      \(longHarness("luna-long", "Luna Fast + Terra + Long Running + Computer"))],
+         "assignments":{"default":"haiku-long"},"overrides":{"voice":"","chat":""}}
+        """.data(using: .utf8)!
+        let snap = try! JSONDecoder().decode(HarnessSnapshot.self, from: json)
+        HarnessStore.shared.apply(snap)
+        return snap.harnesses
+    }
+
+    func testRenderHarnessListWithLongNames() throws {
+        _ = seedLongNames()
+        try RenderHarness.write(NavigationStack { HarnessesPage() }, size: size, name: "harness-list-long-names")
+        try RenderHarness.write(NavigationStack { HarnessesPage() }.environment(\.dynamicTypeSize, .accessibility3),
+                                size: size, name: "harness-list-long-names-ax3")
+    }
+
+    /// The Defaults rows stay one line tall with a long harness name: the label keeps
+    /// its width and the value is cut at the tail. On his phone the label was crushed
+    /// to a letter a line, the value wrapped, and the card clipped the Chat row.
+    func testADefaultsRowWithALongNameStaysOneLineTall() {
+        let long = "⚡ Haiku Fast + Claude Sonnet + Long Running + Computer"
+        for dynamicType in [DynamicTypeSize.large, .accessibility3] {
+            let row = JcRow(title: "Default", fixedTitle: true) {
+                HarnessesPage.valueMenu("Default", value: long, selection: .constant("x")) {
+                    Text(long).tag("x")
+                }
+            }
+            .environment(\.dynamicTypeSize, dynamicType)
+            let fit = UIHostingController(rootView: row)
+                .sizeThatFits(in: CGSize(width: 370, height: CGFloat.greatestFiniteMagnitude))
+            XCTAssertLessThanOrEqual(fit.height, 56, "one line at \(dynamicType), not a wrapped value or a stacked label")
+        }
+        XCTAssertFalse(HarnessesPage.followsDefault.contains("("), "the row's 'Same as default' names nothing")
+    }
+
+    /// A six-step harness's glyph is capped, so the name keeps the row.
+    func testTheListGlyphIsCappedBesideTheName() throws {
+        let six = try XCTUnwrap(seedLongNames().first)
+        func width<V: View>(_ view: V) -> CGFloat {
+            UIHostingController(rootView: view).sizeThatFits(in: CGSize(width: 400, height: 100)).width
+        }
+        let capped = width(HarnessMiniDiagram(harness: six, maxSteps: 3))
+        let full = width(HarnessMiniDiagram(harness: six))
+        XCTAssertLessThan(capped, full)
+        XCTAssertLessThan(capped, 100, "about a fifth of the row, not the 40% it took")
+    }
+
     /// Sonnet --hands--> Computer --stuck--> Sonnet, and the Computer step's sheet.
     func testRenderComputerNode() throws {
         _ = seed()

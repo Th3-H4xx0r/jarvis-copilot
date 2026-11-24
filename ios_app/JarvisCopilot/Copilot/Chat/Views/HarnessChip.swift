@@ -7,17 +7,29 @@ import SwiftUI
 /// A one-line sketch of a harness: one box per step after the start.
 struct HarnessMiniDiagram: View {
     let harness: AgentHarness
+    /// Draw at most this many steps and count the rest ("+3"), so a long harness's
+    /// glyph stays small beside its name. nil: every step.
+    var maxSteps: Int? = nil
 
     var body: some View {
-        let steps = harness.nodes.filter { $0.type != .message }.count
+        let steps = max(harness.nodes.filter { $0.type != .message }.count, 1)
+        let drawn = min(steps, max(maxSteps ?? steps, 1))
         HStack(spacing: 2) {
-            ForEach(0..<max(steps, 1), id: \.self) { i in
+            ForEach(0..<drawn, id: \.self) { i in
                 if i > 0 { Rectangle().fill(JcTheme.accent.opacity(0.7)).frame(width: 7, height: 1) }
                 RoundedRectangle(cornerRadius: 3)
                     .stroke(JcTheme.accent, lineWidth: 1)
                     .frame(width: 13, height: 9)
             }
+            if steps > drawn {
+                Text("+\(steps - drawn)")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(JcTheme.muted)
+                    .lineLimit(1)
+                    .padding(.leading, 2)
+            }
         }
+        .fixedSize()
         .accessibilityHidden(true)
     }
 }
