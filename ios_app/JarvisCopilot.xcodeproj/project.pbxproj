@@ -894,6 +894,7 @@
 		9B9B825438FB8FA58AB921EF /* ShellSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40C064350AA8B81978194E2B /* ShellSnapshotTests.swift */; };
 		9BB9EFEDE22E89C70BE53DB8 /* DevicesUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D8885A1AEB68E6AF951CDBD /* DevicesUITests.swift */; };
 		9BCA1C00E849DB26FB73A830 /* JarvisWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 220197378345D1B7372B1837 /* JarvisWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		9BD9A450E3285B42BD6C8F12 /* Esp32AddressTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5033FB1298AA23E3AC1141E7 /* Esp32AddressTests.swift */; };
 		9C02A52853326127CDF20CDC /* AlarmScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67C5388D0E62093D65F5F5D3 /* AlarmScheduler.swift */; };
 		9C704D83013520394BB10B6D /* JarvisPulse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3147B0BDFA2874440C835FA2 /* JarvisPulse.swift */; };
 		9C8A7ED0A80AAC6C96C4B54D /* CarLightSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 196380367130C91DB782549A /* CarLightSettingsSheet.swift */; };
@@ -1979,6 +1980,7 @@
 		5012A8FA2E076631A6DEEAB7 /* KanbanPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanPage.swift; sourceTree = "<group>"; };
 		5014343196DD14882EA868A3 /* ComputerTools.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ComputerTools.swift; sourceTree = "<group>"; };
 		50286C204C30CC4F88E81AE1 /* TodosStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TodosStore.swift; sourceTree = "<group>"; };
+		5033FB1298AA23E3AC1141E7 /* Esp32AddressTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Esp32AddressTests.swift; sourceTree = "<group>"; };
 		5072183EC782BEB4F738CF5E /* JcLog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JcLog.swift; sourceTree = "<group>"; };
 		5077A22448DC7C07ECCD8851 /* GlassesFaceLink.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesFaceLink.swift; sourceTree = "<group>"; };
 		50DBF31FAD4DAF34B9F011DD /* WidgetModelSnapshots.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetModelSnapshots.swift; sourceTree = "<group>"; };
@@ -5294,6 +5296,7 @@
 				F6224CF81F6B0990639E7FC7 /* OnDemandWearableTests.swift */,
 				24C93E2A182EFEDE7A267535 /* ComputerPairTests.swift */,
 				971C5DCD9D026B33AD8E16A2 /* DeviceIdentityTests.swift */,
+				5033FB1298AA23E3AC1141E7 /* Esp32AddressTests.swift */,
 			);
 			path = Devices;
 			sourceTree = "<group>";
@@ -6338,6 +6341,7 @@
 				3285D0094B3DE3585B2B7B6E /* MetaGlassesCallSimTests.swift in Sources */,
 				DFE266342FECE9C46E5CE3D1 /* ComputerPairTests.swift in Sources */,
 				36B405C0A2EFF07FC5463B12 /* DeviceIdentityTests.swift in Sources */,
+				9BD9A450E3285B42BD6C8F12 /* Esp32AddressTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

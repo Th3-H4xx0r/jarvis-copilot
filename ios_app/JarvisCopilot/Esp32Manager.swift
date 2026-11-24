@@ -44,6 +44,46 @@ struct Esp32KnownBoard: Codable, Equatable {
     var ip: String?
 }
 
+extension Esp32KnownBoard {
+    /// A board's own LAN name follows from its id: "esp32-<mac>" -> "jarvis-esp32-<last 4 hex>" (the firmware names
+    /// itself from the same MAC). nil for ids that aren't a MAC. Live 2026-11-24: a stale stored name sent the Alarm
+    /// Proxy's page to the PC power board.
+    static func lanName(forDeviceID id: String) -> String? {
+        guard id.hasPrefix("esp32-") else { return nil }
+        let hex = id.dropFirst(6)
+        guard hex.count == 12, hex.allSatisfy(\.isHexDigit) else { return nil }
+        return "jarvis-esp32-" + hex.suffix(4).lowercased()
+    }
+
+    var lanName: String? { Self.lanName(forDeviceID: deviceID) }
+
+    /// Where to reach it on the LAN: its own name first (a stored name only when the id says nothing), the stored IP last.
+    var lanHosts: [String] {
+        var hosts: [String] = []
+        if let own = lanName { hosts.append("\(own).local") } else if let h = hostname { hosts.append("\(h).local") }
+        if let ip { hosts.append(ip) }
+        return hosts
+    }
+
+    /// The board a Bonjour name belongs to: by the name its id implies, else by a stored name.
+    static func record(forHost host: String, in boards: [Esp32KnownBoard]) -> Esp32KnownBoard? {
+        let h = host.lowercased()
+        return boards.first { $0.lanName == h } ?? boards.first { $0.lanName == nil && $0.hostname?.lowercased() == h }
+    }
+
+    /// One address belongs to one board: whatever Bluetooth peripheral, LAN name or IP `owner` has is cleared from the others.
+    static func claimingAddresses(of owner: Esp32KnownBoard, from others: [Esp32KnownBoard]) -> [Esp32KnownBoard] {
+        others.map { board in
+            guard board.deviceID != owner.deviceID else { return board }
+            var b = board
+            if let p = owner.peripheralID, b.peripheralID == p { b.peripheralID = nil }
+            if let h = b.hostname?.lowercased(), h == owner.hostname?.lowercased() || h == owner.lanName { b.hostname = nil }
+            if let ip = owner.ip, b.ip == ip { b.ip = nil }
+            return b
+        }
+    }
+}
+
 struct DiscoveredEsp32: Identifiable, Equatable {
     /// The stable device ID once the board is known, otherwise CoreBluetooth's UUID.
     let id: String
@@ -71,6 +111,8 @@ enum Esp32Error: LocalizedError {
     case notOwner
     /// The board forgot its owner (a firmware update before 1.7, or a reset) and can only be claimed over Bluetooth.
     case boardReset
+    /// Another board answered at this board's stored address.
+    case wrongBoard
     case scriptFailed(String)
     case message(String)
 
@@ -86,6 +128,7 @@ enum Esp32Error: LocalizedError {
         case .wifiNotSetUp:        return "set up Wi‑Fi over Bluetooth first"
         case .bluetoothOnly:       return "that needs the Bluetooth link"
         case .notOwner:            return "paired to another phone"
+        case .wrongBoard:          return "Another board answered at this board's old address. Looking for it again…"
         case .boardReset:          return "This board was reset or updated and needs claiming again: hold its BOOT button for 3 seconds. Jarvis then reconnects over Bluetooth and claims it."
         case .scriptFailed(let m): return "script: \(m)"
         case .message(let m):      return m
@@ -219,7 +262,7 @@ final class Esp32Manager: NSObject, ObservableObject {
         }
         discovered.removeAll { $0.record == nil && $0.peripheral == nil && $0.wifiHostname == nil }
         for host in bonjourHosts {
-            let record = Self.knownBoards.first { $0.hostname?.lowercased() == host }
+            let record = Esp32KnownBoard.record(forHost: host, in: Self.knownBoards)
             let id = record?.deviceID ?? "wifi-\(host)"
             // Display name matches the BLE advertisement ("Jarvis-ESP32-33DA").
             let name = record?.name ?? host.replacingOccurrences(of: "jarvis-esp32-", with: "Jarvis-ESP32-").uppercasedSuffix()
@@ -283,6 +326,7 @@ final class Esp32Manager: NSObject, ObservableObject {
         record.name = name
         update(&record)
         boards.removeAll { $0.deviceID == deviceID }
+        boards = Esp32KnownBoard.claimingAddresses(of: record, from: boards)   // one address, one board
         boards.append(record)
         Self.knownBoards = boards
         if browser == nil { startBonjour() }
@@ -544,9 +588,7 @@ final class Esp32Manager: NSObject, ObservableObject {
         wifiRetryTask?.cancel()
         wifiRetryTask = Task { [weak self] in
             let port = NWEndpoint.Port(rawValue: Esp32Protocol.tcpPort)!
-            var hosts: [NWEndpoint.Host] = []
-            if let h = record.hostname { hosts.append(NWEndpoint.Host("\(h).local")) }
-            if let ip = record.ip { hosts.append(NWEndpoint.Host(ip)) }
+            let hosts = record.lanHosts.map { NWEndpoint.Host($0) }
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 20_000_000_000)
                 guard !Task.isCancelled, let self, self.sessionWanted, self.state != .ready, self.activeLink == .bluetooth else { return }
@@ -567,20 +609,45 @@ final class Esp32Manager: NSObject, ObservableObject {
 
     // MARK: Wi‑Fi link
 
+    /// The LAN address the current TCP session opened to (retries with other keys go back to it).
+    private var lastWifiHost: NWEndpoint.Host?
+
+    /// The board refused this board's key: try the phone's keys for its other boards on fresh connections (a refused
+    /// AUTH drops the socket). Returns the key it accepted, the socket left open and authorised; nil when none did.
+    private func authWithOtherKeys(excluding id: String) async -> [UInt8]? {
+        guard let host = lastWifiHost, let port = NWEndpoint.Port(rawValue: Esp32Protocol.tcpPort) else { return nil }
+        let mine = Self.token(for: id)
+        var tried: [[UInt8]] = mine.map { [$0] } ?? []
+        for other in Self.knownBoards where other.deviceID != id {
+            guard let key = Self.token(for: other.deviceID), !tried.contains(key) else { continue }
+            tried.append(key)
+            guard await openTCP(host: host, port: port) else { return nil }
+            do {
+                _ = try await request(.auth, payload: key)
+                JcLog.devices.debug("esp32 \(id) took the key of \(other.deviceID)")
+                return key
+            } catch Esp32Error.status(.unauthorized) {
+                continue
+            } catch {
+                return nil
+            }
+        }
+        return nil
+    }
+
     private func connectWifi(_ record: Esp32KnownBoard, fallbackToBluetooth: Bool) {
         activeLink = .wifi
         state = .connecting
         // The .local name survives DHCP renewals; the raw IP is the backup when mDNS
         // isn't answering on this network.
-        var hosts: [NWEndpoint.Host] = []
-        if let h = record.hostname { hosts.append(NWEndpoint.Host("\(h).local")) }
-        if let ip = record.ip { hosts.append(NWEndpoint.Host(ip)) }
+        let hosts = record.lanHosts.map { NWEndpoint.Host($0) }
         let port = NWEndpoint.Port(rawValue: Esp32Protocol.tcpPort)!
 
         wifiAttempt = Task { [weak self] in
             for host in hosts {
                 guard let self, !Task.isCancelled else { return }
                 if await self.openTCP(host: host, port: port) {
+                    self.lastWifiHost = host
                     self.state = .discovering
                     self.beginHandshake()
                     return
@@ -687,10 +754,27 @@ final class Esp32Manager: NSObject, ObservableObject {
                 // Over the LAN nothing is answered before AUTH, so the key comes first.
                 guard let id = connected?.record?.deviceID ?? connected?.id,
                       let token = Self.token(for: id) else { throw Esp32Error.wifiNotSetUp }
+                var usedKey = token
                 do { _ = try await request(.auth, payload: token) }
-                catch Esp32Error.status(.unauthorized) { throw Esp32Error.boardReset }   // it forgot us: claim over BLE
+                catch Esp32Error.status(.unauthorized) {
+                    // A reset board may have taken another of this phone's keys (firmware 1.8 claims with the first
+                    // key it's shown on the LAN); try them before falling back to a Bluetooth claim.
+                    guard let other = await authWithOtherKeys(excluding: id) else { throw Esp32Error.boardReset }
+                    usedKey = other
+                }
                 guard let parsed = Esp32Protocol.parsePing(try await request(.ping)) else { throw Esp32Error.malformedReply }
                 info = parsed
+                if parsed.deviceID != id, id.hasPrefix("esp32-") {
+                    // A different board answered at this address (live 2026-11-24: both pages showed the PC board).
+                    // It took our key, so remember that for it; drop the stale address from the board we wanted.
+                    Self.storeToken(usedKey, for: parsed.deviceID)
+                    remember({ r in
+                        r.ip = nil
+                        if r.hostname?.lowercased() != r.lanName { r.hostname = nil }
+                    }, deviceID: id, name: connected?.name ?? id)
+                    throw Esp32Error.wrongBoard
+                }
+                if usedKey != token { Self.storeToken(usedKey, for: id) }
             } else {
                 // PING is the one command an unclaimed or unauthorised BLE session may
                 // send; it tells us whether to claim the board or prove ownership.
@@ -743,6 +827,8 @@ final class Esp32Manager: NSObject, ObservableObject {
             let overWifi = activeLink == .wifi
             teardownLinks()
             switch error {
+            case Esp32Error.wrongBoard:
+                scheduleReconnect(message)   // the next try goes to its own LAN name
             case Esp32Error.boardReset:
                 // Live 2026-11-24: a board that forgot its owner can only be claimed over Bluetooth, whatever the
                 // link preference. Leave a Bluetooth connect pending: once he holds BOOT it advertises and we claim.
