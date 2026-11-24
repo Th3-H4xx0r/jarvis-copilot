@@ -276,7 +276,11 @@ class MacPowerStore:
             return {"ok": True, "restarting": True}
         last = float(d.get("button_wake_at") or 0)
         wired = bool(d.get("light_wired"))
-        if self._clock() - last < (WAKE_REPEAT_S if wired else WAKE_REPEAT_UNWIRED_S):
+        # One press per window while it boots; the window ends once it reported in or was shut down / slept since
+        # (live test 2026-11-24: the window from an earlier wake skipped the press after a shutdown).
+        newer = max(float(d.get("seen_at") or 0), float(d.get("power_action_at") or 0),
+                    float(d.get("sleeping_at") or 0)) > last
+        if not newer and self._clock() - last < (WAKE_REPEAT_S if wired else WAKE_REPEAT_UNWIRED_S):
             # Still resuming from the last tap (the light isn't steady for ~3 s): one press only.
             return {"ok": True, "sent": True, "via": "power button"}
         wait = SHUTDOWN_SETTLE_S - since if action in ("shutdown", "force_off") else 0.0

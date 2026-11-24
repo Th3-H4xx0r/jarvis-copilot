@@ -511,3 +511,29 @@ def test_wake_long_after_a_shutdown_presses_at_once(tmp_path):
     t_press = rig.t
     rig.store.wake(PC)
     assert len(rig.presses()) == 1 and rig.t - t_press < SHUTDOWN_SETTLE_S
+
+
+def test_the_one_press_guard_ends_once_the_pc_came_up_or_was_shut_down(tmp_path):
+    # Live test 2026-11-24: wake from sleep (press), PC up, shut down, Wake 2 min later -> the 4-minute guard from
+    # the first press skipped the second one while saying "sent", and the PC stayed off.
+    from api.mac_power import SHUTDOWN_SETTLE_S
+    rig = asleep_pc(tmp_path, connected=(BOARD,))
+    rig.store.wake(PC)
+    assert len(rig.presses()) == 1
+    rig.connected = {PC, BOARD}
+    rig.t += 10
+    rig.store.on_status(PC, PC_STATUS)          # it came up
+    rig.t += 20
+    rig.store.shutdown(PC)
+    rig.connected = {BOARD}
+    rig.t += SHUTDOWN_SETTLE_S + 10
+    rig.store.wake(PC)
+    assert len(rig.presses()) == 2
+
+
+def test_the_guard_still_stops_a_second_press_while_booting(tmp_path):
+    rig = asleep_pc(tmp_path, connected=(BOARD,))
+    rig.store.wake(PC)
+    rig.t += 60                                  # no report yet: still booting
+    rig.store.wake(PC)
+    assert len(rig.presses()) == 1
