@@ -265,37 +265,10 @@ struct LongTermMemoryPage: View {
     // MARK: Memory model
 
     private func memoryModel(_ settings: MemoryMapSettings) -> some View {
-        let pick = AgentPick(settings.agent)
-        // nil reads as .sameAsDefault, which the backup page calls "Wait for it".
-        let backupPick = AgentPick(settings.backup)
-        let backupValue = settings.backup == nil
-            ? MemoryMapSettings.waitTitle
-            : (settings.backupLabel.isEmpty ? backupPick.label : settings.backupLabel)
-        return VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             SectionHeader("Memory model")
             GlassCard(padding: 0, fill: JcTheme.surface) {
-                VStack(spacing: 0) {
-                    NavigationLink {
-                        AgentChoicePage(title: "Memory model", pick: pick) { pick in
-                            Task { await map.setAgent(pick.choice) }
-                        }
-                    } label: {
-                        modelRow("Runs on", settings.label.isEmpty ? pick.label : settings.label)
-                    }
-                    .buttonStyle(.plain)
-                    Rectangle().fill(JcTheme.glassBorder).frame(height: 1).padding(.leading, 14)
-                    // A backup is a model or a harness, never Same as Default.
-                    NavigationLink {
-                        AgentChoicePage(title: "While it's at its limit", pick: backupPick,
-                                        nilChoice: (MemoryMapSettings.waitTitle,
-                                                    "Memory waits until it's back. Nothing is lost.")) { pick in
-                            Task { await map.setBackup(pick.choice) }
-                        }
-                    } label: {
-                        modelRow("While it's at its limit", backupValue)
-                    }
-                    .buttonStyle(.plain)
-                }
+                MemoryModelRows(map: map, settings: settings)
             }
             Text("Reads chats, iMessage and Live to pull out dates, people and places.")
                 .font(.system(size: 11.5))
@@ -322,21 +295,6 @@ struct LongTermMemoryPage: View {
                 .padding(.top, 12)
             }
         }
-    }
-
-    private func modelRow(_ title: String, _ value: String) -> some View {
-        HStack(spacing: 10) {
-            Text(title).font(.system(size: 15)).foregroundStyle(JcTheme.text)
-            Spacer(minLength: 8)
-            Text(value)
-                .font(.system(size: 14))
-                .foregroundStyle(JcTheme.muted)
-                .lineLimit(1)
-            JcIcon("chevron.right", size: 11).foregroundStyle(JcTheme.muted.opacity(0.6))
-        }
-        .padding(.horizontal, 14)
-        .frame(minHeight: 48)
-        .contentShape(Rectangle())
     }
 
     // MARK: Cleanup
@@ -671,5 +629,65 @@ struct MemorySectionEmpty: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
+    }
+}
+
+/// The memory model and its backup as two tappable rows, for a card to hold.
+/// Long-term Memory and the iMessage memory page show the same setting through
+/// it. `afterSave` runs once a pick has saved (the iMessage page reloads its card
+/// so its "Runs on" row follows).
+struct MemoryModelRows: View {
+    let map: MemoryMapStore
+    let settings: MemoryMapSettings
+    var modelTitle = "Runs on"
+    var afterSave: (() async -> Void)?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            NavigationLink {
+                AgentChoicePage(title: "Memory model", pick: AgentPick(settings.agent)) { pick in
+                    save { await map.setAgent(pick.choice) }
+                }
+            } label: {
+                row(modelTitle, settings.modelValue)
+            }
+            .buttonStyle(.plain)
+            RowDivider()
+            // A backup is a model or a harness, never Same as Default: the no-choice
+            // row (nil, read as .sameAsDefault) is "Wait for it".
+            NavigationLink {
+                AgentChoicePage(title: "While it's at its limit", pick: AgentPick(settings.backup),
+                                nilChoice: (MemoryMapSettings.waitTitle,
+                                            "Memory waits until it's back. Nothing is lost.")) { pick in
+                    save { await map.setBackup(pick.choice) }
+                }
+            } label: {
+                row("While it's at its limit, use", settings.backupValue)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func save(_ change: @escaping () async -> Void) {
+        let afterSave = afterSave
+        Task {
+            await change()
+            await afterSave?()
+        }
+    }
+
+    private func row(_ title: String, _ value: String) -> some View {
+        Row {
+            HStack(spacing: 10) {
+                Text(title).font(.system(size: 15)).foregroundStyle(JcTheme.text)
+                Spacer(minLength: 8)
+                Text(value)
+                    .font(.system(size: 14))
+                    .foregroundStyle(JcTheme.muted)
+                    .lineLimit(1)
+                JcIcon("chevron.right", size: 11).foregroundStyle(JcTheme.muted.opacity(0.6))
+            }
+        }
+        .contentShape(Rectangle())
     }
 }

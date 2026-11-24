@@ -161,6 +161,17 @@ struct MemoryMapSettings: Decodable, Equatable {
     }
 }
 
+extension MemoryMapSettings {
+    /// The memory model row's value: the server's label, else the pick's own name.
+    @MainActor var modelValue: String { label.isEmpty ? AgentPick(agent).label : label }
+
+    /// The backup row's value: "Wait for it" when there is none.
+    @MainActor var backupValue: String {
+        guard let backup else { return Self.waitTitle }
+        return backupLabel.isEmpty ? AgentPick(backup).label : backupLabel
+    }
+}
+
 /// `paused` on the map settings and the iMessage card: the memory model is at its
 /// usage limit (or failing) and until when, and whether the backup covers for it
 /// or memory waits (nothing is lost). nil while the memory model works.

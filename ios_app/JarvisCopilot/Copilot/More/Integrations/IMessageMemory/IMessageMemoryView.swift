@@ -28,6 +28,8 @@ struct IMessageMemoryCardRow: View {
 /// iMessage memory — which chats Jarvis remembers, on what, and backfills of older messages.
 struct IMessageMemoryView: View {
     @Bindable var store: IMessageMemoryStore
+    /// The memory model and its backup: one setting, also on Long-term Memory.
+    @State private var map = MemoryMapStore()
 
     @State private var query = ""
     @State private var forgetting: IMessageChat?
@@ -60,12 +62,17 @@ struct IMessageMemoryView: View {
             .padding(.vertical, 16)
             .padding(.bottom, 24)
         }
-        .refreshable { await store.refresh() }
+        .refreshable {
+            await store.refresh()
+            await map.loadSettings()
+        }
         .loadErrorBanner(store.errorMessage, hasContent: store.card != nil)
         .jcPageChrome("iMessage memory")
         .onAppear { store.appeared() }
         .onDisappear { store.disappeared() }
+        .task { await map.loadSettings() }
         .moreToast($store.toast)
+        .moreToast($map.toast)
         .confirmationDialog(forgetting.map { "Forget memories from \($0.displayName)?" } ?? "",
                             isPresented: Binding(get: { forgetting != nil },
                                                  set: { if !$0 { forgetting = nil } }),
@@ -153,16 +160,25 @@ struct IMessageMemoryView: View {
 
     // MARK: 2. Model
 
-    /// The memory model reads iMessage too; it is set in one place. At its usage
-    /// limit, a line says until when and what covers for it.
+    /// The memory model and its backup, the same setting as on Long-term Memory
+    /// (it reads chats and Live too). After a pick saves, the card reloads so its
+    /// "Runs on" row follows. At its usage limit, a line says until when and what
+    /// covers for it.
     private func modelNote(_ card: IMessageMemoryCard) -> some View {
-        CardGroup("Model") {
-            Row {
-                Text("Uses the memory model — change it in Long-term Memory.")
-                    .font(.system(size: 14))
-                    .foregroundStyle(JcTheme.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        CardGroup("Model", footer: map.settings == nil ? nil : "Also used for chat memories and the memory map.") {
+            if let settings = map.settings {
+                MemoryModelRows(map: map, settings: settings, modelTitle: "Memory model") {
+                    await store.refresh()
+                }
+            } else {
+                // Not loaded (yet), or a server without the setting.
+                Row {
+                    Text("Uses the memory model — change it in Long-term Memory.")
+                        .font(.system(size: 14))
+                        .foregroundStyle(JcTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             if let paused = card.paused {
                 RowDivider()

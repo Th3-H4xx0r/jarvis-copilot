@@ -146,23 +146,127 @@ def test_paused_line_wording():
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_memory_model_has_a_backup_select():
+_PICKER_JS = r"""
+const fs = require('fs'), vm = require('vm'), assert = require('assert/strict');
+const [jmFile, croFile, immFile] = process.argv.slice(1);
+const R = require(croFile);
+const choices = {
+  defaultModel: 'claude-sonnet-5-5',
+  modelGroups: [{ label: 'Anthropic API', options: [{ value: '@anthropic-api:claude-haiku-5-5', label: 'Claude Haiku 5.5' }] }],
+  harnesses: [{ id: 'fast', name: 'Fast' }],
+};
+let mapPayload = { agent: { harness_id: 'fast' }, label: 'Fast', backup: null, backup_label: '', paused: null };
+const requests = [];
+const body = { innerHTML: '', style: {}, listeners: {},
+  querySelector(sel) {
+    if (sel === '.imm') return {};
+    if (sel === '#immModelSel' || sel === '#immBackupSel') return { addEventListener: (ev, fn) => { body.listeners[sel] = fn; } };
+    return null;
+  },
+  querySelectorAll() { return []; } };
+const window = { CronRunsOn: R };
+const ctx = vm.createContext({
+  window, CronRunsOn: R, console, setTimeout() {}, clearTimeout() {},
+  document: { readyState: 'loading', addEventListener() {} },
+  _cronRunsOnCtx: () => choices,
+  fetch: async (url, init) => {
+    requests.push([url, init && init.body ? JSON.parse(init.body) : null]);
+    if (init && init.method === 'POST') mapPayload = Object.assign({}, mapPayload, JSON.parse(init.body));
+    return { json: async () => mapPayload };
+  },
+  // the iMessage card's page globals
+  $: id => (id === 'taskDetailBody' ? body : null),
+  api: async () => card,
+  esc: s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])),
+  _intgView: 'imessage-memory',
+});
+let card = { enabled: true, memory_active: true, mac_seen_at: 1, chats: [], skip: [], jobs: [],
+  totals: { memories: 3, pending: 7 }, runs_on: 'Fast',
+  paused: { model: 'GPT Luna', until: null, reason: 'limit', using: 'waiting', backup: '' } };
+vm.runInContext(fs.readFileSync(jmFile, 'utf8'), ctx);
+vm.runInContext(fs.readFileSync(immFile, 'utf8'), ctx);
+const jm = window.JarvisMemory;
+
+// The two selects: the memory model can be Same as Default, a backup never is.
+const html = jm.modelPickerHtml(mapPayload, { prefix: 'imm', rowClass: 'imm-row', selectClass: 'imm-input' });
+const modelSel = html.slice(html.indexOf('id="immModelSel"'), html.indexOf('id="immBackupSel"'));
+const backupSel = html.slice(html.indexOf('id="immBackupSel"'));
+assert.match(html, /<div class="imm-row"><label for="immModelSel">Memory model<\/label><select id="immModelSel" class="imm-input">/);
+assert.match(html, /<label for="immBackupSel">While it&#39;s at its limit, use<\/label>/);
+assert.ok(modelSel.includes('value="default"'));
+assert.match(modelSel, /value="harness:fast" selected/);
+assert.match(backupSel, /^id="immBackupSel" class="imm-input"><option value="none" selected>Nothing, wait for it<\/option>/);
+assert.ok(!backupSel.includes('value="default"'), 'a backup is never Same as Default');
+assert.ok(backupSel.includes('value="model:@anthropic-api:claude-haiku-5-5"') && backupSel.includes('value="harness:fast"'));
+const picked = jm.modelPickerHtml({ agent: null, backup: { model: '@anthropic-api:claude-haiku-5-5', provider: null } }, {});
+assert.match(picked, /<select id="jmemModelSel" style=/, 'Long-term Memory keeps its own look');
+assert.match(picked, /<option value="none">Nothing, wait for it/);
+assert.match(picked.slice(picked.indexOf('jmemBackupSel')), /value="model:@anthropic-api:claude-haiku-5-5" selected/);
+
+(async () => {
+  // The iMessage card: both selects, the footnote, the paused line with what's waiting.
+  vm.runInContext('_immCard = null; _immMap = null;', ctx);
+  await vm.runInContext('_immLoadMap()', ctx);
+  vm.runInContext('_immCard = ' + JSON.stringify(card) + '; _immRender();', ctx);
+  assert.ok(body.innerHTML.includes('id="immModelSel"') && body.innerHTML.includes('id="immBackupSel"'));
+  assert.ok(body.innerHTML.includes('Also used for chat memories and the memory map.'));
+  assert.ok(!body.innerHTML.includes('change it in Long-term Memory'));
+  assert.ok(body.innerHTML.includes('GPT Luna is at its usage limit · memory waits, nothing is lost · 7 messages waiting'));
+
+  // A pick POSTs map-settings, reads it again and redraws the card.
+  requests.length = 0;
+  card = Object.assign({}, card, { runs_on: 'Claude Haiku 5.5' });
+  await body.listeners['#immBackupSel']({ target: { value: 'model:@anthropic-api:claude-haiku-5-5' } });
+  assert.deepEqual(requests[0], ['api/jarvis-memory/map-settings',
+    { backup: { model: '@anthropic-api:claude-haiku-5-5', provider: null } }]);
+  assert.deepEqual(requests[1], ['api/jarvis-memory/map-settings', null], 'the setting is read again');
+  assert.ok(body.innerHTML.includes('Runs on: Claude Haiku 5.5'), 'the card redrew');
+  const redrawn = body.innerHTML.slice(body.innerHTML.indexOf('id="immBackupSel"'));
+  assert.match(redrawn, /value="model:@anthropic-api:claude-haiku-5-5" selected/);
+  requests.length = 0;
+  await body.listeners['#immBackupSel']({ target: { value: 'none' } });
+  await body.listeners['#immModelSel']({ target: { value: 'default' } });
+  assert.deepEqual(requests.filter(r => r[1]).map(r => r[1]), [{ backup: null }, { agent: null }]);
+
+  // No setting (an older server, a failed read): the card says where to change it.
+  ctx.fetch = async () => { throw new Error('offline'); };
+  assert.equal(await jm.loadMapSettings(), null);
+  await vm.runInContext('_immLoadMap()', ctx);
+  vm.runInContext('_immRender();', ctx);
+  assert.ok(body.innerHTML.includes('Uses the memory model — change it in Long-term Memory.'));
+  assert.ok(!body.innerHTML.includes('immModelSel'));
+})().catch(e => { console.error(e); process.exit(1); });
+"""
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_memory_model_pickers_on_long_term_memory_and_the_imessage_card():
+    result = subprocess.run(["node", "-e", _PICKER_JS, str(STATIC / "jarvis_memory.js"),
+                             str(STATIC / "cron_runs_on.js"), str(STATIC / "imessage_memory.js")],
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_the_pickers_are_shared_not_copied():
     js = _read("jarvis_memory.js")
+    for name in ("pausedLine: pausedLine", "loadMapSettings: loadMapSettings",
+                 "modelPickerHtml: modelPickerHtml", "bindModelPicker: bindModelPicker"):
+        assert name in js, name
     load = js[js.index("async function loadModel("):js.index("// ── Cleanup & map")]
-    assert 'id="jmemBackupSel"' in load and "While it\\'s at its limit, use" in load
-    assert ">Nothing, wait for it</option>" in load
-    # The model choices without Same as Default; "nothing" posts backup: null.
-    assert "noDefault: true" in load
-    assert "backup: v === BACKUP_NONE ? null : agentFrom(v)" in load
+    assert "modelPickerHtml(d, {" in load and 'bindModelPicker(el, "jmem", loadModel)' in load
     assert "pausedLine(d.paused)" in load
-    assert "pausedLine: pausedLine" in js
+    imm = _read("imessage_memory.js")
+    assert "jm.modelPickerHtml(_immMap" in imm and "jm.bindModelPicker(body, 'imm', _immModelSaved)" in imm
+    assert "Promise.all([api('/api/imessage-memory'), _immLoadMap()])" in imm
+    for quote in ("'", '"', "`"):
+        assert quote + "api/jarvis-memory/map-settings" not in imm, "the iMessage card posts through jarvis_memory.js"
 
 
 def test_imessage_card_shows_the_paused_line_and_already_remembered():
     js = _read("imessage_memory.js")
     assert "jm.pausedLine(c.paused, { pending: c.totals && c.totals.pending })" in js
-    hint = js.index("Uses the memory model")
-    assert "${paused ?" in js[hint:hint + 200]
+    foot = js.index("Also used for chat memories and the memory map.")
+    assert "${paused ?" in js[foot:foot + 300]
     # Backfill "skipped" = already covered by an earlier conversation, not dropped.
     assert js.count("already remembered") >= 2
     assert "skipped}</span>" not in js and ".skipped} skipped" not in js

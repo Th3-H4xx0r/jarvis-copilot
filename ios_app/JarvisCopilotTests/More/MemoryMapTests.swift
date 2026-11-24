@@ -207,6 +207,32 @@ final class MemoryMapTests: XCTestCase {
                        far.formatted(.dateTime.month(.abbreviated).day().hour().minute()))
     }
 
+    func testTheRowsSayWhatEachPickIs() {
+        var s = MemoryMapSettings(agent: .harness("fast"), label: "Fast")
+        XCTAssertEqual(s.modelValue, "Fast", "the server's label")
+        XCTAssertEqual(s.backupValue, MemoryMapSettings.waitTitle, "no backup reads Wait for it")
+        s.backup = .model(id: "claude-haiku-5-5", provider: nil)
+        XCTAssertEqual(s.backupValue, "claude-haiku-5-5", "no label yet (mid-save): the pick's own name")
+        s.backupLabel = "Claude Haiku 5.5"
+        XCTAssertEqual(s.backupValue, "Claude Haiku 5.5")
+        s.agent = .model(id: "gpt-luna", provider: "openai-codex")
+        s.label = ""
+        XCTAssertEqual(s.modelValue, "gpt-luna")
+    }
+
+    /// The iMessage memory page reads just the setting, not the Cleanup card.
+    func testLoadingJustTheSettingsSkipsTheCleanupStatus() async {
+        let (api, transport) = JarvisAPI.mocked()
+        transport.route("/api/jarvis-memory/map-settings",
+                        json: ["agent": ["harness_id": "fast"], "label": "Fast",
+                               "backup": NSNull(), "backup_label": "", "paused": NSNull()])
+        let store = MemoryMapStore(api: JarvisMemoryAPI(api: api), sleeper: { _ in })
+        await store.loadSettings()
+        XCTAssertEqual(store.settings?.agent, .harness("fast"))
+        XCTAssertEqual(transport.paths, ["/api/jarvis-memory/map-settings"])
+        XCTAssertNil(store.cleanup)
+    }
+
     func testTheBackupSavesAndWaitPostsNull() async throws {
         let (api, transport) = JarvisAPI.mocked()
         transport.route("/api/jarvis-memory/map-settings") { request in

@@ -176,7 +176,11 @@
     window.loadJarvisMemory();
   }
 
-  window.JarvisMemory = { openRecall: openRecall, pausedLine: pausedLine };
+  // The iMessage card shows the memory model too (imessage_memory.js).
+  window.JarvisMemory = {
+    openRecall: openRecall, pausedLine: pausedLine,
+    loadMapSettings: loadMapSettings, modelPickerHtml: modelPickerHtml, bindModelPicker: bindModelPicker,
+  };
 
   // ── Chat chip: "memories used" under replies that used long-term memory ──
   // One request per open chat (cached), refreshed once per completed reply.
@@ -596,29 +600,31 @@
     return line;
   }
 
+  // ── The memory model + backup selects. Long-term Memory and the iMessage
+  // card (imessage_memory.js, through window.JarvisMemory) show the same setting.
+
   // The backup select's "Nothing, wait for it": no backup, memory waits.
   var BACKUP_NONE = "none";
   var MODEL_SELECT = "padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--fg)";
   var MODEL_ROW = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;width:100%">';
 
-  async function saveMapSettings(body) {
-    try {
-      await fetch("api/jarvis-memory/map-settings", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-    } catch (e) { /* the next load shows what stuck */ }
-    loadModel();
-  }
-
-  async function loadModel() {
-    var el = document.getElementById("jmemModel");
-    if (!el) return;
-    var d;
+  // The map-settings payload, after the model and harness lists have loaded so
+  // the selects can list them. null when it can't be read.
+  async function loadMapSettings() {
     try {
       if (typeof loadCronRunsOnChoices === "function") await loadCronRunsOnChoices();
-      d = await fetch("api/jarvis-memory/map-settings").then(function (r) { return r.json(); });
-    } catch (e) { return; }
+      var d = await fetch("api/jarvis-memory/map-settings").then(function (r) { return r.json(); });
+      return d && typeof d === "object" ? d : null;
+    } catch (e) { return null; }
+  }
+
+  // The two labelled selects for a map-settings payload. opts.prefix names them
+  // (<prefix>ModelSel, <prefix>BackupSel); opts.hint follows the model select;
+  // opts.rowClass / opts.selectClass use the host's own look instead of inline styles.
+  function modelPickerHtml(d, opts) {
+    d = d || {};
+    opts = opts || {};
+    var prefix = opts.prefix || "jmem";
     var value = agentValue(d.agent);
     var backup = d.backup ? agentValue(d.backup) : BACKUP_NONE;
     var ctx = typeof _cronRunsOnCtx === "function" ? _cronRunsOnCtx(null) : null;
@@ -637,22 +643,56 @@
     } else if (backup !== BACKUP_NONE) {
       backupOptions += '<option value="' + esc(backup) + '" selected>' + esc(d.backup_label || backup) + "</option>";
     }
-    var paused = pausedLine(d.paused);
-    el.innerHTML =
-      MODEL_ROW + '<label for="jmemModelSel" style="font-size:12px;color:var(--muted)">Memory model</label>' +
-      '<select id="jmemModelSel" style="' + MODEL_SELECT + '">' + options + "</select>" +
-      '<span style="font-size:11px;color:var(--muted)">Reads chats, iMessage and Live to pull out dates, people and places' +
-      (d.label ? " · " + esc(d.label) : "") + "</span></div>" +
-      MODEL_ROW + '<label for="jmemBackupSel" style="font-size:12px;color:var(--muted)">While it\'s at its limit, use</label>' +
-      '<select id="jmemBackupSel" style="' + MODEL_SELECT + '">' + backupOptions + "</select></div>" +
-      (paused ? '<div id="jmemPaused" style="font-size:11px;color:var(--muted);width:100%">' + esc(paused) + "</div>" : "");
-    document.getElementById("jmemModelSel").addEventListener("change", function (ev) {
-      saveMapSettings({ agent: agentFrom(ev.target.value) });
+    var row = opts.rowClass ? '<div class="' + esc(opts.rowClass) + '">' : MODEL_ROW;
+    var label = function (id, text) {
+      return '<label for="' + id + '"' + (opts.rowClass ? "" : ' style="font-size:12px;color:var(--muted)"') + ">" +
+        esc(text) + "</label>";
+    };
+    var select = function (id, html) {
+      return '<select id="' + id + '"' +
+        (opts.selectClass ? ' class="' + esc(opts.selectClass) + '"' : ' style="' + MODEL_SELECT + '"') + ">" +
+        html + "</select>";
+    };
+    return row + label(prefix + "ModelSel", "Memory model") + select(prefix + "ModelSel", options) +
+      (opts.hint ? '<span style="font-size:11px;color:var(--muted)">' + esc(opts.hint) + "</span>" : "") + "</div>" +
+      row + label(prefix + "BackupSel", "While it's at its limit, use") + select(prefix + "BackupSel", backupOptions) +
+      "</div>";
+  }
+
+  // A change POSTs map-settings ({agent}, or {backup} with "nothing" as null),
+  // then onSaved() redraws whatever shows the setting.
+  function bindModelPicker(root, prefix, onSaved) {
+    var post = async function (body) {
+      try {
+        await fetch("api/jarvis-memory/map-settings", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      } catch (e) { /* the next load shows what stuck */ }
+      if (typeof onSaved === "function") await onSaved();
+    };
+    var model = root && root.querySelector("#" + prefix + "ModelSel");
+    var backup = root && root.querySelector("#" + prefix + "BackupSel");
+    if (model) model.addEventListener("change", function (ev) {
+      return post({ agent: agentFrom(ev.target.value) });
     });
-    document.getElementById("jmemBackupSel").addEventListener("change", function (ev) {
+    if (backup) backup.addEventListener("change", function (ev) {
       var v = ev.target.value;
-      saveMapSettings({ backup: v === BACKUP_NONE ? null : agentFrom(v) });
+      return post({ backup: v === BACKUP_NONE ? null : agentFrom(v) });
     });
+  }
+
+  async function loadModel() {
+    var el = document.getElementById("jmemModel");
+    if (!el) return;
+    var d = await loadMapSettings();
+    if (!d) return;
+    var paused = pausedLine(d.paused);
+    el.innerHTML = modelPickerHtml(d, {
+      prefix: "jmem",
+      hint: "Reads chats, iMessage and Live to pull out dates, people and places" + (d.label ? " · " + d.label : ""),
+    }) + (paused ? '<div id="jmemPaused" style="font-size:11px;color:var(--muted);width:100%">' + esc(paused) + "</div>" : "");
+    bindModelPicker(el, "jmem", loadModel);
   }
 
   // ── Cleanup & map: one-time backfill of the memory map, with a report ──

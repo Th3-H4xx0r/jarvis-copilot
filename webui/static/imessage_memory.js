@@ -15,6 +15,7 @@ let _immSearch = '';
 let _immPoll = null;
 let _immChooseChats = null;        // Set of guids when the backfill is narrowed
 let _immRange = null;              // {from, to} input values, kept across re-renders
+let _immMap = null;                // the memory model setting (api/jarvis-memory/map-settings), as on Long-term Memory
 
 function _immCardEl(card) {
   const el = document.createElement('div');
@@ -63,7 +64,7 @@ async function openIMessageMemory() {
   if (title) title.textContent = 'iMessage memory';
   if (body) { body.style.display = ''; body.innerHTML = `<div class="intg-note">${esc(t('loading'))}</div>`; }
   try {
-    const state = await api('/api/imessage-memory');
+    const [state] = await Promise.all([api('/api/imessage-memory'), _immLoadMap()]);
     if (_intgView !== _IMM_VIEW) return;
     _immCard = state;
     _immRender();
@@ -93,6 +94,26 @@ function _immLocalInput(d) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+// The memory model setting, read with jarvis_memory.js's helpers (null when it
+// can't be: the section then points at Long-term Memory). Never throws.
+async function _immLoadMap() {
+  const jm = window.JarvisMemory;
+  _immMap = jm && typeof jm.loadMapSettings === 'function' ? await jm.loadMapSettings() : null;
+}
+
+// The memory model and its backup: the same two selects as Long-term Memory.
+function _immModelPicker() {
+  const jm = window.JarvisMemory;
+  if (!_immMap || !jm || typeof jm.modelPickerHtml !== 'function') return '';
+  return jm.modelPickerHtml(_immMap, { prefix: 'imm', rowClass: 'imm-row', selectClass: 'imm-input' });
+}
+
+// A pick saved: read the setting again and redraw, so “Runs on” follows.
+async function _immModelSaved() {
+  await _immLoadMap();
+  await _immReload();
+}
+
 // The memory model at its usage limit: until when, what covers for it, and how
 // many messages wait. The wording is Long-term Memory's (jarvis_memory.js).
 function _immPausedLine(c) {
@@ -114,6 +135,7 @@ function _immRender() {
     || (ch.participants || []).some(p => `${p.label} ${p.handle}`.toLowerCase().includes(q)));
   const job = c.active_job;
   const paused = _immPausedLine(c);
+  const picker = _immModelPicker();
   const now = new Date();
   const range = _immRange || { from: _immLocalInput(new Date(now.getTime() - 7 * 86400000)), to: _immLocalInput(now) };
   const skipKeys = new Set((c.skip || []).map(s => String(s.handle)));
@@ -156,7 +178,9 @@ function _immRender() {
 
       <section class="intg-section">
         <h4 class="intg-section-title">Model or harness</h4>
-        <div class="imm-hint">Uses the memory model — change it in Long-term Memory.</div>
+        ${picker ? `${picker}
+          <div class="imm-hint">Also used for chat memories and the memory map.</div>`
+          : '<div class="imm-hint">Uses the memory model — change it in Long-term Memory.</div>'}
         ${paused ? `<div class="imm-hint imm-paused">${esc(paused)}</div>` : ''}
       </section>
 
@@ -271,6 +295,8 @@ async function _immReload() {
 
 function _immBind(body) {
   const q = sel => body.querySelector(`[data-imm="${sel}"]`);
+  const jm = window.JarvisMemory;
+  if (jm && typeof jm.bindModelPicker === 'function') jm.bindModelPicker(body, 'imm', _immModelSaved);
   const enabled = q('enabled');
   if (enabled) enabled.onchange = () => _immUpdate('/settings', { enabled: enabled.checked });
   const search = q('search');

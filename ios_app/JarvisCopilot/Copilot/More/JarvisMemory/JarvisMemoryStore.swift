@@ -244,15 +244,20 @@ final class MemoryMapStore {
     }
 
     func load() async {
-        if !savingAgent {
-            do {
-                let loaded = try await api.mapSettings()
-                if !savingAgent { settings = loaded }
-            } catch {
-                JcLog.dropped(JcLog.more, "memory map settings", error)
-            }
-        }
+        await loadSettings()
         await refreshCleanup()
+    }
+
+    /// Just the memory model and its backup (the iMessage memory page shows them
+    /// without the Cleanup card).
+    func loadSettings() async {
+        guard !savingAgent else { return }
+        do {
+            let loaded = try await api.mapSettings()
+            if !savingAgent { settings = loaded }
+        } catch {
+            JcLog.dropped(JcLog.more, "memory map settings", error)
+        }
     }
 
     /// nil = Same as Default. The label is cleared until the server names the
