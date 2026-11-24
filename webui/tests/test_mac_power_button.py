@@ -588,3 +588,18 @@ def test_a_wired_light_that_stops_tracking_counts_as_unwired_again(tmp_path):
     rig.store.set_light_wired(PC, True)
     _report(rig, "off", 5)                      # the PC is up but the light says dark: wires came loose
     assert rig.store.device(PC).get("light_wired") is False
+
+
+def test_an_unlock_permission_about_to_end_reminds_him_once(tmp_path):
+    # It ends after 30 days at most; while he's away nothing told him (his ask 2026-11-24: nothing manual).
+    rig = _awake_pc(tmp_path)
+    day = 86400
+    rig.store._update(PC, unlock_grant={"id": "g1", "ts": int(rig.t), "until": int(rig.t + 10 * day),
+                                         "device": PC, "signature": "x"})
+    sent = []
+    rig.store.grant_reminders(notify=lambda title, body: sent.append(title))
+    assert sent == []                                   # 10 days left: nothing yet
+    rig.t += 6 * day
+    rig.store.grant_reminders(notify=lambda title, body: sent.append(title))
+    rig.store.grant_reminders(notify=lambda title, body: sent.append(title))
+    assert len(sent) == 1 and "Unlock without Face ID" in sent[0]

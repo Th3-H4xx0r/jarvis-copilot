@@ -523,6 +523,22 @@ def _raise_fd_soft_limit(target: int = 4096) -> dict:
     return {"status": "raised", "soft": desired, "hard": hard, "previous_soft": soft}
 
 
+def _run_grant_reminders() -> None:
+    """Remind him before a computer's "Unlock without Face ID" permission ends (api/mac_power.grant_reminders)."""
+    try:
+        from api import mac_power
+        mac_power.store().grant_reminders()
+    except Exception as exc:  # noqa: BLE001 — a reminder must never take the server down
+        print(f"[power] unlock permission reminder check failed: {type(exc).__name__}", flush=True)
+
+
+def _grant_reminder_loop() -> None:
+    time.sleep(600)                  # first check 10 minutes after start, then every 6 hours
+    while True:
+        _run_grant_reminders()
+        time.sleep(6 * 3600)
+
+
 def _register_stack_dump() -> None:
     """kill -USR1 <pid> prints every thread's stack to the journal (live 2026-11-23: the server froze silently
     from 23:52 until a reboot, with nothing to say where it was stuck)."""
@@ -626,6 +642,10 @@ def main() -> None:
                           name="live-orphan-sweep", daemon=True).start()
     except Exception as exc:
         print(f"[live] orphan audio sweep could not start: {exc}", flush=True)
+
+    # Remind him before an "Unlock without Face ID" permission ends (nothing should lapse unnoticed while away).
+    import threading as _threading2
+    _threading2.Thread(target=_grant_reminder_loop, name="unlock-grant-reminders", daemon=True).start()
 
     # ── iMessage memory: quiet conversation bursts → long-term memory ────
     try:

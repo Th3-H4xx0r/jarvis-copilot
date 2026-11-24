@@ -38,6 +38,7 @@ BUTTON_SKILL = "esp32_pc_press"
 LIGHTS = frozenset({"on", "asleep", "off", "unknown"})
 TAP_MS = 300                   # a short press: wake / boot / Windows' power-button action (Sleep)
 FORCE_OFF_MS = 6000            # held past ~4 s the board cuts power
+GRANT_REMIND_S = 5 * 86400.0   # remind him this long before an "Unlock without Face ID" permission ends
 LIGHT_LEARN_ON = 5             # steady "on" reports while the PC is up …
 LIGHT_LEARN_DARK = 2           # … then dark/blinking once it's down: the light wires are connected
 LIGHT_LOOSE = 5                # a wired light dark this many reports while the PC is up: wires came loose
@@ -62,6 +63,14 @@ _COMMAND_KINDS = frozenset({"admin-run", "pc-run"})
 def _default_path() -> Path:
     from jarviscopilot_constants import get_hermes_home
     return get_hermes_home() / "webui" / "mac_power.json"
+
+
+def _push_reminder(title: str, body: str) -> None:
+    try:
+        from api.coding_routes import _push_device_alert
+        _push_device_alert(title, body, data={"type": "unlock_grant_reminder"})
+    except Exception as exc:  # noqa: BLE001
+        log.warning("unlock permission reminder push failed: %s", type(exc).__name__)
 
 
 class MacPowerStore:
@@ -550,6 +559,29 @@ class MacPowerStore:
         if isinstance(g, dict) and float(g.get("until") or 0) > self._clock():
             return g
         return None
+
+    def grant_reminders(self, notify=None) -> int:
+        """Push a reminder once when a computer's "Unlock without Face ID" permission has GRANT_REMIND_S left (it
+        lasts 30 days at most; his ask 2026-11-24: nothing should lapse unnoticed while he's away). Returns how
+        many were sent. Run every few hours (server.py)."""
+        notify = notify or _push_reminder
+        now, due = self._clock(), []
+        with self._lock:
+            for did, d in self._devices.items():
+                g = d.get("unlock_grant")
+                if not isinstance(g, dict):
+                    continue
+                left = float(g.get("until") or 0) - now
+                if 0 < left <= GRANT_REMIND_S and d.get("grant_reminded") != g.get("id"):
+                    d["grant_reminded"] = g.get("id")
+                    due.append((did, left))
+            if due:
+                self._save()
+        for did, left in due:
+            days = max(1, int(round(left / 86400)))
+            notify(f"Unlock without Face ID ends in {days} day{'s' if days != 1 else ''} for your {self.noun(did)}",
+                   "Open Jarvis on your iPhone and turn it on again to keep unlocking without Face ID.")
+        return len(due)
 
     def set_unlock_grant(self, did: str, grant) -> dict:
         why = self._grant_ok(did, grant)
