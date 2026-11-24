@@ -238,7 +238,9 @@ CREATE TABLE IF NOT EXISTS messages (
     codex_reasoning_items TEXT,
     codex_message_items TEXT,
     platform_message_id TEXT,
-    observed INTEGER DEFAULT 0
+    observed INTEGER DEFAULT 0,
+    api_content TEXT,
+    api_blocks TEXT
 );
 
 CREATE TABLE IF NOT EXISTS state_meta (
@@ -1523,6 +1525,8 @@ class SessionDB:
         codex_message_items: Any = None,
         platform_message_id: str = None,
         observed: bool = False,
+        api_content: Any = None,
+        api_blocks: Any = None,
     ) -> int:
         """
         Append a message to a session. Returns the message row ID.
@@ -1552,6 +1556,10 @@ class SessionDB:
         # Multimodal content (list of parts) must be JSON-encoded: sqlite3
         # cannot bind list/dict parameters directly.
         stored_content = self._encode_content(content)
+        # A user message's API copy (with its per-turn additions) — see
+        # agent/turn_context.py. Same encoding as content.
+        stored_api_content = self._encode_content(api_content) if api_content is not None else None
+        api_blocks_json = json.dumps(api_blocks) if api_blocks else None
 
         # Pre-compute tool call count
         num_tool_calls = 0
@@ -1563,8 +1571,8 @@ class SessionDB:
                 """INSERT INTO messages (session_id, role, content, tool_call_id,
                    tool_calls, tool_name, timestamp, token_count, finish_reason,
                    reasoning, reasoning_content, reasoning_details, codex_reasoning_items,
-                   codex_message_items, platform_message_id, observed)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   codex_message_items, platform_message_id, observed, api_content, api_blocks)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     session_id,
                     role,
@@ -1582,6 +1590,8 @@ class SessionDB:
                     codex_message_items_json,
                     platform_message_id,
                     1 if observed else 0,
+                    stored_api_content,
+                    api_blocks_json,
                 ),
             )
             msg_id = cursor.lastrowid
@@ -1653,8 +1663,8 @@ class SessionDB:
                     """INSERT INTO messages (session_id, role, content, tool_call_id,
                        tool_calls, tool_name, timestamp, token_count, finish_reason,
                        reasoning, reasoning_content, reasoning_details, codex_reasoning_items,
-                       codex_message_items, platform_message_id, observed)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       codex_message_items, platform_message_id, observed, api_content, api_blocks)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         session_id,
                         role,
@@ -1672,6 +1682,8 @@ class SessionDB:
                         codex_message_items_json,
                         platform_msg_id,
                         1 if msg.get("observed") else 0,
+                        self._encode_content(msg.get("api_content")) if msg.get("api_content") is not None else None,
+                        json.dumps(msg["api_blocks"]) if msg.get("api_blocks") else None,
                     ),
                 )
                 total_messages += 1
@@ -1966,7 +1978,8 @@ class SessionDB:
             rows = self._conn.execute(
                 "SELECT role, content, tool_call_id, tool_calls, tool_name, "
                 "finish_reason, reasoning, reasoning_content, reasoning_details, "
-                "codex_reasoning_items, codex_message_items, platform_message_id, observed "
+                "codex_reasoning_items, codex_message_items, platform_message_id, observed, "
+                "api_content, api_blocks "
                 f"FROM messages WHERE session_id IN ({placeholders}) ORDER BY id",
                 tuple(session_ids),
             ).fetchall()
@@ -1996,6 +2009,15 @@ class SessionDB:
                 msg["message_id"] = row["platform_message_id"]
             if row["observed"]:
                 msg["observed"] = True
+            # A user message's API copy is restored verbatim (no sanitising):
+            # it must be byte-identical to what was sent.
+            if row["role"] == "user" and row["api_content"] is not None:
+                msg["api_content"] = self._decode_content(row["api_content"])
+                if row["api_blocks"]:
+                    try:
+                        msg["api_blocks"] = json.loads(row["api_blocks"])
+                    except (json.JSONDecodeError, TypeError):
+                        msg["api_blocks"] = []
             # Restore reasoning fields on assistant messages so providers
             # that replay reasoning (OpenRouter, OpenAI, Nous) receive
             # coherent multi-turn reasoning context.

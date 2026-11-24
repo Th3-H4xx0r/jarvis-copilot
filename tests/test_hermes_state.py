@@ -3021,3 +3021,33 @@ class TestFTS5ToolCallMigration:
         finally:
             session_db.close()
 
+
+
+class TestApiContentRoundTrip:
+    """A user message's API copy (with its per-turn additions) survives a reload."""
+
+    def test_api_content_list_round_trip(self, db):
+        db.create_session(session_id="s1", source="cli")
+        api_content = [{"type": "text", "text": "look"}, {"type": "text", "text": "<memory-context>\nx"}]
+        blocks = [{"kind": "<memory-context>", "text": "<memory-context>\nx"}]
+        db.append_message("s1", "user", content="look", api_content=api_content, api_blocks=blocks)
+        db.append_message("s1", "assistant", content="ok")
+        msgs = db.get_messages_as_conversation("s1")
+        assert msgs[0]["api_content"] == api_content
+        assert msgs[0]["api_blocks"] == blocks
+        assert "api_content" not in msgs[1]
+
+    def test_api_content_str_round_trip_and_replace(self, db):
+        db.create_session(session_id="s1", source="cli")
+        db.replace_messages("s1", [
+            {"role": "user", "content": "hi", "api_content": "hi\n\nnote",
+             "api_blocks": [{"kind": "note", "text": "note"}]},
+        ])
+        msgs = db.get_messages_as_conversation("s1")
+        assert msgs[0]["api_content"] == "hi\n\nnote"
+        assert msgs[0]["api_blocks"] == [{"kind": "note", "text": "note"}]
+
+    def test_legacy_rows_have_no_api_fields(self, db):
+        db.create_session(session_id="s1", source="cli")
+        db.append_message("s1", "user", content="plain")
+        assert "api_content" not in db.get_messages_as_conversation("s1")[0]

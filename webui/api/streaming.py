@@ -612,8 +612,10 @@ from api.models import get_session, title_from
 # metadata added by the webui and must be stripped before the API call.
 # reasoning_details carries signed Anthropic thinking: dropping it on reload
 # changed the previous turn's bytes, so every turn re-wrote the cached history.
+# api_content / api_blocks are a user message's API copy with its per-turn
+# additions (agent/turn_context.py): resent byte-identical so the cache holds.
 _API_SAFE_MSG_KEYS = {'role', 'content', 'tool_calls', 'tool_call_id', 'name', 'refusal', 'reasoning_content',
-                      'reasoning_details'}
+                      'reasoning_details', 'api_content', 'api_blocks'}
 
 _NATIVE_IMAGE_MAX_BYTES = 20 * 1024 * 1024
 

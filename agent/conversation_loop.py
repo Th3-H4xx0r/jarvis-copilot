@@ -93,6 +93,62 @@ from agent.conversation_compression import replay_compression_warning
 logger = logging.getLogger(__name__)
 
 
+def build_api_messages(agent, messages, current_turn_user_idx, injections) -> list:
+    """The per-call API copy of ``messages``.
+
+    The current turn's user message gets this turn's additions (``injections``
+    plus ``agent._turn_user_context``), deduplicated against earlier user
+    messages, ONCE: the merged text is kept on the message (``api_content``,
+    ``api_blocks``) and persisted, and every user message that has one is
+    sent as it. So a user message's bytes never change after it is first
+    sent, and the provider's prompt cache reads the history instead of
+    writing it again each turn. The transcript keeps ``content`` (his words).
+    """
+    from agent.turn_context import api_user_content, dedupe_blocks, turn_blocks
+
+    api_messages = []
+    for idx, msg in enumerate(messages):
+        if idx == current_turn_user_idx and isinstance(msg, dict) and msg.get("role") == "user" \
+                and "api_blocks" not in msg:
+            prior = [m for m in messages[:idx] if isinstance(m, dict) and m.get("role") == "user"]
+            blocks = dedupe_blocks(
+                turn_blocks(injections, getattr(agent, "_turn_user_context", "") or ""), prior)
+            # [] marks "computed for this turn" so later calls in the same
+            # turn send the same bytes even if an input changed meanwhile.
+            msg["api_blocks"] = blocks
+            if blocks:
+                msg["api_content"] = api_user_content(msg.get("content", ""), blocks)
+        api_msg = msg.copy()
+        if msg.get("role") == "user" and "api_content" in msg:
+            api_msg["content"] = msg["api_content"]
+        api_msg.pop("api_content", None)
+        api_msg.pop("api_blocks", None)
+
+        # For ALL assistant messages, pass reasoning back to the API
+        # This ensures multi-turn reasoning context is preserved
+        copy_reasoning_content_for_api(agent, msg, api_msg)
+        strip_foreign_thinking(api_msg, api_mode=getattr(agent, "api_mode", "") or "",
+                               base_url=str(getattr(agent, "base_url", "") or ""))
+
+        # Remove 'reasoning' field - it's for trajectory storage only
+        # We've copied it to 'reasoning_content' for the API above
+        api_msg.pop("reasoning", None)
+        # Remove finish_reason - not accepted by strict APIs (e.g. Mistral)
+        api_msg.pop("finish_reason", None)
+        # Strip internal thinking-prefill marker
+        api_msg.pop("_thinking_prefill", None)
+        # Strip Codex Responses API fields (call_id, response_item_id) for
+        # strict providers like Mistral, Fireworks, etc. that reject unknown fields.
+        # Uses new dicts so the internal messages list retains the fields
+        # for Codex Responses compatibility.
+        if agent._should_sanitize_tool_calls():
+            agent._sanitize_tool_calls_for_strict_api(api_msg)
+        # Keep 'reasoning_details' - OpenRouter uses this for multi-turn reasoning context
+        # The signature field helps maintain reasoning continuity
+        api_messages.append(api_msg)
+    return api_messages
+
+
 def _auto_compress_due(agent: Any, tokens: int, messages: list) -> bool:
     """The post-response trigger: threshold reached AND something to compact.
 
@@ -1002,58 +1058,19 @@ def run_conversation(
                 agent.session_id or "-",
             )
 
-        api_messages = []
-        for idx, msg in enumerate(messages):
-            api_msg = msg.copy()
-
-            # Inject ephemeral context into the current turn's user message.
-            # Sources: memory manager prefetch + plugin pre_llm_call hooks
-            # with target="user_message" (the default).  Both are
-            # API-call-time only — the original message in `messages` is
-            # never mutated, so nothing leaks into session persistence.
-            if idx == current_turn_user_idx and msg.get("role") == "user":
-                _injections = []
-                if _ext_prefetch_cache:
-                    _fenced = build_memory_context_block(_ext_prefetch_cache)
-                    if _fenced:
-                        _injections.append(_fenced)
-                if _plugin_user_context:
-                    _injections.append(_plugin_user_context)
-                if _turn_skill_hint:
-                    _injections.append(_turn_skill_hint)
-                # Per-turn notes from the caller (voice rules, interrupt note,
-                # speaking device…) ride here instead of the system prompt so
-                # the cached prefix stays byte-stable across turns.
-                from agent.turn_context import merge_injections as _merge_injections
-                api_msg["content"] = _merge_injections(
-                    api_msg.get("content", ""), _injections,
-                    getattr(agent, "_turn_user_context", "") or "",
-                )
-
-            # For ALL assistant messages, pass reasoning back to the API
-            # This ensures multi-turn reasoning context is preserved
-            copy_reasoning_content_for_api(agent, msg, api_msg)
-            strip_foreign_thinking(api_msg, api_mode=agent.api_mode or "",
-                                   base_url=str(getattr(agent, "base_url", "") or ""))
-
-            # Remove 'reasoning' field - it's for trajectory storage only
-            # We've copied it to 'reasoning_content' for the API above
-            if "reasoning" in api_msg:
-                api_msg.pop("reasoning")
-            # Remove finish_reason - not accepted by strict APIs (e.g. Mistral)
-            if "finish_reason" in api_msg:
-                api_msg.pop("finish_reason")
-            # Strip internal thinking-prefill marker
-            api_msg.pop("_thinking_prefill", None)
-            # Strip Codex Responses API fields (call_id, response_item_id) for
-            # strict providers like Mistral, Fireworks, etc. that reject unknown fields.
-            # Uses new dicts so the internal messages list retains the fields
-            # for Codex Responses compatibility.
-            if agent._should_sanitize_tool_calls():
-                agent._sanitize_tool_calls_for_strict_api(api_msg)
-            # Keep 'reasoning_details' - OpenRouter uses this for multi-turn reasoning context
-            # The signature field helps maintain reasoning continuity
-            api_messages.append(api_msg)
+        # Ephemeral context for the current turn's user message: memory
+        # prefetch, plugin pre_llm_call hooks (target="user_message") and the
+        # matched-skill hint. Kept with the message (see build_api_messages).
+        _injections = []
+        if _ext_prefetch_cache:
+            _fenced = build_memory_context_block(_ext_prefetch_cache)
+            if _fenced:
+                _injections.append(_fenced)
+        if _plugin_user_context:
+            _injections.append(_plugin_user_context)
+        if _turn_skill_hint:
+            _injections.append(_turn_skill_hint)
+        api_messages = build_api_messages(agent, messages, current_turn_user_idx, _injections)
 
         # Build the final system message: cached prompt + ephemeral system prompt.
         # Ephemeral additions are API-call-time only (not persisted to session DB).
